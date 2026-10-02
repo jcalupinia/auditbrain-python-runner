@@ -280,3 +280,53 @@ def test_hojas_y_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "prestamos_obligaciones" and len(d["program"]) >= 5
     assert m.kind("prestamos") == "prestamos" and m.RUBRO == "PRESTAMOS"
+
+
+def test_conclusion():
+    from backend.app.aud.niif.procesadores import base
+    hs = m.hojas(_run())
+    h = next(x for x in hs if x["name"] == "17_Conclusion")
+    cols = [c[0] for c in h["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert h["colores"] == ["Estado"]
+    j = cols.index("Estado")
+    estados = [f[j] for f in h["rows"]]
+    assert any(base.rol_color(h, "Estado", e) for e in estados)
+    assert {(e["v"] if isinstance(e, dict) else e) for e in estados} <= {"Alerta", "Revisar", "Conforme", ""}
+    bi = cols.index("Importe")
+    imp = [f[bi] for f in h["rows"] if f[bi] is not None]
+    assert imp and all(isinstance(c, dict) and c.get("f") for c in imp)
+
+
+def test_lectura():
+    """18_Lectura: frases causa-efecto con la cifra embebida (FIXED) referenciando el Resumen (hoja 01)."""
+    hs = m.hojas(_run())
+    h = next(x for x in hs if x["name"] == "18_Lectura")
+    assert h["label"] == "Lectura de resultados"
+    assert [c[0] for c in h["cols"]] == ["Concepto", "Detalle"]
+    assert [c[1] for c in h["cols"]] == ["t", "t"]
+    assert 3 <= len(h["rows"]) <= 5
+    for f in h["rows"]:
+        assert len(f) == 2
+        det = f[1]
+        assert isinstance(det, dict) and det.get("f") and det.get("v")
+        assert "FIXED(" in det["f"] and "01_Resumen" in det["f"]
+        assert "US$" in det["v"]
+    # el resultado principal cita el costo amortizado recalculado y el registrado del ejemplo
+    principal = h["rows"][0][1]["v"]
+    assert "659.965,19" in principal and "654.889,82" in principal
+    # el ajuste propuesto del ejemplo (5.075,37) va embebido con su efecto
+    assert any("5.075,37" in f[1]["v"] and "eleva el pasivo" in f[1]["v"] for f in h["rows"])
+    assert "Detalle" in h["explica"] and len(h["explica"]["Detalle"]) >= 40
+
+
+def test_semaforo_clasificacion():
+    hs = m.hojas(_run())
+    h = next(x for x in hs if x["name"] == "11_Clasificacion")
+    cols = [c[0] for c in h["cols"]]
+    assert cols[-1] == "Semáforo" and h["colores"] == ["Semáforo"]
+    j = cols.index("Semáforo")
+    valores = {f[j]["v"] for f in h["rows"]}
+    assert valores <= {"Alerta", "Conforme", ""}
+    # OP-102: covenant incumplido sin dispensa → deuda exigible (toda corriente) → «Alerta».
+    assert next(f for f in h["rows"] if f[0] == "OP-102")[j]["v"] == "Alerta"

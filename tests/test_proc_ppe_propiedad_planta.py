@@ -6,6 +6,11 @@ from backend.app.aud.niif.procesadores import ppe_propiedad_planta as m
 E = m.EJEMPLO
 
 
+def _cv(c):
+    """Valor de una celda: las cédulas usan fórmulas {f, v}; devuelve el valor numérico/texto."""
+    return c["v"] if isinstance(c, dict) else c
+
+
 def correr(datasets=None, **param):
     return m.ejecutar(datasets or E["datasets"], {**E["parametros"], **param}, E["corte"])
 
@@ -233,6 +238,81 @@ def test_casos_limite():
     assert r["rows"][0]["depRegistrada"] == "" and r["rows"][0]["diferencia"] == ""
 
 
+def test_semaforo_depreciacion():
+    """La cédula 04 lleva un Semáforo coloreable por activo sobre la diferencia de depreciación (con tolerancia)."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(correr()) if x["name"] == "04_Depreciacion")
+    assert "Semáforo" in [c[0] for c in h["cols"]] and h.get("colores") == ["Semáforo"]
+    j = [c[0] for c in h["cols"]].index("Semáforo")
+    fila = {f[0]: f[j]["v"] for f in h["rows"]}
+    assert fila["VEH-01"] == "Alerta"        # 7.200 recalculada ≠ 6.000 registrada
+    assert fila["EQC-01"] == ""              # método no lineal: sin recálculo, no medible
+    valores = {f[j]["v"] for f in h["rows"]}
+    assert valores <= {"Alerta", "Conforme", ""} and "Conforme" in valores
+    assert all(base.rol_color(h, "Semáforo", f[j]) in ("alta", "baja", None) for f in h["rows"])
+    assert h["total"][j] == ""
+
+
+def test_conclusion():
+    """La cédula 17 lleva indicadores clave con importes en fórmula y un semáforo coloreable en «Estado»."""
+    from backend.app.aud.niif.procesadores import base
+    con = next(x for x in m.hojas(correr()) if x["name"] == "17_Conclusion")
+    assert con["label"] == "Indicadores y conclusión"
+    cols = [c[0] for c in con["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert "Estado" in con["colores"]
+    ji, je = cols.index("Importe"), cols.index("Estado")
+    assert any(isinstance(f[ji], dict) and "f" in f[ji] for f in con["rows"])
+    roles = {base.rol_color(con, "Estado", f[je]) for f in con["rows"]}
+    assert roles & {"alta", "media", "baja"}
+    assert "alta" in roles       # el ejemplo tiene ajustes: al menos una «Alerta»
+
+
+def test_lectura():
+    """La cédula 18 lee los resultados en causa-efecto con las cifras embebidas por FIXED."""
+    lec = next(x for x in m.hojas(correr()) if x["name"] == "18_Lectura")
+    assert lec["label"] == "Lectura de resultados"
+    assert [c[0] for c in lec["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(lec["rows"]) <= 5
+    for fila in lec["rows"]:
+        assert isinstance(fila[0], str) and fila[0]
+        det = fila[1]
+        assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"]
+
+
+def test_resumen_por_estado():
+    """La cédula 19 resume por la clasificación FIJA del módulo (estado del activo: En uso / En construcción /
+    Baja) con SUMIFS/COUNTIF sobre el detalle 04, y el tablero premium del PANEL apunta a ella (dos columnas
+    comparables en USD: costo bruto frente al valor neto en libros)."""
+    from backend.app.aud.niif.procesadores import graficos
+    r = correr()
+    hs = m.hojas(r)
+    h = next(x for x in hs if x["name"] == "19_Resumen_estado")
+    assert h["label"] == "Resumen por estado del activo"
+    cols = [c[0] for c in h["cols"]]
+    assert cols == ["Estado", "Cantidad", "Costo", "Depreciación acumulada", "Valor neto en libros"]
+    assert [f[0] for f in h["rows"]] == ["En uso", "En construcción", "Baja"]
+    # cada celda numérica es una fórmula SUMIFS/COUNTIF sobre el detalle (sin cifras pegadas): fórmula + valor.
+    for f in h["rows"]:
+        for cel in f[1:]:
+            assert isinstance(cel, dict) and "f" in cel and ("SUMIFS(" in cel["f"] or "COUNTIF(" in cel["f"])
+    # el valor Python coincide con la suma del detalle por estado.
+    A = r["detalle"]["activos"]
+    jc, jn = cols.index("Costo"), cols.index("Valor neto en libros")
+    for f in h["rows"]:
+        cat = f[0]
+        assert float(f[jc]["v"]) == pytest.approx(sum(a["costo"] for a in A if a["estado"] == cat))
+        assert float(f[jn]["v"]) == pytest.approx(sum(a["nbv"] or 0 for a in A if a["estado"] == cat))
+    # el TOTAL cuadra con todo el auxiliar.
+    assert float(h["total"][jc]["v"]) == pytest.approx(sum(a["costo"] for a in A))
+    # el tablero del PANEL resuelve con las categorías fijas y las dos series comparables.
+    pan = graficos.panel(m, r, hs)
+    assert not [x for x in pan["faltan"] if str(x).startswith("tableros")]
+    tab = next(t for t in pan["tableros"] if t["hoja"] == "19_Resumen_estado")
+    assert tab["categorias"] == ["En uso", "En construcción", "Baja"]
+    assert [nombre for nombre, _ in tab["series"]] == ["Costo", "Valor neto en libros"]
+
+
 def test_hojas_y_definicion():
     for _, ds, p, c in m.ESCENARIOS:
         r = m.ejecutar(ds, p, c)
@@ -246,3 +326,108 @@ def test_hojas_y_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "ppe_propiedad_planta" and len(d["program"]) >= 5
     assert m.RUBRO == "ACTIVOS_FIJOS" and m.CONTROL in {c["key"] for c in m.CAMPOS[m.PRINCIPAL]}
+
+
+def test_estilos_estados_con_subtotales():
+    """Las cédulas 13, 14 y 15 (estados con subtotales) traen estilos de cédula sumaria: una entrada por
+    fila de datos y al menos un subtotal con filete; el roll-forward incluye líneas de control de cuadre."""
+    hs = {x["name"]: x for x in m.hojas(correr())}
+    for nombre in ("13_Desmantelamiento", "14_Roll_forward", "15_Ajustes"):
+        h = hs[nombre]
+        estilos = h["estilos"]
+        assert len(estilos) == len(h["rows"]), nombre
+        assert any((e or {}).get("tipo") == "total" for e in estilos), nombre
+    rfw = hs["14_Roll_forward"]["estilos"]
+    assert any((e or {}).get("tipo") == "control" for e in rfw)
+    assert any((e or {}).get("sangria") for e in rfw)
+
+
+def test_comparativo_por_dias_y_guia_niif_sri():
+    """Fase 2: cédula 21 (recálculo por días, como el papel de trabajo) y 22 (guía NIIF vs SRI)."""
+    r = correr()
+    hs = {x["name"]: x for x in m.hojas(r)}
+    assert "21_Comparativo" in hs and "22_Guia_NIIF_SRI" in hs
+    a = _activo(r, "VEH-01")
+    # Método por días: diaria = 36.000 ÷ (5×365); 365 días del período → 7.200 (coincide con el método por meses).
+    assert m.r2(a["gasto_dias_anexo"]) == "7200.00"
+    assert a["dias_acum"] == 915  # 2023-07-01 → 2025-12-31, inclusive
+    assert a["acum_cliente"] == 16800  # dep. acum. inicial 10.800 + gasto del año 6.000
+    assert a["dif_acum_dias"] > 0  # el auditor recalcula más acumulada que la del cliente
+    # Guía: dos conceptos (gasto del período y dep. acumulada), cada uno con NIIF meses, NIIF días, SRI y Cliente.
+    guia = hs["22_Guia_NIIF_SRI"]["rows"]
+    assert len(guia) == 2 and all(len(row) == 6 for row in guia)
+    # El recálculo por días no altera el ajuste contable a resultados (sigue siendo el mismo).
+    assert r["totals"]["ajusteResultado"] == correr()["totals"]["ajusteResultado"]
+
+
+def test_sumaria_movimiento_y_conciliacion():
+    """Fase 3: cédula 23 (sumaria de variaciones), 24 (movimiento del mayor) y 25 (conciliación de saldos)."""
+    r = correr()
+    hs = {x["name"]: x for x in m.hojas(r)}
+    for k in ("23_Sumaria", "24_Movimiento_mayor", "25_Conciliacion"):
+        assert k in hs, k
+    assert len(hs["23_Sumaria"]["rows"]) == len(E["datasets"]["variaciones"])
+    assert len(hs["24_Movimiento_mayor"]["rows"]) >= 1
+    conc = {row[0]: row for row in hs["25_Conciliacion"]["rows"]}
+    assert "Costo" in conc and "Depreciación acumulada" in conc
+    # Diferencia = auxiliar − balance.
+    assert abs(_cv(conc["Costo"][3]) - (_cv(conc["Costo"][1]) - _cv(conc["Costo"][2]))) < 0.01
+    # El ejemplo no concilia a propósito → se reportan los hallazgos de la sumaria.
+    assert "SUMARIA_NO_CONCILIA" in _codigos(r)
+
+
+def test_vaucheo_de_facturas():
+    """Fase 4: cédula 26, cruce de facturas (adiciones/bajas) extraídas con las registradas."""
+    ds = dict(E["datasets"])
+    ds["facturas_adiciones"] = [
+        {"codigo_activo": "MOB-01", "proveedor": "Muebles SA", "numero": "001-001-0001", "total": "12000", "_row": 2},
+        {"codigo_activo": "OBRA-01", "proveedor": "Constructora X", "numero": "001-002-0002", "total": "150500", "_row": 3},
+    ]
+    ds["facturas_salidas"] = [
+        {"codigo_activo": "VEH-02", "proveedor": "Cliente Y", "numero": "003-001-0009", "total": "9000", "_row": 2},
+    ]
+    r = m.ejecutar(ds, {**E["parametros"]}, E["corte"])
+    hs = {x["name"]: x for x in m.hojas(r)}
+    assert "26_Vaucheo" in hs
+    est = {row[1]: row[9] for row in hs["26_Vaucheo"]["rows"]}  # código -> estado
+    assert est["MOB-01"] == "Conciliado" and est["VEH-02"] == "Conciliado"
+    assert est["OBRA-01"] == "Diferencia"
+    assert "VAUCHEO_DIFERENCIA" in _codigos(r)
+    # El vaucheo no altera el ajuste contable.
+    assert r["totals"]["ajusteResultado"] == correr()["totals"]["ajusteResultado"]
+
+
+def test_facturas_son_extraibles_por_ia():
+    """Los requerimientos de facturas (PDF) están declarados como extraíbles por IA."""
+    assert set(m.EXTRACCION_DATASETS) == {"facturas_adiciones", "facturas_salidas", "politica"}
+    reqs = {r["id"]: r for r in m.definicion()["requests"]}
+    assert reqs["RQ-012"]["dataset"] == "facturas_adiciones" and "pdf" in reqs["RQ-012"]["formats"]
+    assert reqs["RQ-009"]["dataset"] == "facturas_salidas" and "pdf" in reqs["RQ-009"]["formats"]
+
+
+def test_politica_alimenta_vida_util_y_guia():
+    """Fase 5: la vida útil de la política se aplica por rubro (robusto a tildes) y entra en la guía/comparativo."""
+    ds = dict(E["datasets"])
+    ds["politica"] = [
+        {"rubro": "Vehículos", "vida_util_anios": "8", "_row": 2},
+        {"rubro": "Edificios", "vida_util_anios": "40", "_row": 3},
+    ]
+    r = m.ejecutar(ds, {**E["parametros"]}, E["corte"])
+    veh = next(a for a in r["detalle"]["activos"] if a["id"] == "VEH-01")
+    assert veh["vida_anios_pol"] == 8  # «Vehículos» con tilde mapea bien
+    assert veh["gasto_dias_pol"] and veh["gasto_dias_pol"] > 0
+    hs = {x["name"]: x for x in m.hojas(r)}
+    # Guía: la columna «Política (días)» trae totales no nulos.
+    assert [c[0] for c in hs["22_Guia_NIIF_SRI"]["cols"]][4] == "Política (días)"
+    assert _cv(hs["22_Guia_NIIF_SRI"]["rows"][0][4]) > 0
+    assert r["totals"]["ajusteResultado"] == correr()["totals"]["ajusteResultado"]
+
+
+def test_resumen_de_hallazgos():
+    """Fase 5: cédula 27 agrupa los hallazgos por categoría con conteo e importe."""
+    r = correr()
+    hs = {x["name"]: x for x in m.hojas(r)}
+    assert "27_Resumen_hallazgos" in hs
+    filas = hs["27_Resumen_hallazgos"]["rows"]
+    # El total de hallazgos de la cédula 27 coincide con el nº de excepciones.
+    assert sum(_cv(row[1]) for row in filas) == len(r["exceptions"])

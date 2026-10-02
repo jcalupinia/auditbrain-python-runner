@@ -44,7 +44,8 @@ def test_recorrido_se_arma_para_perdidas_incurridas():
     assert r["disponible"] is True and r["ficticio"] is True
     assert [p["n"] for p in r["pasos"]] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
     p6 = next(p for p in r["pasos"] if p["n"] == 6)
-    assert len(p6["cedulas"]) == 12
+    # 14 cédulas de cálculo (incluidas conclusión y lectura) + 5 hojas con los datos del cliente (el modelo trae los cinco anexos).
+    assert len(p6["cedulas"]) == len(mod.CEDULAS) == 19
     assert p6["resultado"]["principal"] == "ajuste"
     codigos = [x["code"] for x in p6["problemas"]]
     assert "PROVISION_PENDIENTE" not in codigos and "CONCILIACION_INICIAL" not in codigos
@@ -108,18 +109,15 @@ def test_endpoint_ejercicio_modelo_no_escribe(client):
         tok, pid = _staff_con_proyecto(client)
     except AssertionError as e:
         pytest.skip(f"stack HTTP no disponible en este entorno: {str(e)[:80]}")
-    # Ficha VÁLIDA por `validar_ficha_encargo(completa=True)`: el resto del test
-    # crea una prueba, que exige la ficha guardada (si no, 400 "Complete la ficha").
+    # Ficha completa (la validación exige país, moneda, visita, edición y nombres reales)
     assert client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok),
-                      json={"client": "Cliente Demo", "ruc": "1790000000001", "activity": "Comercio",
-                            "year": "2025", "cutoff": "2025-12-31", "preparer": "Preparador",
-                            "reviewer": "Revisor", "firm": "Audit Consulting",
-                            "framework": "NIIF para las PYMES", "country": "Ecuador",
-                            "currency": "USD", "visit": "Final", "edition": "Edición 2025"}).status_code in (200, 422)
-    # `proc:<id>` solo resuelve procesadores de catálogo (con RUBRO). PI no lo es
-    # (se instala en una ficha); se usa cxc_cartera, que sí es herramienta directa.
-    r = client.post(f"{BASE}/proyectos/{pid}/pruebas", headers=_h(tok), json={"origen": "proc:cxc_cartera"})
-    if r.status_code != 201:  # la creación devuelve 201 Created
+                      json={"client": "Empresa Ejemplo S.A.", "ruc": "1791961048001", "activity": "Comercio",
+                            "year": 2025, "cutoff": "2025-12-31", "preparer": "Ana Preparadora",
+                            "reviewer": "Luis Revisor", "firm": "Audit Consulting",
+                            "framework": "NIIF para las PYMES", "country": "Ecuador", "currency": "USD",
+                            "visit": "Final", "edition": "2025", "adoption": "", "reuseScope": "one"}).status_code == 200
+    r = client.post(f"{BASE}/proyectos/{pid}/pruebas", headers=_h(tok), json={"origen": "proc:perdidas_incurridas_s11"})
+    if r.status_code != 200:
         pytest.skip(f"no se pudo crear la prueba proc: {r.status_code} {r.text[:120]}")
     p = r.json()
     antes = client.get(f"{BASE}/pruebas/{p['id']}", headers=_h(tok)).json()

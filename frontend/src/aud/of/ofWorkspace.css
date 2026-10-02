@@ -171,3 +171,24 @@
   font-weight: 500;
 }
 .pc-btn.secondary:hover { border-color: var(--text-soft); }
+
+/* Extracción por IA de carta / informe (PDF/Word) → tabla editable de confirmación */
+.nf-ia-extraccion { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.nf-ia-doc {
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  background: var(--panel-2); display: flex; flex-direction: column; gap: 6px;
+}
+.nf-ia-doc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.nf-ia-doc-nom { font-size: 12px; color: var(--text); font-weight: 500; }
+.nf-ia-extraer { white-space: nowrap; }
+.nf-ia-aviso { font-size: 11px; }
+.nf-ia-tabla-wrap { overflow-x: auto; }
+.nf-ia-tabla { border-collapse: collapse; width: 100%; font-size: 11px; }
+.nf-ia-tabla th, .nf-ia-tabla td { border: 1px solid var(--line-soft); padding: 2px 4px; text-align: left; }
+.nf-ia-tabla th { background: var(--panel); color: var(--text-dim); font-weight: 600; white-space: nowrap; }
+.nf-ia-tabla input {
+  width: 100%; min-width: 90px; box-sizing: border-box; border: 1px solid transparent;
+  background: transparent; color: var(--text); font: inherit; padding: 1px 2px;
+}
+.nf-ia-tabla input:focus { border-color: var(--accent); outline: none; background: var(--panel); }
+.nf-ia-confirmar { align-self: flex-start; }

@@ -68,3 +68,8 @@ def leer(ruta: str) -> bytes:
 
 def borrar_prueba(prueba_id: int) -> None:
     shutil.rmtree(carpeta_base() / str(prueba_id), ignore_errors=True)
+
+
+def borrar(ruta: str) -> None:
+    """Borra un solo archivo del almacenamiento. No falla si ya no existe."""
+    Path(ruta).unlink(missing_ok=True)

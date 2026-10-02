@@ -186,6 +186,138 @@ export async function motorAnaliticoPermiso(encargo, accion) {
     })
   );
 }
+// ---- Descarga SRI (robot headless en el motor; el navegador llama al motor
+// DIRECTO con el token firmado; la clave del cliente no pasa por Render). ----
+// Normaliza para tolerar que MOTOR_ANALITICO_URL venga con o sin sufijo /motor.
+function _motorBase(url) {
+  return String(url || "").replace(/\/$/, "").replace(/\/motor$/, "");
+}
+function _motorHeaders(token, extra = {}) {
+  return { Authorization: `Bearer ${token}`, ...extra };
+}
+// Vista en vivo del robot (MJPEG): un <img> no puede mandar cabecera
+// Authorization, así que el permiso firmado va en el query string. Como se
+// sirve por el mismo motor (Funnel), NO exige estar en la red Tailscale.
+export function sriVivoUrl(url, token) {
+  return `${_motorBase(url)}/motor/sri/vivo?permiso=${encodeURIComponent(token || "")}`;
+}
+export async function sriDescargar(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/descargar`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
+export async function sriEstado(url, token, id) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/trabajos/${id}`, {
+      headers: _motorHeaders(token),
+    })
+  );
+}
+export async function sriEnviarCaptcha(url, token, id, codigo) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/trabajos/${id}/captcha`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify({ codigo }),
+    })
+  );
+}
+export async function sriConsolidar(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/consolidar`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
+export async function sriHistorial(url, token) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/historial`, {
+      headers: _motorHeaders(token),
+    })
+  );
+}
+// Descarga el ZIP de resultados: pide con el token, lo baja como blob.
+export async function sriDescargarZip(url, token, id) {
+  const res = await apiFetch(`${_motorBase(url)}/motor/sri/trabajos/${id}/zip`, {
+    headers: _motorHeaders(token),
+  });
+  if (!res.ok) throw new Error("No hay archivos para descargar todavía.");
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `sri_${id}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+// Reconstrucción PDF→XML de Emitidos (offline, agrupa por mes).
+export async function sriReconstruir(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/reconstruir-xml`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
+// Cruce retención ↔ factura (offline). direccion: "retenciones" | "facturas".
+export async function sriCruceRetenciones(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/cruce-retenciones`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
+// Valor neto: factura − notas de crédito (offline).
+export async function sriValorNeto(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/valor-neto`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
+// Descarga de una declaración presentada (login + captcha → trabajo async).
+export async function sriDeclaracionesDescargar(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/declaraciones/descargar`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
+// Baja un archivo producido en el servidor (Excel/ZIP) por su ruta.
+export async function sriDescargarArchivo(url, token, ruta, nombre) {
+  const res = await apiFetch(
+    `${_motorBase(url)}/motor/sri/archivo?ruta=${encodeURIComponent(ruta)}`,
+    { headers: _motorHeaders(token) }
+  );
+  if (!res.ok) throw new Error("No se pudo descargar el archivo.");
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = nombre || String(ruta).split(/[/\\]/).pop() || "reporte.xlsx";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+// Un permiso "ejecutar" sirve para todos los endpoints SRI (leer y ejecutar).
+export async function sriPermiso(encargo) {
+  return motorAnaliticoPermiso(encargo, "ejecutar");
+}
+
 
 // ---- Fichas de diseño de herramientas NIIF (AUD) ----
 // Viven en el backend, no en el navegador: el circuito exige que quien marca
@@ -292,7 +424,15 @@ export async function cicloLeerPrueba(id) {
   return parse(await apiFetch(`${CICLO}/pruebas/${id}`, { headers: authHeaders() }));
 }
 export async function cicloAccion(id, accion, revision, datos = {}) {
-  return parse(await apiFetch(`${CICLO}/pruebas/${id}/acciones`, jsonPost("POST", { accion, revision, datos })));
+  // Acciones que invocan al LLM: la extracción por IA de un documento y el
+  // Procesar (map_validate), que auto-extrae los PDF/Word pendientes. El servidor
+  // de IA local genera SIN streaming hasta LOCAL_LLM_TIMEOUT_SECONDS (180s) por
+  // documento, así que el default de 60s del cliente abortaba («No se pudo
+  // conectar con el servidor») antes de terminar. Se les da un timeout amplio y
+  // sin reintentos (no re-POSTear un trabajo largo del modelo).
+  const invocaLLM = accion === "extraer_ia" || accion === "map_validate";
+  const opts = invocaLLM ? { timeoutMs: 300000, retries: 0 } : {};
+  return parse(await apiFetch(`${CICLO}/pruebas/${id}/acciones`, jsonPost("POST", { accion, revision, datos }), opts));
 }
 // E7: evidencia. El archivo va por formulario multiparte; el servidor lo guarda
 // en su disco y devuelve su huella.
@@ -305,6 +445,13 @@ export async function cicloSubirArchivo(pruebaId, revision, requerimiento, compo
   return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/archivos`, { method: "POST", headers: authHeaders(), body: fd }));
 }
 
+// Diagnóstico de los proveedores de IA + ping EN VIVO al servidor local.
+// Requiere sesión (JWT): por eso abrir la URL a pelo da "Not authenticated";
+// desde aquí sí viaja el token. Devuelve {orden, preferido, configurados, local}.
+export async function iaEstado() {
+  return parse(await apiFetch(`${API_BASE}/api/v1/chat/ia/estado`, { headers: authHeaders() }));
+}
+
 // El original, tal cual se subió (para verlo o leer sus hojas en el navegador).
 export async function cicloBajarArchivo(pruebaId, archivoId) {
   const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/archivos/${archivoId}`, { headers: authHeaders() });
@@ -314,12 +461,18 @@ export async function cicloBajarArchivo(pruebaId, archivoId) {
 
 // E9: el papel aprobado lo arma el navegador con el exportador del sitio y el
 // servidor lo guarda una sola vez, con su huella.
-export async function cicloSubirPapel(pruebaId, revision, xlsx, html) {
-  const fd = new FormData();
-  fd.append("revision", String(revision));
-  fd.append("xlsx", new Blob([xlsx], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "papel.xlsx");
-  fd.append("html", new Blob([html], { type: "text/html" }), "papel.html");
-  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/papel`, { method: "POST", headers: authHeaders(), body: fd }));
+// En una prueba declarativa van también el Word y el PowerPoint (`extra`).
+// Papel de una prueba DECLARATIVA con el diseño de los procesadores: el navegador
+// envía las cédulas con fórmulas del sitio (cargaPapel) y el servidor arma el
+// Excel, HTML, Word, PowerPoint o PDF. No lee ni guarda nada.
+export async function cicloPapelDeclarativo(carga, formato = "xlsx") {
+  const res = await apiFetch(`${CICLO}/papel-declarativo?formato=${formato}`, jsonPost("POST", carga), { timeoutMs: 180000 });
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
+// Papel aprobado de una prueba declarativa: el servidor lo arma y lo guarda con su huella.
+export async function cicloGuardarPapelDeclarativo(pruebaId, revision, carga) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/papel-declarativo`, jsonPost("POST", { revision, ...carga }), { timeoutMs: 180000 }));
 }
 // E10: modelo Excel de un requerimiento de cálculo, para enviarlo al cliente.
 export async function cicloBajarModelo(pruebaId, requerimiento) {
@@ -333,6 +486,23 @@ export async function cicloBajarLibro(pruebaId, formato = "xlsx") {
   if (!res.ok) await parse(res);
   return new Uint8Array(await res.arrayBuffer());
 }
+// Papel de trabajo DA formulado de Efectivo y Equivalentes (fórmulas vivas): lo arma el servidor.
+export async function cicloBajarPapelBancos(pruebaId) {
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/papel-bancos`, { headers: authHeaders() });
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
+// Reproceso de la conciliación bancaria del último mes (Efectivo y Equivalentes): matriz por
+// cuenta (banco, saldos, diferencia, estado, coincidencias) o { disponible:false, motivo }.
+export async function cicloReproceso(pruebaId) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/reproceso`, { headers: authHeaders() }));
+}
+// REPROCESO_CONCILIACION.xlsx: la matriz del reproceso por cuenta (cuadre por fórmula).
+export async function cicloReprocesoExcel(pruebaId) {
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/reproceso-excel`, { headers: authHeaders() });
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
 // Ejercicio modelo (solo lectura): el recorrido de 9 pasos con datos de ejemplo.
 export async function cicloEjercicioModelo(pruebaId) {
   return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/ejercicio-modelo`, { headers: authHeaders() }));
@@ -343,6 +513,14 @@ export async function cicloEjercicioModeloLibro(pruebaId, formato = "xlsx") {
   if (!res.ok) await parse(res);
   return new Uint8Array(await res.arrayBuffer());
 }
+// Consola de revisión del auditor: recálculo independiente y veredicto de una planificación.
+export async function cicloConsolaRevision(pruebaId) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/consola-revision`, { headers: authHeaders() }));
+}
+// Consola-chat del piloto: guion del agente para el preparador o el auditor.
+export async function cicloConsolaChat(pruebaId, rol = "preparador") {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/consola-chat?rol=${rol}`, { headers: authHeaders() }));
+}
 export async function cicloBandejas() {
   return parse(await apiFetch(`${CICLO}/bandejas`, { headers: authHeaders() }));
 }
@@ -352,6 +530,59 @@ export async function cicloProcesadores() {
 }
 export async function niifGuardarDefinicion(fichaId, definicion, filas, parametros) {
   return parse(await apiFetch(`${CICLO}/fichas/${fichaId}/definicion`, jsonPost("PUT", { definicion, filas, parametros: parametros || {} })));
+}
+
+// ---- Agente guía «NIIF Piloto» (un solo motor para todas las pruebas) ----
+const PILOTO = `${API_BASE}/api/v1/aud/niif/piloto`;
+
+export async function pilotoPruebas() {
+  return parse(await apiFetch(`${PILOTO}/pruebas`, { headers: authHeaders() }));
+}
+export async function pilotoRequisitos(id) {
+  return parse(await apiFetch(`${PILOTO}/pruebas/${encodeURIComponent(id)}/requisitos`, { headers: authHeaders() }));
+}
+export async function pilotoPlantilla(id) {
+  return parse(await apiFetch(`${PILOTO}/pruebas/${encodeURIComponent(id)}/plantilla`, { headers: authHeaders() }));
+}
+// Ejecuta la prueba y devuelve el resultado + la verificación del Excel (formato=json).
+export async function pilotoEjecutar(id, body) {
+  return parse(
+    await apiFetch(
+      `${PILOTO}/pruebas/${encodeURIComponent(id)}/ejecutar?formato=json`,
+      jsonPost("POST", body),
+      { timeoutMs: 180000 }
+    )
+  );
+}
+// Descarga un formato del papel (xlsx/html/docx/pptx/pdf/zip). Dispara el guardado.
+export async function pilotoDescargarPapel(id, body, formato, nombre) {
+  const res = await apiFetch(
+    `${PILOTO}/pruebas/${encodeURIComponent(id)}/ejecutar?formato=${encodeURIComponent(formato)}`,
+    jsonPost("POST", body),
+    { timeoutMs: 180000 }
+  );
+  if (!res.ok) await parse(res);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nombre || `${id}.${formato}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+// Consola de comunicación por prueba (chat auditable) sobre el ciclo.
+export async function cicloComentarios(pruebaId) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/comentarios`, { headers: authHeaders() }));
+}
+export async function cicloComentar(pruebaId, texto, asistente = false) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/comentarios`, jsonPost("POST", { texto, asistente }), { timeoutMs: 120000 }));
+}
+// Puente planificación → pruebas del piloto (de una prueba de planificación).
+export async function cicloPruebasSugeridas(pruebaId) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/pruebas-sugeridas`, { headers: authHeaders() }, { timeoutMs: 180000 }));
 }
 
 export async function createUser(email, password, role) {
@@ -1071,6 +1302,28 @@ export async function aprobarOF(jobId) {
   );
 }
 
+// `procesar` y `aprobar` disparan el trabajo pesado en segundo plano y
+// responden al instante con el job en 'running'. Este helper consulta el
+// estado del job hasta que llega a uno de los `estadosFinales` (p.ej.
+// 'revision' tras procesar, 'done' tras aprobar) o hasta agotar el tiempo.
+// Un Mayor grande puede tardar varios minutos en clasificarse/generarse.
+export async function esperarEstadoOF(
+  jobId,
+  estadosFinales,
+  { intervalMs = 2500, timeoutMs = 15 * 60 * 1000 } = {}
+) {
+  const finales = new Set(estadosFinales);
+  const limite = Date.now() + timeoutMs;
+  // Espera inicial breve: el background suele estar listo enseguida en
+  // encargos chicos.
+  for (;;) {
+    const job = await getObligacionesFiscalesJob(jobId);
+    if (finales.has(job.status) || job.status === "failed") return job;
+    if (Date.now() >= limite) return job; // se devuelve el último estado visto
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
 // Catálogo de categorías disponibles (para los selects de clasificación).
 export async function listarCategoriasOF() {
   return parse(await apiFetch(`${OF_BASE}/categorias`, { headers: authHeaders() }));
@@ -1230,4 +1483,22 @@ export async function downloadIctJob(jobId, suggestedFilename) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+// Registros del encargo con un clic (independencia, discusión, aceptación, carta, comunicación) y sus documentos.
+export async function cicloRegistros(projectId) {
+  return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/registros`, { headers: authHeaders() }));
+}
+export async function cicloRegistrar(projectId, datos) {
+  return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/registros`, jsonPost("POST", datos)));
+}
+export async function cicloAnularRegistro(projectId, registroId) {
+  return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/registros/${registroId}`, { method: "DELETE", headers: authHeaders() }));
+}
+export async function cicloDocumentoEncargo(projectId, tipo) {
+  const res = await apiFetch(`${CICLO}/proyectos/${projectId}/documentos/${tipo}`, { headers: authHeaders() });
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
+export async function cicloResolverConsulta(projectId, registroId, resolucion) {
+  return parse(await apiFetch(`${CICLO}/proyectos/${projectId}/registros/${registroId}/resolver`, jsonPost("POST", { resolucion })));
 }

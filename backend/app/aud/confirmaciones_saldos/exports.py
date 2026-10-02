@@ -1,0 +1,531 @@
+"""Exportaciones compartidas: cartas (DOCX), registro de circularización (XLSX) y
+vista de consulta (HTML). Ningún dato del cliente entra al Excel como fórmula."""
+from io import BytesIO
+from decimal import Decimal
+from html import escape
+from pathlib import Path
+from base64 import b64encode
+import xlsxwriter
+
+from .plantillas import SHEETS, TITLES, NOTES, REFERENCES, TYPES, TYPE_LABEL_ES, METHOD_LABEL, firm_name
+
+
+def f(formula, value):
+    return {'formula': formula, 'value': value}
+
+
+def n(value):
+    return float(Decimal(str(value if value not in (None, '') else '0')))
+
+
+def cell_value(value):
+    return value.get('value', '') if isinstance(value, dict) else value
+
+
+def logo_path(r):
+    name = 'logo_partner_auditing.png' if r['context']['firm'] == 'partner_auditing' else 'logo_audit_consulting.png'
+    return Path(__file__).parent / 'assets' / name
+
+
+def schedules(r):
+    ctx = r['context']
+    tables = []
+
+    def add(headers, values):
+        tables.append({'name': SHEETS[len(tables)], 'title': TITLES[len(tables)],
+                       'headers': headers, 'rows': values, 'note': NOTES[len(tables)]})
+
+    add(['Dato', 'Valor'], [
+        ['Cliente', ctx['client']], ['RUC', ctx.get('client_ruc', '')],
+        ['País', ctx['country']], ['Moneda', ctx['currency']], ['Ejercicio', str(ctx['year'])],
+        ['Corte', ctx['cutoff']], ['Visita', ctx['visit']],
+        ['Vuelta', ctx['request_round']], ['Fecha límite de respuesta', ctx['response_deadline']],
+        ['Firma auditora', firm_name(ctx['firm'])], ['Correo del auditor', ctx['auditor_email']],
+        ['Firmante (cliente)', ctx['signatory']], ['Cargo', ctx.get('signatory_role', '')],
+        ['Preparado por', ctx['preparer']], ['Revisado por', ctx['reviewer']],
+        ['Estado', r['status']], ['Versión', r['version']], ['SHA256 solicitud', r['input_sha256']],
+    ])
+    add(['ID', 'Rubro', 'Entidad', 'Contacto', 'Correo', 'Referencia', 'Método', 'Saldo'],
+        [[it['id'], TYPE_LABEL_ES[it['type']], it['entity'], it['contact_name'], it['contact_email'],
+          it['reference'] or it['account_ref'], it['method'],
+          it['amount'] if it['amount'] is not None else '—'] for it in r['items']])
+    add(['ID', 'Rubro', 'Entidad', 'Método', 'Asunto'],
+        [[l['id'], l['type_label'], l['entity'], l['method'], l['subject']] for l in r['letters']])
+    add(['ID', 'Para (correo)', 'Asunto', 'Método', 'Estado', 'SHA256 cuerpo'],
+        [[d['id'], d['to'] or 'SIN CORREO', d['subject'], d['method'], d['status'], d['body_sha256']]
+         for d in r['dispatch']])
+    # 04 Control de confirmaciones — formato de la firma (agrupado por rubro).
+    control_rows = []
+    groups = {}
+    for it in r['items']:
+        groups.setdefault(it['type'], []).append(it)
+    excel_row = 6  # el cuerpo de la tabla arranca en la fila 6 de Excel
+    for rtype in sorted(groups):
+        control_rows.append([TYPE_LABEL_ES[rtype].upper(), '', '', '', '', '', '', '', ''])
+        excel_row += 1
+        for it in groups[rtype]:
+            libros = n(it['amount']) if it['amount'] is not None else ''
+            dif = f(f'=IF(OR(E{excel_row}="",F{excel_row}=""),"",E{excel_row}-F{excel_row})', '')
+            control_rows.append(['', it['entity'], '', '', libros, '', dif, '', ''])
+            excel_row += 1
+    add(['Descripción', 'Detalle', 'Enviado (Sí/No)', 'Recibido (Sí/No)', 'Libros',
+         'Confirmación', 'Diferencia', 'Gestión con cliente', 'Observación'], control_rows)
+    coverage_rows = []
+    for i, c in enumerate(r['coverage'], 6):
+        if c['ledger'] is not None:
+            coverage_rows.append([c['label'], c['count'], n(c['sampled']), n(c['ledger']),
+                                  f(f'=D{i}-C{i}', n(c['difference'])),
+                                  f(f'=IF(D{i}>0,ROUND(C{i}/D{i}*100,2),0)', n(c['coverage_pct'])),
+                                  'Dentro de tolerancia' if c['within_tolerance'] else 'Revisar diferencia'])
+        else:
+            coverage_rows.append([c['label'], c['count'], n(c['sampled']), '—', '—', '—',
+                                  'Sin saldo del mayor'])
+    add(['Rubro', 'Nº cartas', 'Circularizado', 'Mayor', 'Diferencia', 'Cobertura %', 'Estado'],
+        coverage_rows or [['Sin cobertura declarada', 0, 0, '—', '—', '—', 'Declare saldos del mayor por rubro']])
+    t = r['totals']
+    add(['Aspecto', 'Resultado'], [
+        ['Conclusión', 'Pendiente de evaluación de las respuestas'],
+        ['Cartas generadas', t['count']],
+        ['Con correo / sin correo', f"{t['with_email']} / {t['without_email']}"],
+        ['Importe total circularizado', n(t['total_sampled'])],
+        ['Por rubro', ', '.join(f'{TYPE_LABEL_ES[k]}: {v}' for k, v in sorted(t['by_type'].items()))],
+        ['Por método', ', '.join(f'{METHOD_LABEL[k].split(" (")[0]}: {v}' for k, v in sorted(t['by_method'].items()))],
+        ['Procedimientos', 'NIA 505: control del auditor sobre el envío y la respuesta; procedimientos alternativos ante no respuestas y evaluación de discrepancias.'],
+        ['Excepciones', 'Las diferencias y no respuestas se detallan en 04 Control; la cobertura, en 05 Cobertura.'],
+    ])
+    add(['Control', 'Estado'], [
+        ['Preparado por', ctx['preparer']], ['Revisado por', ctx['reviewer']],
+        ['Control del envío', 'El auditor conserva el control del envío y la recepción (NIA 505)'],
+        ['Aprobación profesional', 'PENDIENTE — nombres declarados no son firmas'],
+        ['Conclusión del revisor', 'Completar en papeles de trabajo'],
+        ['Trazabilidad', r['input_sha256']],
+    ])
+    return tables
+
+
+def build_xlsx(r):
+    buf = BytesIO()
+    wb = xlsxwriter.Workbook(buf, {'in_memory': True, 'strings_to_formulas': False, 'strings_to_urls': False})
+    wb.set_properties({'title': 'Confirmaciones · ' + r['context']['client'], 'author': r['context']['firm'],
+                       'comments': 'AuditBrain Confirmaciones ' + r['version']})
+    title = wb.add_format({'bold': True, 'font_size': 18, 'font_color': '#FFFFFF', 'bg_color': '#102D4D', 'valign': 'vcenter'})
+    header = wb.add_format({'bold': True, 'font_color': '#FFFFFF', 'bg_color': '#217A55', 'border': 1, 'text_wrap': True})
+    text = wb.add_format({'font_name': 'Calibri', 'font_size': 10, 'border': 1, 'border_color': '#D9E3E9', 'valign': 'top', 'text_wrap': True})
+    numeric = wb.add_format({'font_name': 'Calibri', 'font_size': 10, 'border': 1, 'border_color': '#D9E3E9', 'num_format': '#,##0.00;[Red](#,##0.00)', 'valign': 'top'})
+    formula = wb.add_format({'font_name': 'Calibri', 'font_size': 10, 'border': 1, 'border_color': '#D9E3E9', 'bg_color': '#EAF6EF', 'num_format': '#,##0.00;[Red](#,##0.00)', 'text_wrap': True})
+    note = wb.add_format({'font_size': 10, 'font_color': '#435766', 'text_wrap': True, 'valign': 'top'})
+    firm = firm_name(r['context']['firm'])
+    for table in schedules(r):
+        ws = wb.add_worksheet(table['name'])
+        width = max(2, len(table['headers']))
+        ws.hide_gridlines(2); ws.set_tab_color('#217A55'); ws.set_landscape(); ws.set_paper(9)
+        ws.fit_to_pages(1, 0); ws.repeat_rows(0, 4); ws.freeze_panes(5, 1)
+        ws.set_column(0, width - 1, 19); ws.set_column(0, 0, 26)
+        if width == 2:
+            ws.set_column(1, 1, 92)
+        ws.merge_range(0, 0, 0, width - 1, table['title'], title); ws.set_row(0, 30)
+        ws.merge_range(1, 0, 1, width - 1, firm + ' · ' + r['context']['client'], note)
+        ws.merge_range(2, 0, 2, width - 1, f"{r['context']['cutoff']} · {r['context']['currency']} · {r['status']}", note)
+        if table['name'] == '00 Portada':
+            logo = logo_path(r)
+            from PIL import Image
+            with Image.open(logo) as im:
+                scale = min(180 / im.width, 55 / im.height)
+            ws.set_row(3, 48)
+            ws.insert_image(3, 0, str(logo), {'x_scale': scale, 'y_scale': scale, 'object_position': 1, 'description': firm})
+        ws.write_row(4, 0, table['headers'], header); ws.set_row(4, 32)
+        for row_idx, row in enumerate(table['rows'], 5):
+            ws.set_row(row_idx, 26)
+            for col, v in enumerate(row):
+                if isinstance(v, dict):
+                    ws.write_formula(row_idx, col, v['formula'], formula, v['value'])
+                elif isinstance(v, (int, float)):
+                    ws.write_number(row_idx, col, v, numeric)
+                else:
+                    ws.write_string(row_idx, col, str(v), text)
+        end = 5 + len(table['rows'])
+        ws.autofilter(4, 0, max(5, end - 1), width - 1)
+        ws.merge_range(end + 2, 0, end + 4, width - 1, 'CÓMO SE USA / PROCEDIMIENTO: ' + table['note'], note)
+        ws.set_footer('&L' + firm + '&R&P / &N')
+        ws.print_area(0, 0, end + 5, width - 1)
+    wb.close()
+    return buf.getvalue()
+
+
+def _docx_letter(doc, r, letter, page_break=True):
+    """Arma una carta con el mismo espaciado del modelo de la firma: líneas en
+    blanco entre el saludo, la introducción, las viñetas, el saldo y el cierre,
+    y un hueco antes de la firma. Cada carta empieza en página nueva y entra
+    completa en una sola hoja; el bloque de firma (funcionario, cargo y
+    compañía) nunca se parte entre páginas."""
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    blocks = letter['blocks']
+    paras = []
+
+    def add(text='', style=None, justify=False):
+        p = doc.add_paragraph(text)
+        if style:
+            try:
+                p.style = doc.styles[style]
+            except Exception:
+                pass
+        if justify:
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        paras.append(p)
+        return p
+
+    # Saludo. Si termina con la mención del contacto "(...)", va precedida de
+    # una línea en blanco, como en el modelo.
+    sal = letter['salutation']
+    for i, line in enumerate(sal):
+        if i == len(sal) - 1 and line.startswith('(') and line.endswith(')'):
+            add('')
+        add(line)
+
+    # Cuerpo: introducción, viñetas y cada párrafo separados por una línea en
+    # blanco para que la carta respire.
+    add('')
+    if blocks:
+        add(blocks[0], justify=True)
+    add('')
+    for it in letter.get('items', []):
+        add(it, style='List Bullet', justify=True)
+    body = blocks[1:]
+    has_deadline = bool(r['context'].get('response_deadline'))
+    for i, block in enumerate(body):
+        is_deadline = has_deadline and i == len(body) - 1
+        if not is_deadline:          # el plazo se adjunta al cierre, sin blanco
+            add('')
+        add(block, justify=True)
+
+    # Hueco para la firma manuscrita (líneas en blanco), como el modelo.
+    for _ in range(5):
+        add('')
+    sig_paras = [add(line) for line in letter['signature']]
+    for p in sig_paras[:-1]:
+        p.paragraph_format.keep_with_next = True
+    for p in sig_paras:
+        p.paragraph_format.keep_together = True
+
+    if letter['response_lines']:
+        add('')
+        rule = doc.add_paragraph()
+        rule.add_run('— — — — — — — — — — — — — — — — — — — — — — — — — — —')
+        paras.append(rule)
+        head = doc.add_paragraph()
+        head.add_run(letter['response_title']).bold = True
+        paras.append(head)
+        for line in letter['response_lines']:
+            add(line)
+
+    # Cada carta arranca en una hoja nueva (sin párrafo de salto extra).
+    if page_break and paras:
+        paras[0].paragraph_format.page_break_before = True
+
+
+class PDFNoDisponible(RuntimeError):
+    """Se lanza cuando WeasyPrint (o sus librerías nativas) no está disponible."""
+
+
+def _letters_print_html(r):
+    """HTML de impresión: las cartas de confirmación, una por hoja, con el mismo
+    contenido y espaciado del Word (justificado, viñetas y hueco de firma)."""
+    esc = lambda v: escape(str(v), quote=True)
+    ctx = r['context']
+    blank = '<p class="sp">&#160;</p>'
+    cartas = []
+    for l in r['letters']:
+        parts = []
+        sal = l['salutation']
+        for i, line in enumerate(sal):
+            if i == len(sal) - 1 and line.startswith('(') and line.endswith(')'):
+                parts.append(blank)
+            parts.append(f'<p>{esc(line)}</p>' if line else blank)
+        parts.append(blank)
+        blocks = l['blocks']
+        if blocks:
+            parts.append(f'<p class="j">{esc(blocks[0])}</p>')
+        parts.append(blank)
+        if l.get('items'):
+            parts.append('<ul>' + ''.join(f'<li>{esc(it)}</li>' for it in l['items']) + '</ul>')
+        body = blocks[1:]
+        has_deadline = bool(ctx.get('response_deadline'))
+        for idx, block in enumerate(body):
+            is_deadline = has_deadline and idx == len(body) - 1
+            if not is_deadline:
+                parts.append(blank)
+            parts.append(f'<p class="j">{esc(block)}</p>')
+        parts.append('<div class="gap"></div>')
+        parts.append('<div class="firma">' + ''.join(f'<p>{esc(s)}</p>' for s in l['signature']) + '</div>')
+        if l['response_lines']:
+            parts.append('<hr>')
+            parts.append(f'<p><b>{esc(l["response_title"])}</b></p>')
+            parts += [f'<p>{esc(x)}</p>' for x in l['response_lines']]
+        cartas.append('<section class="carta">' + ''.join(parts) + '</section>')
+    css = (
+        '@page{size:Letter;margin:1.8cm 2.2cm}'
+        '*{box-sizing:border-box}'
+        'body{font-family:Calibri,"Segoe UI",Arial,sans-serif;font-size:10.5pt;color:#000;line-height:1.15;margin:0}'
+        '.carta{page-break-before:always}'
+        '.carta:first-of-type{page-break-before:avoid}'
+        'p{margin:0 0 3pt}'
+        'p.sp{margin:0}'
+        'p.j{text-align:justify}'
+        'ul{margin:0 0 3pt 0;padding-left:20pt}'
+        'li{text-align:justify;margin-bottom:2pt}'
+        '.gap{height:1.4cm}'
+        '.firma p{margin:0}'
+        'hr{border:none;border-top:1px solid #000;margin:8pt 0}'
+    )
+    return ('<!doctype html><html lang="es"><head><meta charset="utf-8">'
+            '<title>Cartas de confirmación de saldos</title><style>' + css + '</style></head>'
+            '<body>' + ''.join(cartas) + '</body></html>')
+
+
+def build_pdf(r):
+    """Cartas de confirmación en PDF, una por hoja, con WeasyPrint.
+
+    Requiere la imagen Docker de producción (Pango/HarfBuzz/fontconfig). En un
+    entorno sin esas librerías nativas degrada con PDFNoDisponible y el endpoint
+    responde con un mensaje claro en lugar de un error 500.
+    """
+    try:
+        from weasyprint import HTML
+    except Exception as exc:  # ImportError o falta de librerías nativas
+        raise PDFNoDisponible('La exportación a PDF no está disponible en este servidor.') from exc
+    return HTML(string=_letters_print_html(r)).write_pdf()
+
+
+def _new_doc(r):
+    """Documento Word configurado (Calibri 10.5, márgenes) para las cartas."""
+    from docx import Document
+    from docx.shared import Pt, Cm
+    doc = Document()
+    doc.core_properties.title = 'Cartas de confirmación · ' + r['context']['client']
+    doc.core_properties.author = r['context']['firm']
+    normal = doc.styles['Normal']
+    normal.font.name = 'Calibri'
+    normal.font.size = Pt(10.5)
+    npf = normal.paragraph_format
+    npf.line_spacing = 1.0
+    npf.space_before = Pt(0)
+    npf.space_after = Pt(3)
+    try:
+        bullet = doc.styles['List Bullet'].paragraph_format
+        bullet.space_before = Pt(0)
+        bullet.space_after = Pt(2)
+        bullet.line_spacing = 1.0
+    except Exception:
+        pass
+    for sec in doc.sections:
+        sec.top_margin = Cm(1.8)
+        sec.bottom_margin = Cm(1.8)
+        sec.left_margin = Cm(2.2)
+        sec.right_margin = Cm(2.2)
+    return doc
+
+
+def build_docx(r):
+    from docx.shared import Inches
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    doc = _new_doc(r)
+    firm = firm_name(r['context']['firm'])
+    # Portada
+    try:
+        doc.add_picture(str(logo_path(r)), width=Inches(2.0))
+        doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    except Exception:
+        pass
+    h = doc.add_heading('Cartas de confirmación de saldos', level=1)
+    h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    intro = doc.add_paragraph()
+    intro.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    intro.add_run(f"{firm} · {r['context']['client']} · corte {r['context']['cutoff']} · {r['status']}")
+    doc.add_paragraph(f"{r['totals']['count']} cartas · borrador para revisión. Cada carta la firma el cliente y "
+                      "se responde directamente al auditor (NIA 505).").alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for letter in r['letters']:
+        _docx_letter(doc, r, letter)
+    buf = BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def build_single_letter_docx(r, letter):
+    """Un Word con UNA sola carta (sin portada), para el ZIP por rubro."""
+    doc = _new_doc(r)
+    _docx_letter(doc, r, letter, page_break=False)
+    buf = BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+# Nombre de carpeta por rubro dentro del ZIP.
+RUBRO_FOLDER = {
+    'bancos': 'Bancos',
+    'cuentas_por_cobrar': 'CxC (Clientes)',
+    'proveedores': 'CxP (Proveedores)',
+    'relacionados': 'Relacionadas',
+    'seguros': 'Seguros',
+    'abogados': 'Abogados',
+    'inventarios_terceros': 'Inventarios en terceros',
+    'inversiones': 'Inversiones',
+}
+
+
+def _safe_name(s, limit=80):
+    """Nombre de archivo seguro (sin caracteres ilegales de ruta)."""
+    s = ''.join(c if c not in '\\/:*?"<>|' else '-' for c in str(s)).strip()
+    s = ' '.join(s.split())
+    return (s[:limit].rstrip() or 'carta')
+
+
+def build_zip(r):
+    """ZIP con un Word por carta, en carpetas por rubro
+    (Bancos/, CxC (Clientes)/, CxP (Proveedores)/, Relacionadas/, ...)."""
+    import zipfile
+    seen = {}
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for letter in r['letters']:
+            rtype = letter.get('type', '')
+            folder = RUBRO_FOLDER.get(rtype, _safe_name(TYPE_LABEL_ES.get(rtype, rtype or 'Otros')))
+            base = _safe_name(f"{letter.get('id', '')} {letter.get('entity', '')}".strip())
+            # evitar colisiones de nombre dentro de la misma carpeta
+            key = (folder, base.lower())
+            seen[key] = seen.get(key, 0) + 1
+            if seen[key] > 1:
+                base = f"{base} ({seen[key]})"
+            zf.writestr(f"{folder}/{base}.docx", build_single_letter_docx(r, letter))
+    return buf.getvalue()
+
+
+def build_html(r):
+    esc = lambda v: escape(str(v), quote=True)
+    ctx = r['context']
+    logo = b64encode(logo_path(r).read_bytes()).decode('ascii')
+    nav, sections = [], []
+    # Cartas con enlace mailto para envío inmediato desde el navegador.
+    cards = []
+    for l in r['letters']:
+        to = next((d['to'] for d in r['dispatch'] if d['id'] == l['id']), '')
+        body = l['text']
+        mailto = ('<a class="send" href="mailto:' + esc(to) + '?subject=' + esc(l['subject']).replace(' ', '%20') +
+                  '&body=' + esc(body).replace('\n', '%0D%0A').replace(' ', '%20') + '">Enviar por correo</a>') if to else '<span class="nomail">Sin correo del contacto</span>'
+        cards.append(f'<article class="letter"><h3>{esc(l["id"])} · {esc(l["type_label"])} — {esc(l["entity"])}</h3>'
+                     f'<p class="meta">{esc(l["method_label"])} · {mailto}</p><pre>{esc(body)}</pre></article>')
+    sections.append('<section id="cartas"><h2>Cartas generadas</h2>' + ''.join(cards) + '</section>')
+    nav.append('<a href="#cartas">Cartas</a>')
+    for i, table in enumerate(schedules(r)):
+        nav.append(f'<a href="#s{i}">{i + 1:02d} {esc(table["title"])}</a>')
+        rows_html = ''.join('<tr>' + ''.join('<td>' + esc(cell_value(v)) +
+                            (f'<details><summary>Fórmula</summary><code>{esc(v["formula"])}</code></details>' if isinstance(v, dict) else '') +
+                            '</td>' for v in row) + '</tr>' for row in table['rows'])
+        sections.append(f'<section id="s{i}"><h2>{esc(table["title"])}</h2><div class="scroll"><table><thead><tr>' +
+                        ''.join('<th>' + esc(hh) + '</th>' for hh in table['headers']) +
+                        '</tr></thead><tbody>' + rows_html + '</tbody></table></div><p><b>Cómo se usa / procedimiento:</b> ' +
+                        esc(table['note']) + '</p></section>')
+    refs = ''.join(f'<li><a href="{esc(x["url"])}">{esc(x["title"])}</a></li>' for x in REFERENCES)
+    return ('<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+            '<title>AuditBrain · Confirmaciones de saldos</title><style>'
+            'body{margin:0;background:#0d2037;color:#eef5fb;font:15px/1.6 Arial}header,main{max-width:1250px;margin:auto;padding:24px}'
+            'header{border-bottom:1px solid #2c4765}h1,h2{color:#75e49c}nav{display:flex;gap:10px;flex-wrap:wrap}a{color:#75e49c}'
+            'section{margin:22px 0;padding:22px;background:#142d4b;border:1px solid #2c4765;border-radius:12px}'
+            '.scroll{overflow:auto}table{border-collapse:collapse;width:100%}th,td{border:1px solid #38516c;padding:10px;text-align:left;vertical-align:top}'
+            'th{background:#17563f}td,pre{white-space:pre-wrap;overflow-wrap:anywhere}.letter{background:#0f2540;border:1px solid #2c4765;border-radius:10px;padding:16px;margin:14px 0}'
+            '.letter pre{background:#0b1c30;padding:14px;border-radius:8px;font:13px/1.55 "Courier New",monospace}.meta{color:#9fc4dd}'
+            '.send{background:#17563f;color:#eaffef;padding:5px 12px;border-radius:6px;text-decoration:none}.nomail{color:#f5b3b3}'
+            'code{font-size:12px}@media print{body,section,.letter{background:white;color:black}h1,h2,a{color:#17563f}nav,.send{display:none}section,.letter{break-inside:avoid}}'
+            '</style><header><img alt="Firma auditora" style="max-width:180px;max-height:75px" src="data:image/png;base64,' + logo + '">'
+            '<h1>Confirmaciones de saldos</h1><p>' + esc(ctx['client']) + ' · ' + esc(ctx['cutoff']) + ' · ' + esc(ctx['currency']) +
+            '</p><p>Borrador para revisión · Los enlaces «Enviar por correo» abren el correo del auditor con la carta lista. '
+            'El auditor conserva el control del envío y de la respuesta (NIA 505).</p><nav>' + ''.join(nav) +
+            '</nav></header><main>' + ''.join(sections) +
+            '<section><h2>Referencias</h2><ul>' + refs + '</ul></section></main></html>')
+
+
+# Línea gráfica de la firma (misma que los correos de recursos/charla).
+BRAND_LOGO_URL = 'https://recursos.audit-ia.ec/assets/logo-auditconsulting.png'
+BRAND_NAVY = '#0B1E36'
+BRAND_LIME = '#B7CE3B'
+
+
+def _letter_card(r, letter):
+    """Contenido de una carta como tarjeta blanca (sin cabecera/pie de marca)."""
+    esc = lambda v: escape(str(v), quote=True)
+    firm = firm_name(r['context']['firm'])
+    blocks = letter['blocks']
+    salut = ''.join(f'<p style="margin:2px 0">{esc(l)}</p>' for l in letter['salutation'])
+    intro = f'<p style="margin:14px 0">{esc(blocks[0])}</p>' if blocks else ''
+    items = ''.join(f'<li style="margin:4px 0">{esc(it)}</li>' for it in letter.get('items', []))
+    items_html = f'<ul style="margin:8px 0 8px 18px;padding:0">{items}</ul>' if items else ''
+    rest = ''.join(f'<p style="margin:12px 0">{esc(b)}</p>' for b in blocks[1:])
+    sign = ''.join(f'<p style="margin:2px 0">{esc(l)}</p>' for l in letter['signature'])
+    resp = ''
+    if letter['response_lines']:
+        rl = ''.join(f'<p style="margin:3px 0">{esc(l)}</p>' for l in letter['response_lines'])
+        resp = ('<div style="margin-top:18px;padding:14px;border:1px dashed #94a3b8;border-radius:8px">'
+                f'<p style="margin:0 0 8px;font-weight:bold">{esc(letter["response_title"])}</p>{rl}</div>')
+    return (
+        '<div style="border:1px solid #e2e8f0;border-radius:8px;padding:18px;margin:0 0 18px;'
+        'font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2937;line-height:1.55">'
+        f'<p style="margin:0 0 12px;font-size:11px;letter-spacing:1px;color:{BRAND_NAVY};'
+        f'text-transform:uppercase"><strong>{esc(firm)}</strong> &middot; {esc(letter.get("type_label",""))} '
+        f'&mdash; {esc(letter.get("entity",""))}</p>'
+        f'{salut}{intro}{items_html}{rest}<div style="margin-top:16px">{sign}</div>{resp}'
+        '</div>'
+    )
+
+
+def email_brand_shell(inner_html, *, subtitle='Confirmaciones de saldos'):
+    """Envuelve el contenido en la línea gráfica de la firma (logo, franja lime,
+    pie), en tablas con estilos en línea para compatibilidad con Outlook."""
+    esc = lambda v: escape(str(v), quote=True)
+    return (
+        '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        '<title>Confirmaciones de saldos</title></head>'
+        '<body style="margin:0;padding:0;background:#f6f5f1;">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        'bgcolor="#f6f5f1" style="background:#f6f5f1;"><tr><td align="center" style="padding:24px 12px;">'
+        '<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" '
+        "style=\"width:100%;max-width:600px;font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;\">"
+        f'<tr><td bgcolor="{BRAND_NAVY}" style="background:{BRAND_NAVY};padding:28px 32px 22px;">'
+        f'<img src="{BRAND_LOGO_URL}" width="190" alt="AuditConsulting Group" '
+        'style="display:block;width:190px;height:auto;border:0;">'
+        f'<p style="margin:18px 0 0;font-size:11px;letter-spacing:2px;color:#cfd7e0;'
+        f'text-transform:uppercase;">{esc(subtitle)}</p></td></tr>'
+        f'<tr><td bgcolor="{BRAND_LIME}" height="6" style="background:{BRAND_LIME};height:6px;'
+        'line-height:6px;font-size:0;">&nbsp;</td></tr>'
+        '<tr><td bgcolor="#ffffff" style="background:#ffffff;padding:28px 28px 22px;">'
+        f'{inner_html}</td></tr>'
+        f'<tr><td bgcolor="{BRAND_NAVY}" style="background:{BRAND_NAVY};padding:22px 32px 26px;">'
+        f'<p style="margin:0 0 12px;padding:12px 16px;background:{BRAND_LIME};color:{BRAND_NAVY};'
+        'font-size:13px;font-weight:600;line-height:1.5;text-align:center;"><strong>AuditConsulting:</strong> '
+        'auditores expertos en finanzas, tributación y automatización avanzada.</p>'
+        '<p style="margin:0 0 10px;font-size:11px;letter-spacing:1px;color:#ffffff;">'
+        '<strong>AUDIT CONSULTING GROUP</strong> &middot; Auditoría &middot; Advisory &middot; '
+        'Automatización inteligente</p>'
+        '<p style="margin:0;font-size:10.5px;line-height:1.6;color:#aab6c4;">Correo generado por AuditBrain '
+        'para el proceso de confirmaciones de saldos. Las respuestas de terceros se dirigen al correo del '
+        'auditor indicado en la solicitud (NIA 505).</p></td></tr>'
+        '</table></td></tr></table></body></html>'
+    )
+
+
+def letter_email_html(r, letter):
+    """Una carta lista para envío por correo, con la línea gráfica de la firma."""
+    return email_brand_shell(_letter_card(r, letter))
+
+
+def letters_email_html(r):
+    """Todas las cartas en un solo correo con marca (para el modo 'un solo correo')."""
+    esc = lambda v: escape(str(v), quote=True)
+    ctx = r['context']
+    encabezado = (
+        f'<p style="margin:0 0 6px;font-size:20px;color:{BRAND_NAVY};font-weight:bold">'
+        'Cartas de confirmación de saldos</p>'
+        f'<p style="margin:0 0 18px;font-size:13px;color:#6b6b66">{esc(ctx.get("client") or "")} '
+        f'&middot; corte {esc(ctx.get("cutoff") or "")} &middot; {len(r["letters"])} cartas</p>'
+    )
+    cards = ''.join(_letter_card(r, l) for l in r['letters'])
+    return email_brand_shell(encabezado + cards)

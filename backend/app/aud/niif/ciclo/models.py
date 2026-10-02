@@ -140,3 +140,32 @@ class PruebaArchivo(Base):
     # Distingue auditor de cliente cuando llegue la carga desde su portal (fase 2).
     subido_por: Mapped[str | None] = mapped_column(String(320), nullable=True)
     subido_en: Mapped[datetime.datetime] = mapped_column(DateTime, default=_ahora, nullable=False)
+
+
+class RegistroEncargo(Base):
+    """Lo que el equipo confirma con un clic en la plataforma (decisión del dueño, 2026-09-26).
+
+    Independencia de cada integrante (Código IESBA; NIA 220), asistencia a la
+    discusión del equipo (NIA 315 y 240), aceptación del socio (NIGC 1), carta de
+    encargo firmada (NIA 210) y comunicación de la planificación al gobierno
+    (NIA 260). Nada se borra: un registro equivocado se anula y queda en la
+    historia (NIA 230). La planificación los lee al ejecutarse.
+    """
+
+    __tablename__ = "aud_registros_encargo"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    tipo: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Quien hizo el clic (correo del usuario) y el nombre con que figura en el papel.
+    actor: Mapped[str] = mapped_column(String(320), nullable=False)
+    nombre: Mapped[str] = mapped_column(String(200), nullable=False)
+    rol: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Fecha del hecho (la del clic, salvo la firma de la carta y el envío de la comunicación).
+    fecha: Mapped[datetime.date] = mapped_column(nullable=False)
+    datos: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    creado_en: Mapped[datetime.datetime] = mapped_column(DateTime, default=_ahora, nullable=False)
+    anulado_por: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    anulado_en: Mapped[datetime.datetime | None] = mapped_column(DateTime, nullable=True)

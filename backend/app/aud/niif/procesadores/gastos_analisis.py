@@ -45,6 +45,7 @@ Reglamento (UE) 2023/1803 (EUR-Lex, español); NIIF para las PYMES 2015 párr. 2
 """
 from __future__ import annotations
 
+from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
     FILA0, MARCO_COMPLETAS, MARCO_PYMES, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja, m,
     n2, norm, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
@@ -123,6 +124,7 @@ CEDULAS = [
     ("11_RP_Integridad", "Integridad de la revelación de partes relacionadas"),
     ("12_Inusuales", "Partidas inusuales"), ("13_Tributario", "Referencia tributaria (Ecuador)"),
     ("14_Ajustes", "Ajustes y conciliación"), ("15_Asientos", "Asientos propuestos"), ("16_Problemas", "Problemas encontrados"),
+    ("17_Conclusion", "Indicadores y conclusión"), ("18_Lectura", "Lectura de resultados"),
 ]
 
 _SI = {"si", "s", "x", "yes", "y", "1", "true", "verdadero"}
@@ -465,9 +467,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 # --- cédulas con fórmulas ---------------------------------------------------------
 
 P = ref("02_Parametros")
-CTA, TRX, VOU, COR, DEV, REC, RPS, RPI, INU, TRI, AJ = (ref(n) for n in (
+CTA, TRX, VOU, COR, DEV, REC, RPS, RPI, INU, TRI, AJ, PRB = (ref(n) for n in (
     "03_Analisis_global", "05_Transacciones", "06_Vouching", "07_Corte", "08_Devengo", "09_Reclasificaciones",
-    "10_Partes_relacionadas", "11_RP_Integridad", "12_Inusuales", "13_Tributario", "14_Ajustes"))
+    "10_Partes_relacionadas", "11_RP_Integridad", "12_Inusuales", "13_Tributario", "14_Ajustes", "16_Problemas"))
 _PAR = ["corte", "marco", "metodoEri", "requisito", "umbralVarPct", "umbralVarAbs", "materialidadEjecucion", "umbralAbs",
         "umbralBancarizacion", "gastosSegunEri", "rpRevelado", "rpEvidencia"]
 PAR = {k: FILA0 + i for i, k in enumerate(_PAR)}
@@ -481,6 +483,289 @@ def _pb(k):
 
 def _rng(hoja_ref: str, col: str, n: int) -> str:
     return f"{hoja_ref}${col}${FILA0}:${col}${FILA0 + max(n, 1) - 1}"
+
+
+_IMP_05 = "Trae el importe del comprobante desde la hoja 05 (Transacciones de la muestra); "
+
+# Explicaciones humanas de «Cómo se calcula esta hoja» (una por columna calculada).
+EXPLICA = {
+    "01_Resumen": {
+        "Importe": ("Trae cada importe de la hoja 14 (Ajustes y conciliación), concepto por concepto; los gastos del año anterior "
+                    "suman la columna «Saldo anterior» de la hoja 03 (Análisis global) y las partes relacionadas marcadas como no "
+                    "incluidas salen del total de la hoja 11 (Integridad de la revelación)."),
+    },
+    "02_Parametros": {
+        "Valor": ("Solo el «Umbral absoluto aplicado» se calcula: usa el umbral de variación en importe y, si está vacío, la "
+                  "materialidad de ejecución; los demás valores son datos de la ficha del encargo y del auditor."),
+    },
+    "03_Analisis_global": {
+        "Variación": "Resta el saldo del año anterior al saldo actual de la cuenta; si no hay saldo anterior, queda en blanco.",
+        "Variación %": ("Divide la variación para el saldo del año anterior; queda en blanco si no hay saldo anterior o si "
+                        "ese saldo es cero."),
+        "Excede umbral": ("Compara la variación con los umbrales de la hoja 02 (Parámetros): si en valor absoluto no pasa el "
+                          "umbral absoluto aplicado es «No»; si lo pasa, es «Sí» cuando el saldo anterior es cero o la "
+                          "variación % supera el umbral en %."),
+        "Variación vs presupuesto": ("Resta el presupuesto de la cuenta a su saldo actual; si la cuenta no tiene presupuesto, "
+                                     "queda en blanco."),
+        "Variación vs presupuesto %": ("Divide la variación contra el presupuesto para el presupuesto; queda en blanco si no "
+                                       "hay presupuesto o si es cero."),
+        "Excede umbral (presupuesto)": ("Aplica la misma prueba de umbrales de la hoja 02 (Parámetros) a la variación contra "
+                                        "el presupuesto: «Sí» solo si supera el umbral absoluto y, además, el presupuesto es "
+                                        "cero o la variación % supera el umbral en %."),
+        "Variación sin explicar": ("Marca «Sí» cuando la cuenta excede el umbral (contra el año anterior o contra el "
+                                   "presupuesto) y la columna «Explicación» está vacía; en otro caso, «No»."),
+        "Muestra examinada": ("Suma los importes de las transacciones de la hoja 05 (Transacciones de la muestra) "
+                              "registradas en esta cuenta y dentro del ejercicio."),
+        "Cobertura de la muestra": ("Divide la muestra examinada para el saldo actual de la cuenta: indica qué parte del "
+                                    "gasto se revisó con documentos; en blanco si el saldo es cero."),
+        "Semáforo": ("Estado de la cuenta: «Alerta» si la variación excede el umbral y no tiene explicación (exceso de gasto sin "
+                     "justificar), «Revisar» si excede el umbral pero está explicada, «Conforme» si la variación está dentro del umbral."),
+        "Presentada como extraordinaria": ("Marca «Sí» si el nombre de la cuenta o su línea del estado de resultados "
+                                           "contiene la palabra «extraordinario/a»; en otro caso, «No»."),
+    },
+    "04_Presentacion_ERI": {
+        "Cuentas": ("Cuenta cuántas cuentas de la hoja 03 (Análisis global) están asignadas a esta línea del estado de "
+                    "resultados."),
+        "Año actual": "Suma el saldo actual de las cuentas de la hoja 03 (Análisis global) asignadas a esta línea.",
+        "Año anterior": "Suma el saldo del año anterior de las cuentas de la hoja 03 (Análisis global) asignadas a esta línea.",
+        "Variación": "Resta el importe del año anterior al del año actual de esta línea del estado de resultados.",
+        "% del gasto total": ("Divide el gasto del año actual de la línea para el total de saldos actuales de la hoja 03 "
+                              "(Análisis global); en blanco si ese total es cero."),
+        "«Extraordinaria» (prohibido)": ("Marca «Sí» si el nombre de la línea del estado de resultados contiene la palabra "
+                                         "«extraordinario/a»; en otro caso, «No»."),
+    },
+    "05_Transacciones": {
+        "Registrado en el ejercicio": ("Marca «Sí» si la fecha de registro del comprobante es igual o anterior a la fecha de "
+                                       "corte de la hoja 02 (Parámetros)."),
+        "Con período de servicio": ("Marca «Sí» cuando el comprobante tiene fechas de inicio y de fin del servicio; esas "
+                                    "partidas se analizan por devengo en la hoja 08 y las demás por corte en la hoja 07."),
+    },
+    "06_Vouching": {
+        "Importe": _IMP_05 + "aquí solo aparecen los registrados en el ejercicio.",
+        "Gasto no soportado": "Si la columna «Tiene soporte» dice «No», toma el importe completo del comprobante; si no, cero.",
+        "Resultado": ("Traduce la columna «Tiene soporte»: «Sí» es «Soportado», «No» es «No soportado» y, si está vacía, "
+                      "«Sin resultado informado»."),
+    },
+    "07_Corte": {
+        "Importe": _IMP_05 + "aquí solo aparecen los que no tienen período de servicio.",
+        "Documento del ejercicio": ("Marca «Sí» si la fecha del documento es igual o anterior al corte de la hoja 02 "
+                                    "(Parámetros)."),
+        "Registrado en el ejercicio": ("Marca «Sí» si la fecha de registro contable es igual o anterior al corte de la hoja "
+                                       "02 (Parámetros)."),
+        "Gasto de otro período registrado": ("Si el documento es posterior al corte pero se registró dentro del ejercicio, "
+                                             "toma su importe: es gasto del año siguiente; si no, cero."),
+        "Gasto del ejercicio no registrado": ("Si el documento es del ejercicio pero se registró después del corte, toma su "
+                                              "importe: es gasto que faltó registrar; si no, cero."),
+    },
+    "08_Devengo": {
+        "Importe": _IMP_05 + "aquí solo aparecen los que tienen período de servicio.",
+        "Días del servicio": "Cuenta los días del servicio, desde la fecha de inicio hasta la de fin, incluidos ambos días.",
+        "Días hasta el corte": ("Cuenta los días del servicio desde su inicio hasta la fecha de fin o hasta el corte de la "
+                                "hoja 02 (Parámetros), lo que ocurra primero; nunca menos de cero."),
+        "Días posteriores": ("Resta los días hasta el corte a los días totales del servicio: son los días que corresponden "
+                             "al año siguiente."),
+        "Gasto del período": ("Reparte el importe en proporción a los días: importe × días hasta el corte ÷ días del "
+                              "servicio."),
+        "Registrado en el ejercicio": ("Marca «Sí» si la fecha de registro es igual o anterior al corte de la hoja 02 "
+                                       "(Parámetros)."),
+        "Anticipado llevado a resultados": ("Si el comprobante se registró en el ejercicio, calcula la parte del importe de "
+                                            "los días posteriores al corte (importe × días posteriores ÷ días del "
+                                            "servicio): es gasto pagado por anticipado; si no, cero."),
+        "Devengado no registrado": ("Si el comprobante se registró después del corte, toma el gasto del período: es "
+                                    "servicio consumido en el año que no llegó a registrarse; si no, cero."),
+    },
+    "09_Reclasificaciones": {
+        "Importe": _IMP_05 + "aquí solo aparecen los registrados en una cuenta distinta de la cuenta sugerida.",
+        "Línea registrada": ("Busca en la hoja 03 (Análisis global) la línea del estado de resultados de la cuenta donde se "
+                             "registró; si la cuenta no está en la sumaria, lo indica."),
+        "Línea correcta": ("Busca en la hoja 03 (Análisis global) la línea del estado de resultados de la cuenta correcta; "
+                           "si no está en la sumaria, lo indica."),
+        "Cambia la línea del estado de resultados": ("Marca «Sí» cuando la línea registrada y la correcta son distintas, es "
+                                                     "decir, cuando la reclasificación cambia la presentación en el estado "
+                                                     "de resultados."),
+    },
+    "10_Partes_relacionadas": {
+        "Transacciones": ("Cuenta las transacciones de la hoja 05 (Transacciones de la muestra) marcadas como parte "
+                          "relacionada, registradas en el ejercicio y con esta categoría; la fila «Sin categoría válida» "
+                          "cuenta las que quedan fuera de las categorías del marco."),
+        "Importe del período": ("Suma el importe de esas mismas transacciones de la hoja 05 por categoría; la fila «Sin "
+                                "categoría válida» es el total con partes relacionadas menos lo ya asignado a las "
+                                "categorías del marco."),
+    },
+    "11_RP_Integridad": {
+        "Importe": _IMP_05 + "aquí solo aparecen las transacciones con partes relacionadas registradas en el ejercicio.",
+        "Categoría válida para el marco": ("Marca «Sí» si la categoría informada está entre las categorías del marco "
+                                           "listadas en la hoja 10 (Partes relacionadas); si está vacía o no coincide, "
+                                           "«No»."),
+        "Importe no revelado (marca)": ("Si la transacción está marcada como no incluida en la nota, toma su importe; "
+                                        "si no, cero."),
+        "Conclusión de integridad de la revelación": ("Solo en la fila TOTAL: sin evidencia de integridad en la hoja 02 "
+                                                      "(Parámetros) no se concluye; con ella, revisa si hay importes con "
+                                                      "partes relacionadas, si se informó lo revelado en notas y si queda "
+                                                      "algo sin revelar."),
+    },
+    "12_Inusuales": {
+        "Importe": _IMP_05 + "aquí solo aparecen las partidas marcadas como inusuales y registradas en el ejercicio.",
+        "Revelar por separado (≥ materialidad)": ("Marca «Sí» si el importe iguala o supera la materialidad de ejecución de "
+                                                  "la hoja 02 (Parámetros); si no hay materialidad informada, queda en "
+                                                  "blanco."),
+    },
+    "13_Tributario": {
+        "Importe": _IMP_05 + "aquí aparecen todos los registrados en el ejercicio.",
+        "Supera el umbral de bancarización": ("Marca «Sí» si el importe es mayor que el umbral de bancarización de la hoja "
+                                              "02 (Parámetros)."),
+        "No deducible: comprobante": ("Si el comprobante no es válido, todo su importe queda como no deducible; si no, "
+                                      "cero."),
+        "No deducible: bancarización": ("Si el pago supera el umbral de bancarización, no se pagó por banco y el comprobante "
+                                        "no está marcado como inválido, su importe queda como no deducible; si no, cero "
+                                        "(así no se cuenta dos veces)."),
+        "No deducible total": "Suma lo no deducible por comprobante y lo no deducible por bancarización del mismo pago.",
+    },
+    "14_Ajustes": {
+        "Importe": ("Trae cada importe del total de su hoja de origen (06, 07, 08, 09, 10, 12 y 13) o de la hoja 02 "
+                    "(Parámetros); el ajuste neto = no registrados + devengados no registrados − otro período − "
+                    "anticipados; las partes relacionadas no reveladas = identificadas − reveladas (nunca negativo); la "
+                    "diferencia = gastos de la sumaria (hoja 03) − estado de resultados."),
+    },
+    "15_Asientos": {
+        "Debe": ("Trae de la hoja 14 (Ajustes y conciliación) el importe de cada ajuste —o de la hoja 09 "
+                 "(Reclasificaciones) en las reclasificaciones— para la cuenta que se debita."),
+        "Haber": ("Trae el mismo importe del ajuste de la hoja 14 (Ajustes y conciliación) o de la hoja 09 "
+                  "(Reclasificaciones) para la cuenta que se acredita, de modo que el asiento cuadra."),
+    },
+    "17_Conclusion": {
+        "Importe": ("Cada indicador toma su cifra de la hoja 14 (Ajustes y conciliación): el gasto de la sumaria, el ajuste "
+                    "neto propuesto, los gastos no soportados, las partes relacionadas no reveladas y el importe no "
+                    "deducible, sin volver a calcularlos aquí."),
+        "Porcentaje": ("Divide el ajuste propuesto para el gasto de la sumaria (renglones de esta misma hoja): es el peso del "
+                       "ajuste sobre el gasto del año; en blanco si la sumaria es cero."),
+        "Cantidad": ("Cuenta los problemas listados en la hoja 16 (Problemas encontrados): cuántas excepciones dejó abiertas "
+                     "la prueba de gastos."),
+        "Estado": ("Semáforo de cada indicador: el ajuste marca «Alerta» si supera la materialidad de ejecución de la hoja 02 "
+                   "y «Revisar» si solo pasa el mínimo; los gastos no soportados y las partes relacionadas no reveladas dan "
+                   "alerta, y el importe no deducible o los problemas abiertos piden revisión."),
+    },
+}
+
+# Panel del dashboard (formato en graficos.py): la población es el gasto de la sumaria; el auditor recalcula por días
+# el gasto devengado de los servicios con período y lo compara con lo que el cliente llevó a gasto en el ejercicio
+# (las facturas contabilizadas; una registrada después del corte queda fuera del registrado).
+PANEL = {
+    "poblacion": {"rotulo": "Gasto total de la sumaria", "hoja": "03_Analisis_global", "col": "Saldo actual"},
+    "recalculado": {"rotulo": "Gasto devengado del período (muestra)", "hoja": "08_Devengo", "col": "Gasto del período"},
+    "registrado": {"rotulo": "Gasto registrado en el período (muestra)", "hoja": "08_Devengo", "col": "Importe",
+                   "donde": {"Registrado en el ejercicio": ["Sí"]}},
+    "composicion": {"rotulo": "Gasto devengado por proveedor", "hoja": "08_Devengo", "etiqueta": "Proveedor",
+                    "valor": "Gasto del período"},
+    "distribucion": {"rotulo": "Gasto por línea del ERI", "hoja": "04_Presentacion_ERI",
+                     "etiqueta": "Línea del estado de resultados", "valor": "Año actual"},
+    # Tablero: integridad del gasto (NIA 500), conceptos de rótulo fijo de la conciliación (14), gasto según la sumaria
+    # frente al del estado de resultados / mayor. Las cuentas y las líneas del ERI son categorías del cliente (variables),
+    # por eso el tablero se apoya en los dos conceptos fijos de la cédula de conciliación.
+    "tableros": [
+        {"rotulo": "Gasto por línea del estado de resultados: actual frente al anterior", "sub": "USD · gasto del año actual frente al anterior, por línea del estado de resultados.",
+         "unidad": "USD", "hoja": "04_Presentacion_ERI", "etiqueta": "Línea del estado de resultados", "seccion": "Integridad del gasto",
+         "filas": ["Costo de ventas", "Gastos de administración", "Gastos de ventas", "Gastos financieros", "Gastos extraordinarios"],
+         "series": [["Año actual", "Año actual"], ["Año anterior", "Año anterior"]]},
+    ],
+}
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) --------------
+
+_T = problemas._texto
+
+
+def _pr_hoja(hojas, nombre):
+    return next((x for x in hojas if x["name"] == nombre), None)
+
+
+def _pr_rango(hojas, hoja_: str, col: str) -> str:
+    """Rango de la columna sobre las filas de datos de la cédula (sin la fila TOTAL)."""
+    n = max(len(_pr_hoja(hojas, hoja_)["rows"]), 1)
+    return f"{problemas.celda(hojas, hoja_, col, 0)}:{problemas.celda(hojas, hoja_, col, n - 1).split('!')[1]}"
+
+
+def _por_fila(hoja_: str, columna, id_col: int, prov_col: int | None = None):
+    """Celda de la columna en la fila que abre la descripción del problema: «cuenta nombre…» o
+    «comprobante proveedor:». ``columna`` puede ser una función (fila, columnas) -> título."""
+    def f(hojas, e):
+        h = _pr_hoja(hojas, hoja_)
+        if h is None:
+            return None
+        msg = e.get("message") or ""
+        cols = [c[0] for c in h["cols"]]
+        for i, fila in enumerate(h["rows"]):
+            pref = f"{_T(fila[id_col])} {_T(fila[prov_col])}" if prov_col is not None else _T(fila[id_col])
+            if msg.startswith(f"{pref}:") or msg.startswith(f"{pref} ("):
+                col = columna(fila, cols) if callable(columna) else columna
+                return problemas.celda(hojas, hoja_, col, i), fila[cols.index(col)]
+        return None
+    return f
+
+
+def _fila_ajustes(clave: str):
+    """Fila de la hoja 14 (Ajustes y conciliación) donde se calcula el concepto."""
+    def f(hojas, e):
+        i = _AJ.index(clave)
+        return problemas.celda(hojas, "14_Ajustes", "Importe", i), _pr_hoja(hojas, "14_Ajustes")["rows"][i][1]
+    return f
+
+
+def _sumif(hoja_: str, col_crit: str, criterio: str, cond, col_suma: str):
+    """SUMIF(rango de criterio; criterio; rango a sumar) sobre las filas de datos de la cédula."""
+    def f(hojas, e):
+        h = _pr_hoja(hojas, hoja_)
+        if h is None or not h["rows"]:
+            return None
+        cols = [c[0] for c in h["cols"]]
+        jc, js = cols.index(col_crit), cols.index(col_suma)
+        valor = sum(problemas._num(x[js]) or 0 for x in h["rows"] if cond(x[jc]))
+        return f"SUMIF({_pr_rango(hojas, hoja_, col_crit)},{criterio},{_pr_rango(hojas, hoja_, col_suma)})", valor
+    return f
+
+
+def _col_variacion(fila, cols):
+    """La variación que supera el umbral: contra el año anterior o, si no, contra el presupuesto."""
+    return "Variación" if _T(fila[cols.index("Excede umbral")]) == "Sí" else "Variación vs presupuesto"
+
+
+def _rp_sin_categoria(hojas, e):
+    """Importe de la fila «Sin categoría válida» de la hoja 10 (Partes relacionadas)."""
+    h = _pr_hoja(hojas, "10_Partes_relacionadas")
+    i = next((k for k, x in enumerate(h["rows"]) if _T(x[0]) == SIN_CATEGORIA), None)
+    return None if i is None else (problemas.celda(hojas, "10_Partes_relacionadas", "Importe del período", i), h["rows"][i][2])
+
+
+def _vacio(v) -> bool:
+    return _T(v) == "" and problemas._num(v) is None
+
+
+# De qué celda sale el importe de cada problema.
+REF_PROBLEMAS = {
+    "VARIACION_SIN_EXPLICAR": _por_fila("03_Analisis_global", _col_variacion, 0, 1),        # variación sobre el umbral
+    "PARTIDA_EXTRAORDINARIA": _por_fila("03_Analisis_global", "Saldo actual", 0, 1),        # saldo de la cuenta «extraordinaria»
+    "NATURALEZA_NO_REVELADA": _sumif("03_Analisis_global", "Naturaleza", '""', _vacio, "Saldo actual"),  # cuentas sin naturaleza
+    "DIF_CONCILIACION": _fila_ajustes("difConc"),                                            # sumaria − estado de resultados
+    "SALDO_ACREEDOR": _por_fila("03_Analisis_global", "Saldo actual", 0, 1),                # saldo acreedor de la cuenta
+    "GASTO_NO_SOPORTADO": _por_fila("06_Vouching", "Gasto no soportado", 0, 3),             # importe sin soporte
+    "DATO_VOUCHING_FALTANTE": _sumif("06_Vouching", "Resultado", '"Sin resultado informado"',
+                                     lambda v: _T(v) == "Sin resultado informado", "Importe"),  # transacciones sin resultado
+    "CORTE_OTRO_PERIODO": _por_fila("07_Corte", "Gasto de otro período registrado", 0, 1),  # documento posterior registrado
+    "CORTE_NO_REGISTRADO": _por_fila("07_Corte", "Gasto del ejercicio no registrado", 0, 1),  # documento del año sin registrar
+    "GASTO_ANTICIPADO_EN_RESULTADOS": _por_fila("08_Devengo", "Anticipado llevado a resultados", 0, 1),  # días posteriores al corte
+    "DEVENGADO_NO_REGISTRADO": _por_fila("08_Devengo", "Devengado no registrado", 0, 1),    # gasto del período no registrado
+    "CLASIFICACION_INCORRECTA": _por_fila("09_Reclasificaciones", "Importe", 0, 1),         # importe a reclasificar
+    "SIN_RP_REVELADO": ("10_Partes_relacionadas", "Importe del período", "total"),          # partes relacionadas de la muestra
+    "RP_NO_REVELADAS": _fila_ajustes("rpNr"),                                                # MAX(muestra − revelado, 0)
+    "RP_SIN_CATEGORIA": _rp_sin_categoria,                                                   # fila «Sin categoría válida»
+    "RP_TRANSACCION_NO_REVELADA": _por_fila("11_RP_Integridad", "Importe no revelado (marca)", 0, 1),  # marcada fuera de la nota
+    "DATO_RP_REVELADA_FALTANTE": _sumif("11_RP_Integridad", "Incluida en la nota", '""', _vacio, "Importe"),  # sin indicar
+    "RP_INTEGRIDAD_NO_CONCLUIDA": ("11_RP_Integridad", "Importe", "total"),                  # población sin conclusión
+    "PARTIDA_INUSUAL": _por_fila("12_Inusuales", "Importe", 0, 3),                          # importe de la partida inusual
+    "SIN_COMPROBANTE_VALIDO": _por_fila("13_Tributario", "No deducible: comprobante", 0, 1),  # no deducible por comprobante
+    "SIN_BANCARIZACION": _por_fila("13_Tributario", "No deducible: bancarización", 0, 1),   # no deducible por bancarización
+}
 
 
 def hojas(res: dict) -> list[dict]:
@@ -532,12 +817,14 @@ def hojas(res: dict) -> list[dict]:
             fx(f'SUMIFS({_rng(TRX, "F", nt)},{_rng(TRX, "G", nt)},A{r},{_rng(TRX, "P", nt)},"Sí")' if nt else "0", n2(c["muestra"])),
             fx(f'IF(E{r}=0,"",P{r}/E{r})', c["cobertura"]),
             fx(f'IF(OR(ISNUMBER(SEARCH("extraordinari",B{r})),ISNUMBER(SEARCH("extraordinari",C{r}))),"Sí","No")', c["extra"]),
+            fx(f'IF(O{r}="Sí","Alerta",IF(OR(I{r}="Sí",M{r}="Sí"),"Revisar","Conforme"))',
+               "Alerta" if c["sinExplicar"] == "Sí" else ("Revisar" if (c["excede"] == "Sí" or c["excedePpto"] == "Sí") else "Conforme")),
         ])
     fin_c = FILA0 + nc - 1
     tot_an = ["TOTAL", "", "", "", suma("E", fin_c, t["gastoTotal"]), suma("F", fin_c, t["gastoAnterior"]),
               suma("G", fin_c, sum(c["var"] or 0 for c in cs)), None, "", suma("J", fin_c, sum(c["ppto"] or 0 for c in cs)),
               suma("K", fin_c, sum(c["varPpto"] or 0 for c in cs)), None, "", "", "", suma("P", fin_c, sum(c["muestra"] for c in cs)),
-              fx(f'IF(E{fin_c + 1}=0,"",P{fin_c + 1}/E{fin_c + 1})', sum(c["muestra"] for c in cs) / t["gastoTotal"] if t["gastoTotal"] else None), ""]
+              fx(f'IF(E{fin_c + 1}=0,"",P{fin_c + 1}/E{fin_c + 1})', sum(c["muestra"] for c in cs) / t["gastoTotal"] if t["gastoTotal"] else None), "", ""]
 
     # 04 · Presentación por línea del estado de resultados.
     pres = []
@@ -725,54 +1012,122 @@ def hojas(res: dict) -> list[dict]:
                "rpNoReveladaMarcada": f"{RPI}H{trp}", "inusuales": ajb("inus"), "noDeducible": ajb("noDed"), "difConciliacion": ajb("difConc")}
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
+    # 17 · indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    nprob = len(res["exceptions"])
+    matc = _pb("materialidadEjecucion")
+    mat_v = d["mat"]
+    b17 = lambda kk: f"B{FILA0 + kk}"
+    dd17 = lambda kk: f"D{FILA0 + kk}"
+    aj_v, nsop_v, rpnr_v, ndd_v = t["ajusteGasto"], t["noSoportado"], t["rpNoReveladas"], t["noDeducible"]
+    con17 = [
+        ["Gasto del año según la sumaria (población)", fx(ajb("sumaria"), t["gastoTotal"]), None, None, ""],
+        ["Ajuste propuesto al gasto (neto; NIC 1 · PYMES Secc. 5)", fx(ajb("ajuste"), t["ajusteGasto"]), None, None,
+         fx(f'IF(AND({matc}<>"",ABS({b17(1)})>{matc}),"Alerta",IF(ABS({b17(1)})>0.005,"Revisar","Conforme"))',
+            "Alerta" if (mat_v is not None and abs(aj_v) > mat_v) else ("Revisar" if abs(aj_v) > 0.005 else "Conforme"))],
+        ["% del ajuste sobre el gasto de la sumaria", None, fx(f'IF({b17(0)}=0,"",{b17(1)}/{b17(0)})',
+         None if t["gastoTotal"] == 0 else t["ajusteGasto"] / t["gastoTotal"]), None, ""],
+        ["Gastos no soportados (NIA 500)", fx(ajb("noSop"), t["noSoportado"]), None, None,
+         fx(f'IF(ABS({b17(3)})>0.005,"Alerta","Conforme")', "Alerta" if abs(nsop_v) > 0.005 else "Conforme")],
+        ["Partes relacionadas no reveladas (NIC 24 · PYMES Secc. 33)", fx(ajb("rpNr"), t["rpNoReveladas"]), None, None,
+         fx(f'IF(ABS({b17(4)})>0.005,"Alerta","Conforme")', "Alerta" if abs(rpnr_v) > 0.005 else "Conforme")],
+        ["No deducible (referencia tributaria)", fx(ajb("noDed"), t["noDeducible"]), None, None,
+         fx(f'IF(ABS({b17(5)})>0.005,"Revisar","Conforme")', "Revisar" if abs(ndd_v) > 0.005 else "Conforme")],
+        ["Problemas encontrados (cantidad)", None, None, fx(f"COUNTA({_rng(PRB, 'A', nprob)})", nprob),
+         fx(f'IF({dd17(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+        ["Conclusión: el gasto se reconoce por devengo con soporte suficiente (NIC 1; PYMES Secc. 2 y 5); esta prueba no "
+         "concluye por sí sola el cumplimiento de las NIIF ni la deducibilidad tributaria.", None, None, None, ""],
+    ]
+
+    # 18 · lectura causa-efecto: cada frase lee el resultado con su cifra embebida (FIXED) desde el Resumen (hoja 01).
+    R1 = ref("01_Resumen")
+    fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
+    rc = lambda key: f"{R1}B{fr[key]}"
+    lectura = [
+        ["Resultado de la prueba",
+         fx(f'"Los gastos según la sumaria del año actual suman US$ "&FIXED({rc("gastoTotal")},2)&", frente a US$ "&'
+            f'FIXED({rc("gastoAnterior")},2)&" del año anterior (análisis global NIA 520)."',
+            f'Los gastos según la sumaria del año actual suman US$ {m(t["gastoTotal"])}, frente a US$ {m(t["gastoAnterior"])} '
+            f'del año anterior (análisis global NIA 520).')],
+        ["Ajuste propuesto y su efecto",
+         fx(f'"El ajuste propuesto al gasto es de US$ "&FIXED({rc("ajusteGasto")},2)&": "&'
+            f'IF({rc("ajusteGasto")}>=0,"aumenta el gasto del ejercicio.","reduce el gasto registrado.")',
+            f'El ajuste propuesto al gasto es de US$ {m(t["ajusteGasto"])}: '
+            + ("aumenta el gasto del ejercicio." if t["ajusteGasto"] >= 0 else "reduce el gasto registrado."))],
+        ["Corte y devengo",
+         fx(f'"Hay US$ "&FIXED({rc("devengadoNoRegistrado")},2)&" de gastos devengados no registrados y US$ "&'
+            f'FIXED({rc("anticipado")},2)&" de gastos anticipados llevados a resultados."',
+            f'Hay US$ {m(t["devengadoNoRegistrado"])} de gastos devengados no registrados y US$ {m(t["anticipado"])} de gastos '
+            f'anticipados llevados a resultados.')],
+        ["Soporte y partes relacionadas",
+         fx(f'"Se identificaron US$ "&FIXED({rc("noSoportado")},2)&" de gastos sin soporte suficiente y US$ "&'
+            f'FIXED({rc("partesRelacionadas")},2)&" de transacciones con partes relacionadas."',
+            f'Se identificaron US$ {m(t["noSoportado"])} de gastos sin soporte suficiente y US$ {m(t["partesRelacionadas"])} '
+            f'de transacciones con partes relacionadas.')],
+        ["Cierre",
+         fx(f'"Como referencia tributaria (Ecuador), US$ "&FIXED({rc("noDeducible")},2)&" del gasto no sería deducible; es una '
+            f'referencia y no concluye la deducibilidad."',
+            f'Como referencia tributaria (Ecuador), US$ {m(t["noDeducible"])} del gasto no sería deducible; es una referencia '
+            f'y no concluye la deducibilidad.')],
+    ]
+    ex_lectura = {"Detalle": ("Lee en lenguaje corriente el resultado de la prueba y sus hallazgos materiales con la cifra embebida "
+                              "tomada del Resumen (hoja 01): los gastos del año actual frente al anterior, el ajuste propuesto al "
+                              "gasto y su efecto, los gastos devengados no registrados y los anticipados, los gastos sin soporte y con "
+                              "partes relacionadas, y la referencia tributaria de lo no deducible. Cada cifra remite por fórmula a la "
+                              "celda del Resumen.")}
+
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
-        hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
+        hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros, explica=EXPLICA["02_Parametros"]),
         hoja("03_Analisis_global", "Análisis global por cuenta (NIA 520)",
              [["Cuenta", "t"], ["Nombre", "t"], ["Línea del estado de resultados", "t"], ["Naturaleza", "t"], ["Saldo actual", "n"],
               ["Saldo anterior", "n"], ["Variación", "n"], ["Variación %", "p"], ["Excede umbral", "t"], ["Presupuesto", "n"],
               ["Variación vs presupuesto", "n"], ["Variación vs presupuesto %", "p"], ["Excede umbral (presupuesto)", "t"],
               ["Explicación", "t"], ["Variación sin explicar", "t"], ["Muestra examinada", "n"], ["Cobertura de la muestra", "p"],
-              ["Presentada como extraordinaria", "t"]], analisis, tot_an),
+              ["Presentada como extraordinaria", "t"], ["Semáforo", "t"]], analisis, tot_an,
+             explica=EXPLICA["03_Analisis_global"], colores=["Semáforo"]),
         hoja("04_Presentacion_ERI", "Presentación en el estado de resultados",
              [["Línea del estado de resultados", "t"], ["Cuentas", "i"], ["Año actual", "n"], ["Año anterior", "n"], ["Variación", "n"],
-              ["% del gasto total", "p"], ["«Extraordinaria» (prohibido)", "t"]], pres, tot_pres),
+              ["% del gasto total", "p"], ["«Extraordinaria» (prohibido)", "t"]], pres, tot_pres, explica=EXPLICA["04_Presentacion_ERI"]),
         hoja("05_Transacciones", "Transacciones de la muestra",
              [["Comprobante", "t"], ["Fecha documento", "d"], ["Fecha registro", "d"], ["Servicio desde", "d"], ["Servicio hasta", "d"],
               ["Importe", "n"], ["Cuenta", "t"], ["Proveedor", "t"], ["Soporte", "t"], ["Comprobante válido SRI", "t"],
               ["Pagado por banco", "t"], ["Parte relacionada", "t"], ["Categoría parte relacionada", "t"], ["Cuenta sugerida", "t"],
-              ["Inusual", "t"], ["Registrado en el ejercicio", "t"], ["Con período de servicio", "t"]], trans, tot_tr),
+              ["Inusual", "t"], ["Registrado en el ejercicio", "t"], ["Con período de servicio", "t"]], trans, tot_tr, explica=EXPLICA["05_Transacciones"]),
         hoja("06_Vouching", "Verificación del soporte documental",
              [["Comprobante", "t"], ["Fecha documento", "d"], ["Cuenta", "t"], ["Proveedor", "t"], ["Importe", "n"], ["Tiene soporte", "t"],
-              ["Gasto no soportado", "n"], ["Resultado", "t"]], vou, tot_vou),
+              ["Gasto no soportado", "n"], ["Resultado", "t"]], vou, tot_vou, explica=EXPLICA["06_Vouching"]),
         hoja("07_Corte", "Corte de gastos",
              [["Comprobante", "t"], ["Proveedor", "t"], ["Cuenta", "t"], ["Fecha documento", "d"], ["Fecha registro", "d"], ["Importe", "n"],
               ["Documento del ejercicio", "t"], ["Registrado en el ejercicio", "t"], ["Gasto de otro período registrado", "n"],
-              ["Gasto del ejercicio no registrado", "n"]], cor, tot_cor),
+              ["Gasto del ejercicio no registrado", "n"]], cor, tot_cor, explica=EXPLICA["07_Corte"]),
         hoja("08_Devengo", "Devengo y gastos anticipados",
              [["Comprobante", "t"], ["Proveedor", "t"], ["Cuenta", "t"], ["Fecha registro", "d"], ["Servicio desde", "d"], ["Servicio hasta", "d"],
               ["Importe", "n"], ["Días del servicio", "i"], ["Días hasta el corte", "i"], ["Días posteriores", "i"], ["Gasto del período", "n"],
-              ["Registrado en el ejercicio", "t"], ["Anticipado llevado a resultados", "n"], ["Devengado no registrado", "n"]], dev, tot_dev),
+              ["Registrado en el ejercicio", "t"], ["Anticipado llevado a resultados", "n"], ["Devengado no registrado", "n"]], dev, tot_dev, explica=EXPLICA["08_Devengo"]),
         hoja("09_Reclasificaciones", "Reclasificaciones",
              [["Comprobante", "t"], ["Proveedor", "t"], ["Cuenta registrada", "t"], ["Cuenta correcta", "t"], ["Importe", "n"],
-              ["Línea registrada", "t"], ["Línea correcta", "t"], ["Cambia la línea del estado de resultados", "t"]], rec, tot_rec),
+              ["Línea registrada", "t"], ["Línea correcta", "t"], ["Cambia la línea del estado de resultados", "t"]], rec, tot_rec, explica=EXPLICA["09_Reclasificaciones"]),
         hoja("10_Partes_relacionadas", "Partes relacionadas",
-             [["Categoría", "t"], ["Transacciones", "i"], ["Importe del período", "n"], ["Referencia", "t"]], rps, tot_rp),
+             [["Categoría", "t"], ["Transacciones", "i"], ["Importe del período", "n"], ["Referencia", "t"]], rps, tot_rp, explica=EXPLICA["10_Partes_relacionadas"]),
         hoja("11_RP_Integridad", "Integridad de la revelación de partes relacionadas",
              [["Comprobante", "t"], ["Proveedor", "t"], ["Cuenta", "t"], ["Importe", "n"], ["Categoría informada", "t"],
               ["Categoría válida para el marco", "t"], ["Incluida en la nota", "t"], ["Importe no revelado (marca)", "n"],
-              ["Conclusión de integridad de la revelación", "t"]], rpi, tot_rpi),
+              ["Conclusión de integridad de la revelación", "t"]], rpi, tot_rpi, explica=EXPLICA["11_RP_Integridad"]),
         hoja("12_Inusuales", "Partidas inusuales",
              [["Comprobante", "t"], ["Fecha documento", "d"], ["Cuenta", "t"], ["Proveedor", "t"], ["Importe", "n"],
-              ["Revelar por separado (≥ materialidad)", "t"]], inu, tot_inu),
+              ["Revelar por separado (≥ materialidad)", "t"]], inu, tot_inu, explica=EXPLICA["12_Inusuales"]),
         hoja("13_Tributario", "Referencia tributaria (Ecuador)",
              [["Comprobante", "t"], ["Proveedor", "t"], ["Importe", "n"], ["Comprobante válido", "t"], ["Pagado por banco", "t"],
               ["Supera el umbral de bancarización", "t"], ["No deducible: comprobante", "n"], ["No deducible: bancarización", "n"],
-              ["No deducible total", "n"]], tri, tot_tri),
-        hoja("14_Ajustes", "Ajustes y conciliación", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], ajustes),
-        hoja("15_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
+              ["No deducible total", "n"]], tri, tot_tri, explica=EXPLICA["13_Tributario"]),
+        hoja("14_Ajustes", "Ajustes y conciliación", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], ajustes, explica=EXPLICA["14_Ajustes"]),
+        hoja("15_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos, explica=EXPLICA["15_Asientos"]),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("17_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con17,
+             explica=EXPLICA["17_Conclusion"], colores=["Estado"]),
+        hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
     ]
 
 

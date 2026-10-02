@@ -7,6 +7,7 @@ from io import BytesIO
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -196,20 +197,36 @@ def get_slots_endpoint(
 @router.post("/jobs/{job_id}/procesar", response_model=JobOut)
 def procesar_endpoint(
     job_id: int,
+    background: BackgroundTasks,
     current: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Fase 1: clasifica el Mayor General y deja el job listo para revisión."""
+    """Fase 1: clasifica el Mayor General y deja el job listo para revisión.
+
+    La clasificación de un Mayor grande (decenas de miles de movimientos)
+    tarda más que el timeout del gateway/proxy, así que NO se corre dentro del
+    request: se marca el job en 'running', se dispara en segundo plano y se
+    responde al instante. El frontend consulta el estado del job hasta que
+    pasa a 'revision'. Antes esto corría síncrono y, al morir el request por
+    timeout, el job quedaba atascado en 'running' (con la clasificación ya
+    guardada pero sin llegar a 'revision'): de ahí el "no hay nada que
+    aprobar".
+
+    Se admite 'running' entre los estados de partida para poder RECUPERAR un
+    job que quedó atascado en una corrida anterior: se vuelve a disparar.
+    """
     try:
         job = service.get_job(db, current, job_id)
     except PermissionError as e:
         raise HTTPException(403, detail=str(e))
-    if job.status not in ("borrador", "revision", "failed"):
+    if job.status not in ("borrador", "revision", "failed", "running"):
         raise HTTPException(409, detail=f"El job está en estado {job.status}.")
     if not file_storage.list_inputs(file_storage.job_dir(job_id), "mayor_general"):
         raise HTTPException(400, detail="Sube el Mayor General de Impuestos antes de procesar.")
 
-    jobs.clasificar_mayor_job(job_id)
+    # Estado inmediato para el frontend; el trabajo pesado corre en background.
+    service.mark_running(db, job_id)
+    background.add_task(jobs.clasificar_mayor_job, job_id)
     db.expire_all()
     return JobOut.model_validate(service.get_job(db, current, job_id))
 
@@ -306,10 +323,17 @@ def put_clasificacion_endpoint(
 @router.post("/jobs/{job_id}/aprobar", response_model=JobOut)
 def aprobar_endpoint(
     job_id: int,
+    background: BackgroundTasks,
     current: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Persiste lo aprendido y dispara la fase 2 (generación del Excel)."""
+    """Persiste lo aprendido y dispara la fase 2 (generación del Excel).
+
+    La generación del libro DM vuelve a leer el Mayor completo y arma el
+    workbook, así que —igual que la clasificación— se dispara en segundo plano
+    y se responde al instante con el job en 'running'. El frontend consulta el
+    estado hasta que pasa a 'done'.
+    """
     from backend.app.aud.obligaciones_fiscales.mayor import (
         clasificacion_service,
         homologaciones,
@@ -325,6 +349,8 @@ def aprobar_endpoint(
             409, detail=f"El job está en estado {job.status}: no hay nada que aprobar."
         )
 
+    # Lo aprendido se persiste ya (es liviano y necesita las filas revisadas);
+    # solo la generación del Excel corre en background.
     filas = clasificacion_service.clasificacion_de_job(db, job_id=job_id)
     proyecto = db.get(Project, job.project_id)
     homologaciones.guardar_homologaciones(
@@ -338,7 +364,8 @@ def aprobar_endpoint(
         user_id=current.id,
     )
 
-    jobs.process_job(job_id)
+    service.mark_running(db, job_id)
+    background.add_task(jobs.process_job, job_id)
     db.expire_all()
     return JobOut.model_validate(service.get_job(db, current, job_id))
 

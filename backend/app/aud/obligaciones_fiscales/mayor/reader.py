@@ -8,6 +8,7 @@ reporta en lugar de fallar: el auditor mapea las columnas a mano.
 from __future__ import annotations
 
 import datetime
+import re
 import unicodedata
 from io import BytesIO
 
@@ -53,6 +54,26 @@ SINONIMOS: dict[str, tuple[str, ...]] = {
 # Campos donde el respaldo por "contiene" sería peligroso.
 SOLO_EXACTO = frozenset({"cuenta", "saldo"})
 
+# Palabras que delatan la columna de débito y la de crédito. Se usan para
+# reconocer (y descartar) la columna COMBINADA que algunos ERP publican: una
+# sola columna con el cargo y el abono en un mismo campo, con signo
+# ('Cargo/Abono (ML)', 'Débito/Crédito', 'Movimiento neto'). Esa columna NO es
+# ni el debe ni el haber, es el NETO.
+_TOKENS_DEBE = ("debe", "debito", "cargo")
+_TOKENS_HABER = ("haber", "credito", "abono")
+
+# Un código de cuenta: solo dígitos y puntos, al menos tres caracteres. Así
+# '11010102' y '1.1.5.1.1' cuentan, pero un '0' suelto o una fecha no.
+_RE_CODIGO_CUENTA = re.compile(r"^\d[\d.]{2,}$")
+
+# Secciones del balance/estado de resultados que encabezan un bloque en los
+# mayores tipo SAP; nunca son el nombre propio de una cuenta.
+_SECCIONES_MAYOR = frozenset({
+    "activos", "activo", "pasivos", "pasivo", "patrimonio", "ingresos",
+    "ingreso", "gastos", "gasto", "costos", "costo", "resultados",
+    "resultado", "cuentas de orden", "otros", "otras",
+})
+
 MAX_FILAS_BUSQUEDA_ENCABEZADO = 30
 
 # Prefijos (normalizados) que delatan una fila de acumulado por cuenta
@@ -76,6 +97,21 @@ def _norm(valor) -> str:
     return " ".join(s.split())
 
 
+def _es_columna_combinada(texto: str) -> bool:
+    """True si el encabezado normalizado combina débito y crédito en una sola
+    columna (p.ej. 'cargo abono ml', 'debito credito', 'debe haber').
+
+    Esa columna trae el NETO con signo, no el débito bruto: mapearla como
+    'debe' mete el crédito (que viene negativo) dentro del débito y corrompe
+    los totales del mayor. Defecto detectado con el mayor SAP de ELEA, cuya
+    columna 'Cargo/Abono (ML)' se colaba como 'debe' por delante de la columna
+    real 'Cargo (ML)'.
+    """
+    tiene_debe = any(t in texto for t in _TOKENS_DEBE)
+    tiene_haber = any(t in texto for t in _TOKENS_HABER)
+    return tiene_debe and tiene_haber
+
+
 def _mapear_encabezado(celdas: list) -> dict[str, int]:
     """Devuelve {campo: índice de columna} para una fila candidata."""
     normalizadas = [_norm(c) for c in celdas]
@@ -85,6 +121,10 @@ def _mapear_encabezado(celdas: list) -> dict[str, int]:
     for campo, opciones in SINONIMOS.items():
         for i, texto in enumerate(normalizadas):
             if i in usadas or not texto:
+                continue
+            # La columna combinada (cargo Y abono) no es ni el debe ni el
+            # haber: se salta para no robarles el índice.
+            if campo in ("debe", "haber") and _es_columna_combinada(texto):
                 continue
             if texto in opciones:
                 mapeo[campo] = i
@@ -96,6 +136,8 @@ def _mapear_encabezado(celdas: list) -> dict[str, int]:
             continue
         for i, texto in enumerate(normalizadas):
             if i in usadas or not texto:
+                continue
+            if campo in ("debe", "haber") and _es_columna_combinada(texto):
                 continue
             if any(texto.startswith(o) for o in opciones):
                 mapeo[campo] = i
@@ -197,6 +239,66 @@ def _es_fila_acumulado(cuenta: str, descripcion: str) -> bool:
     return False
 
 
+def _celda_tiene_importe(celdas, mapeo: dict[str, int], campo: str) -> bool:
+    """True si la celda del campo trae un importe distinto de cero."""
+    i = mapeo.get(campo)
+    if i is None or i >= len(celdas):
+        return False
+    val = celdas[i]
+    if val is None:
+        return False
+    if isinstance(val, (int, float)):
+        return float(val) != 0.0
+    limpio = _limpiar_importe(_texto(val))
+    if not limpio:
+        return False
+    parsed = _parse_amount_sri(limpio)
+    return parsed is not None and parsed != 0.0
+
+
+def _cabecera_de_bloque(celdas, mapeo: dict[str, int]) -> tuple[str, str] | None:
+    """Detecta la fila que ENCABEZA un bloque de cuenta en mayores tipo SAP.
+
+    En ese layout cada cuenta abre con una fila que trae la sección, el código
+    y el NOMBRE de la cuenta, pero SIN importes de débito/crédito (esos vienen
+    en las filas de movimiento siguientes). El nombre de la cuenta solo aparece
+    en esta cabecera, nunca en cada movimiento, así que sin capturarlo aquí la
+    clasificación se queda con todas las cuentas sin nombre.
+
+    Devuelve (codigo, nombre) o None si la fila no es una cabecera de bloque.
+    """
+    # Con débito o crédito distinto de cero es un movimiento o una fila de
+    # total, no una cabecera de bloque.
+    if _celda_tiene_importe(celdas, mapeo, "debe") or _celda_tiene_importe(
+        celdas, mapeo, "haber"
+    ):
+        return None
+
+    codigo = ""
+    nombre = ""
+    for val in celdas:
+        s = _texto(val)
+        if not s:
+            continue
+        if _RE_CODIGO_CUENTA.match(s):
+            if not codigo:
+                codigo = s
+            continue
+        n = _norm(s)
+        if not n or n in _SECCIONES_MAYOR or n in SINONIMOS["codigo"]:
+            continue
+        if _fecha(val) is not None:
+            continue
+        # El nombre de la cuenta tiene letras; ante varios candidatos se queda
+        # con el más largo (el descriptivo suele ser el más extenso).
+        if sum(c.isalpha() for c in s) >= 2 and len(s) > len(nombre):
+            nombre = s
+
+    if codigo and nombre:
+        return codigo, nombre
+    return None
+
+
 def _leer_hoja(ws, mapeo: dict[str, int], fila_encabezado: int, lectura: LecturaMayor) -> None:
     """Lee los movimientos de UNA hoja ya mapeada y los agrega a `lectura`."""
     col = mapeo
@@ -205,12 +307,19 @@ def _leer_hoja(ws, mapeo: dict[str, int], fila_encabezado: int, lectura: Lectura
         i = col.get(campo)
         return fila[i] if i is not None and i < len(fila) else None
 
+    # Nombre de cada cuenta tomado de la cabecera de su bloque (mayores tipo
+    # SAP donde el nombre no viaja en cada movimiento).
+    nombres_por_codigo: dict[str, str] = {}
+
     for n, fila in enumerate(
         ws.iter_rows(min_row=fila_encabezado + 1, values_only=True),
         start=fila_encabezado + 1,
     ):
         codigo = _texto(celda(fila, "codigo"))
         if not codigo:
+            cabecera = _cabecera_de_bloque(fila, mapeo)
+            if cabecera:
+                nombres_por_codigo[cabecera[0]] = cabecera[1]
             lectura.filas_descartadas += 1
             continue
         if _norm(codigo) in SINONIMOS["codigo"]:
@@ -221,6 +330,9 @@ def _leer_hoja(ws, mapeo: dict[str, int], fila_encabezado: int, lectura: Lectura
         fecha = _fecha(celda(fila, "fecha"))
         asiento = _texto(celda(fila, "asiento"))
         cuenta = _texto(celda(fila, "cuenta"))
+        if not cuenta:
+            # Sin nombre propio en la fila: usar el de la cabecera del bloque.
+            cuenta = nombres_por_codigo.get(codigo, "")
         descripcion = _texto(celda(fila, "descripcion"))
 
         if not fecha and not asiento and _es_fila_acumulado(cuenta, descripcion):

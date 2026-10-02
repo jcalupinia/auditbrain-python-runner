@@ -132,16 +132,9 @@ def test_perdidas_incurridas_de_punta_a_punta(client):
     assert set(art) == {"xlsx", "html"}
     x = client.get(f"{BASE}/pruebas/{p['id']}/archivos/{art['xlsx']['id']}", headers=_h(tok))
     wb = load_workbook(io.BytesIO(x.content))
-    # El papel ejecutivo antepone el panel "00_Inicio" (marca + KPIs + navegación)
-    # a la carátula; "00_Caratula" sigue presente como cédula (libro.xlsx, 2026).
-    # Tras "14_Control_Revision" se anexa el panel "16_Evidencia" (cobertura de
-    # requerimientos ↔ archivos, del enriquecimiento del ciclo).
-    assert wb.sheetnames[0] == "00_Inicio" and "00_Caratula" in wb.sheetnames \
-        and "04_Matriz_deterioro" in wb.sheetnames and "14_Control_Revision" in wb.sheetnames \
-        and "16_Evidencia" in wb.sheetnames
+    assert wb.sheetnames[0] == "00_Inicio" and "00_Caratula" in wb.sheetnames and "04_Matriz_deterioro" in wb.sheetnames and wb.sheetnames[-1] == "99_Control_Revision"
     detalle = wb["11_Detalle"]
     assert detalle.cell(row=4, column=1).value == "Factura"
-    # La hoja ejecutiva anexa una sección "Notas de fórmulas" tras la fila TOTAL,
-    # así que TOTAL ya no es la última fila: se busca donde esté (libro.xlsx 2026).
-    primeras = [detalle.cell(row=r, column=1).value for r in range(1, detalle.max_row + 1)]
-    assert "TOTAL" in primeras
+    # La fila TOTAL cierra la tabla; debajo va el bloque «Cómo se calcula esta hoja».
+    col_a = [detalle.cell(row=r, column=1).value for r in range(5, detalle.max_row + 1)]
+    assert "TOTAL" in col_a and any("Cómo se calcula esta hoja" in str(v or "") for v in col_a[col_a.index("TOTAL"):])

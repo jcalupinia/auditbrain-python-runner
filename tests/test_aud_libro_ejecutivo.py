@@ -103,9 +103,10 @@ def test_como_se_calcula_ejemplo_coincide_con_el_valor_de_la_fila_1():
     hojas = libro.cedulas(d, reg, [], 1, "APROBADO")
     for h in hojas:
         cols = [c[0] for c in h["cols"]]
-        for b in libro.como_se_calcula(h):
+        for b in libro.como_se_calcula(h, hojas):
             j = cols.index(b["columna"])
-            v0 = h["rows"][0][j]
+            # El ejemplo usa la primera fila que lleva fórmula en esa columna («Fila N: …»).
+            v0 = h["rows"][int(b["ejemplo"].split(":")[0].split()[1]) - 1][j]
             esperado = libro._fmt_num(libro._valor(v0), h["cols"][j][1])
             assert b["ejemplo"].rstrip().endswith(esperado), (h["name"], b["columna"], b["ejemplo"], esperado)
 
@@ -140,7 +141,7 @@ def test_todos_los_formatos_se_generan_en_las_18():
 def test_html_trae_kpis_pestanas_y_ver_calculo():
     d, mod, reg = _reg("perdidas_incurridas_s11")
     html = libro.html(d, reg, [], 1, "APROBADO").decode("utf-8")
-    assert 'class="kpi"' in html and 'class="tab' in html and "Ver cálculo" in html
+    assert 'class="kpi ' in html and 'class="tab' in html and "Cómo se calcula esta hoja" in html
     assert "CSV (ZIP)" in html and "Guardar como PDF" in html
 
 

@@ -46,6 +46,8 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     hoja, m as fmt_m, n2, norm, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
 )
 
+from backend.app.aud.niif.procesadores import problemas
+
 VERSION = "inversiones_instrumentos 1.0"
 RUBRO = "INVERSIONES"
 
@@ -95,6 +97,29 @@ PARAMETROS = {"frecuenciaDefecto": 1}
 PARAM_NEGATIVOS = ()
 ETIQUETAS_PARAM = {"frecuenciaDefecto": "Pagos de cupón por año cuando el anexo no lo indica"}
 TOTAL_EJEMPLO = "ajuste"
+
+# Dashboard (formato en graficos.py): la población es el saldo en libros de las inversiones; la
+# cifra que el auditor recalcula frente a la del cliente es el deterioro (misma base en ambos).
+PANEL = {
+    "poblacion":    {"rotulo": "Inversiones en libros", "hoja": "03_Inventario", "col": "Saldo en libros"},
+    "recalculado":  {"rotulo": "Deterioro recalculado", "total": "deterioroCalc"},
+    "registrado":   {"rotulo": "Deterioro registrado", "total": "deterioroReg"},
+    "composicion":  {"rotulo": "Deterioro por enfoque", "hoja": "08_Deterioro", "etiqueta": "Enfoque",
+                     "valor": "Deterioro recalculado"},
+    "distribucion": {"rotulo": "Saldo por clasificación", "hoja": "10_Conciliacion",
+                     "etiqueta": "Clasificación según la norma", "valor": "Saldo en libros"},
+    # Tablero premium colgado de la cédula-resumen de categorías fijas (14_Resumen_clasif):
+    # saldo en libros y ajuste propuesto por categoría de medición NIIF 9. Los rótulos de
+    # las filas son EXACTAMENTE los del enum CLASES (una fila fija por categoría).
+    "tableros": [
+        {"rotulo": "Cartera por clasificación NIIF 9",
+         "sub": "Saldo en libros y ajuste propuesto por categoría de medición (USD).",
+         "unidad": "USD", "hoja": "14_Resumen_clasif", "etiqueta": "Clasificación",
+         "filas": [{"fila": "Costo amortizado"}, {"fila": "VR con cambios en ORI"},
+                   {"fila": "VR con cambios en resultados"}, {"fila": "Costo menos deterioro"}],
+         "series": [["Saldo en libros", "Saldo en libros"], ["Ajuste propuesto", "Ajuste propuesto"]]},
+    ],
+}
 
 CLASES = {"CA": "Costo amortizado", "VRORI": "VR con cambios en ORI", "VRR": "VR con cambios en resultados", "COSTO": "Costo menos deterioro"}
 FRECUENCIAS = (1, 2, 3, 4, 6, 12)
@@ -487,7 +512,8 @@ CEDULAS = [
     ("04_Clasificacion", "Clasificación"), ("05_Costo_amortizado", "Costo amortizado y TIE"),
     ("06_Valor_razonable", "Valor razonable y jerarquía"), ("07_Intereses_dividendos", "Intereses y dividendos"),
     ("08_Deterioro", "Deterioro"), ("09_Reclasificacion", "Reclasificación"), ("10_Conciliacion", "Conciliación y ajuste"),
-    ("11_Problemas", "Problemas encontrados"),
+    ("11_Problemas", "Problemas encontrados"), ("12_Conclusion", "Indicadores y conclusión"),
+    ("13_Lectura", "Lectura de resultados"), ("14_Resumen_clasif", "Resumen por clasificación"),
 ]
 P, INV, CLA, CAM, VRZ, ING, DET, REC, CON = (ref(n) for n, _ in CEDULAS[1:10])
 CORTE, INICIO = f"{P}$B${FILA0}", f"{P}$B${FILA0 + 1}"
@@ -495,6 +521,54 @@ CORTE, INICIO = f"{P}$B${FILA0}", f"{P}$B${FILA0 + 1}"
 
 def _v(x):
     return "" if x is None else x
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) ----------------------------------------------
+
+def _por_instrumento(nombre, columna):
+    """Celda de la columna en la fila del instrumento que abre el mensaje del problema («ID: …»)."""
+    def f(hojas, e):
+        h = next(x for x in hojas if x["name"] == nombre)
+        msg = e.get("message") or ""
+        i = next((k for k, r in enumerate(h.get("rows") or []) if problemas._texto(r[0]) and msg.startswith(problemas._texto(r[0]) + ":")), None)
+        if i is None:
+            return None
+        return problemas.celda(hojas, nombre, columna, i), problemas._num(h["rows"][i][[c[0] for c in h["cols"]].index(columna)])
+    return f
+
+
+_LIBROS = _por_instrumento("03_Inventario", "Saldo en libros")
+
+REF_PROBLEMAS = {
+    # Saldo en libros del instrumento expuesto al problema (03_Inventario): vencido, clasificación ilegible, no
+    # determinable o inconsistente, costo amortizado sin datos, VR faltante, calificación baja, deterioro sin datos,
+    # reclasificación no permitida.
+    "INSTRUMENTO_VENCIDO": _LIBROS,
+    "CLASIFICACION_ILEGIBLE": _LIBROS,
+    "CLASIFICACION_NO_DETERMINABLE": _LIBROS,
+    "CLASIFICACION_INCONSISTENTE": _LIBROS,
+    "CA_SIN_DATOS": _LIBROS,
+    "VR_FALTANTE": _LIBROS,
+    "CALIFICACION_BAJA_SIN_INDICIO": _LIBROS,
+    "DETERIORO_SIN_DATOS": _LIBROS,
+    "RECLASIFICACION_NO_PERMITIDA": _LIBROS,
+    # Costo amortizado recalculado − saldo en libros («Diferencia de medición» de 10_Conciliacion).
+    "DIFERENCIA_COSTO_AMORTIZADO": _por_instrumento("10_Conciliacion", "Diferencia de medición"),
+    # Valor razonable sin nivel o de nivel 3 (06_Valor_razonable).
+    "VR_SIN_NIVEL": _por_instrumento("06_Valor_razonable", "Valor razonable al corte"),
+    "VR_NIVEL_3": _por_instrumento("06_Valor_razonable", "Valor razonable al corte"),
+    # Valor razonable − saldo en libros (06_Valor_razonable).
+    "DIFERENCIA_VR": _por_instrumento("06_Valor_razonable", "Diferencia (ganancia/pérdida no registrada)"),
+    # Ingreso según la norma (interés TIE o dividendo) − ingreso registrado (07_Intereses_dividendos).
+    "INTERES_NO_REGISTRADO": _por_instrumento("07_Intereses_dividendos", "Diferencia"),
+    "DIVIDENDO_NO_REGISTRADO": _por_instrumento("07_Intereses_dividendos", "Diferencia"),
+    "INGRESO_EN_EXCESO": _por_instrumento("07_Intereses_dividendos", "Diferencia"),
+    # Deterioro recalculado del instrumento con indicio, y recalculado − registrado (08_Deterioro).
+    "INDICIO_DETERIORO": _por_instrumento("08_Deterioro", "Deterioro recalculado"),
+    "DIFERENCIA_DETERIORO": _por_instrumento("08_Deterioro", "Diferencia"),
+    # Ajuste propuesto al importe neto (TOTAL de 10_Conciliacion).
+    "AJUSTE": ("10_Conciliacion", "Ajuste propuesto (importe neto)", "total"),
+}
 
 
 def hojas(res: dict) -> list[dict]:
@@ -619,7 +693,9 @@ def hojas(res: dict) -> list[dict]:
         concil.append([x["id"], fx(f"{CLA}H{r}", x["esperada"]), fx(f_med, _v(x["medicion"])), fx(f"{INV}N{r}", x["libros"]),
                        fx(f'IF(C{r}="","",C{r}-D{r})', _v(x["difMed"])), fx(f"{DET}I{r}", _v(x["detCalc"])), fx(f"{DET}J{r}", x["detReg"] or 0.0),
                        fx(f'IF(OR(B{r}="CA",B{r}="COSTO"),IF(F{r}="","",F{r}-G{r}),0)', _v(x["ajDet"])),
-                       fx(f'IF(OR(E{r}="",H{r}=""),"",E{r}-H{r})', _v(x["ajuste"]))])
+                       fx(f'IF(OR(E{r}="",H{r}=""),"",E{r}-H{r})', _v(x["ajuste"])),
+                       fx(f'IF(I{r}="","",IF(ABS(I{r})>=0.005,"Alerta","Conforme"))',
+                          "" if x["ajuste"] is None else ("Alerta" if abs(x["ajuste"]) >= 0.005 else "Conforme"))])
     fin = FILA0 + nx - 1
 
     recl = []
@@ -639,12 +715,253 @@ def hojas(res: dict) -> list[dict]:
                "deterioroCalc": f"{DET}I{fin + 1}", "deterioroReg": f"{DET}J{fin + 1}", "ingresoDif": f"{ING}F{fin + 1}",
                "difVR": f"{VRZ}F{fin_vr + 1}" if vrz else "0", "ajuste": f"{CON}I{fin + 1}"}
     resumen = [[res["labels"][k], fx(tot_ref[k], n2(t[k]))] for k in res["labels"]]
+
+    # 14 · Resumen por clasificación (categorías fijas del enum NIIF 9; base del tablero premium).
+    # Una fila por categoría de CLASES aunque no tenga instrumentos (→ 0 por SUMIFS, no vacío).
+    # Cada importe es una fórmula SUMIFS sobre la hoja 10 (Conciliación y ajuste), filtrando por el
+    # código de clasificación de esa categoría en la columna «Clasificación según la norma» (col B):
+    # saldo en libros (col D) y ajuste propuesto (col I). El valor Python es la misma suma.
+    b_rng = f"{CON}$B${FILA0}:$B${fin}"
+    d_rng = f"{CON}$D${FILA0}:$D${fin}"
+    i_rng = f"{CON}$I${FILA0}:$I${fin}"
+    resumen_clasif = []
+    for cod, nombre in CLASES.items():
+        saldo = sum(x["libros"] for x in xs if x["esperada"] == cod)
+        aj = sum(x["ajuste"] for x in xs if x["esperada"] == cod and x["ajuste"] is not None)
+        resumen_clasif.append([nombre,
+                               fx(f'SUMIFS({d_rng},{b_rng},"{cod}")', n2(saldo)),
+                               fx(f'SUMIFS({i_rng},{b_rng},"{cod}")', n2(aj))])
+    ex_resclasif = {
+        "Saldo en libros": ("Suma con SUMIFS el saldo en libros de todos los instrumentos de la hoja 10 (Conciliación y "
+                            "ajuste) cuya clasificación según la norma coincide con esta categoría NIIF 9; si la categoría "
+                            "no tiene instrumentos, el resultado es cero."),
+        "Ajuste propuesto": ("Suma con SUMIFS el ajuste propuesto al importe en libros neto de los instrumentos de la hoja 10 "
+                             "(Conciliación y ajuste) clasificados en esta categoría; si la categoría no tiene instrumentos, "
+                             "el resultado es cero."),
+    }
+
+    # 12 · Indicadores y conclusión (con semáforo coloreable en «Estado»).
+    PROB = ref("11_Problemas")
+    nprob = len(res["exceptions"])
+    rng_prob = f"{PROB}$A${FILA0}:$A${FILA0 + max(nprob, 1) - 1}"
+    pct_v = None if t["saldoLibros"] == 0 else abs(t["ajuste"]) / t["saldoLibros"]
+    r2f, r4f, r5f, r6f = FILA0 + 2, FILA0 + 4, FILA0 + 5, FILA0 + 6
+    est = lambda cond, alto, ok="Conforme": (alto if cond else ok)
+    conclusion = [
+        [res["labels"]["saldoLibros"], fx(tot_ref["saldoLibros"], n2(t["saldoLibros"])), None, None, ""],
+        [res["labels"]["medicion"] + " (resultado principal)", fx(tot_ref["medicion"], n2(t["medicion"])), None, None,
+         fx(f'IF(ABS(B{r2f})>0.005,"Revisar","Conforme")', est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        [res["labels"]["ajuste"], fx(tot_ref["ajuste"], n2(t["ajuste"])), None, None,
+         fx(f'IF(ABS(B{r2f})>0.005,"Alerta","Conforme")', est(abs(t["ajuste"]) > 0.005, "Alerta"))],
+        ["% de ajuste sobre el saldo en libros", None,
+         fx(f'IF({tot_ref["saldoLibros"]}=0,"",ABS({tot_ref["ajuste"]})/{tot_ref["saldoLibros"]})', pct_v), None,
+         fx(f'IF(C{FILA0 + 3}="","",IF(ABS({tot_ref["ajuste"]})>0.005,"Revisar","Conforme"))',
+            "" if pct_v is None else est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        [res["labels"]["difVR"], fx(tot_ref["difVR"], n2(t["difVR"])), None, None,
+         fx(f'IF(ABS(B{r4f})>0.005,"Revisar","Conforme")', est(abs(t["difVR"]) > 0.005, "Revisar"))],
+        [res["labels"]["ingresoDif"], fx(tot_ref["ingresoDif"], n2(t["ingresoDif"])), None, None,
+         fx(f'IF(ABS(B{r5f})>0.005,"Revisar","Conforme")', est(abs(t["ingresoDif"]) > 0.005, "Revisar"))],
+        ["Problemas encontrados", None, None, fx(f"COUNTA({rng_prob})", nprob),
+         fx(f'IF(D{r6f}>0,"Revisar","Conforme")', est(nprob > 0, "Revisar"))],
+    ]
+    ex_conclusion = {
+        "Importe": ("Cada indicador trae su cifra de la fila TOTAL de la hoja que la calcula: el saldo en libros, la medición "
+                    "según la norma y el ajuste propuesto, de la hoja 10 (Conciliación y ajuste); la diferencia de valor "
+                    "razonable, de la hoja 06; los intereses y dividendos no registrados, de la hoja 07."),
+        "Porcentaje": ("Divide el ajuste propuesto en valor absoluto entre el saldo en libros para medir su peso relativo; "
+                       "queda en blanco si el saldo en libros es cero."),
+        "Cantidad": ("Cuenta cuántos problemas se detectaron leyendo la columna de códigos de la hoja 11 (Problemas "
+                     "encontrados)."),
+        "Estado": ("Semáforo del indicador: «Alerta» cuando el ajuste propuesto deja de ser cero, «Revisar» cuando hay "
+                   "diferencias de valor razonable, ingresos no registrados o problemas que atender y «Conforme» cuando el "
+                   "indicador no presenta desviaciones."),
+    }
     s = lambda col, fin_, k: suma(col, fin_, sum(x[k] for x in xs if x[k] is not None))
     sc = lambda col, k: suma(col, fin_ca, sum(x["ca"][k] for x in xs if x["ca"]))
 
+    # --- «Cómo se calcula esta hoja»: explicación humana por columna calculada -------------
+    # Algunas fórmulas cambian con el marco (NIIF completas / PYMES 2015 / PYMES 2025).
+    if pymes and ed == "2025":
+        ex_norma = ("Aplica la regla de la norma para PYMES 2025: la deuda va a costo amortizado (CA) si es básica o si sus flujos son "
+                    "solo principal e intereses, y a VR con cambios en resultados (VRR) si no lo son; las acciones con VR medible van a "
+                    "VRR y las demás a costo menos deterioro (COSTO); cualquier otro instrumento va a VRR. Si falta el dato de la deuda, "
+                    "queda en blanco.")
+    elif pymes:
+        ex_norma = ("Aplica la regla de la norma para PYMES 2015: la deuda va a costo amortizado (CA) si es básica (se usa la respuesta de "
+                    "«¿Básico?» y, si está vacía, la de flujos solo principal e intereses) y a VR con cambios en resultados (VRR) si no; "
+                    "las acciones con VR medible van a VRR y las demás a costo menos deterioro (COSTO); cualquier otro instrumento va a "
+                    "VRR. Si falta el dato de la deuda, queda en blanco.")
+    else:
+        ex_norma = ("Aplica la regla de NIIF 9: la deuda cuyos flujos no son solo principal e intereses va a VRR; si lo son, va a costo "
+                    "amortizado (CA) con el modelo «Mantener para cobrar», a VRORI con «Cobrar y vender» y a VRR con «Negociar». Las "
+                    "acciones van a VRORI solo si el cliente eligió VRORI y no se mantienen para negociar; si no, a VRR. Si falta el "
+                    "dato de flujos de la deuda, queda en blanco.")
+    ex_clasif = {
+        "Tipo": "Copia el tipo de instrumento (deuda, patrimonio u otro) del inventario de la hoja 03 (Inventario de inversiones).",
+        "Modelo de negocio": "Copia el modelo de negocio informado por el cliente en la hoja 03 (Inventario de inversiones); "
+                             "si no se informó, queda en blanco.",
+        "¿Flujos solo principal e intereses?": "Copia de la hoja 03 (Inventario de inversiones) la respuesta a si los flujos del "
+                                               "instrumento son solo pagos de principal e intereses (SPPI).",
+        "¿Básico 11.9 a)–d)? (PYMES)": "Copia de la hoja 03 (Inventario de inversiones) si el instrumento cumple las condiciones de "
+                                       "instrumento básico 11.9 a)–d); este dato solo lo usa la clasificación para PYMES.",
+        "Clasificación del cliente": "Copia el código de clasificación que el cliente dio al instrumento (CA, VRORI, VRR o COSTO) "
+                                     "desde la hoja 03 (Inventario de inversiones).",
+        "¿VR medible?": "Responde «Sí» si en la hoja 03 (Inventario de inversiones) hay un valor razonable informado para el "
+                        "instrumento y «No» si esa celda está vacía.",
+        "Clasificación según la norma": ex_norma,
+        "¿Consistente?": "Compara la clasificación según la norma con la del cliente: «Sí» si coinciden, «No» si difieren y en "
+                         "blanco si la norma no se pudo determinar por falta de datos.",
+    }
+    ex_ca = {
+        "Nominal": "Trae el valor nominal (lo que se cobrará al vencimiento) del instrumento desde la hoja 03 (Inventario de inversiones).",
+        "Costo": "Trae el costo de adquisición pagado por el instrumento desde la hoja 03 (Inventario de inversiones).",
+        "Cupón %": "Trae la tasa de cupón anual del instrumento, en porcentaje, desde la hoja 03 (Inventario de inversiones).",
+        "Pagos por año": "Trae cuántas veces al año paga cupón el instrumento desde la hoja 03 (Inventario de inversiones), "
+                         "que ya aplica el valor por defecto de la hoja 02 si el anexo no lo indicaba.",
+        "Meses por período": "Divide los 12 meses del año para los pagos por año: son los meses que hay entre un cupón y el siguiente.",
+        "Períodos totales": "Cuenta los meses completos entre la adquisición y el vencimiento y los divide para los meses por período, "
+                            "redondeando: es el número total de cupones que paga el instrumento.",
+        "Cupón por período": "Multiplica el nominal por la tasa de cupón (en %) y lo divide para los pagos por año: es el "
+                             "importe que se cobra en cada cupón.",
+        "TIE periódica": "Calcula con TASA de Excel la tasa por período que iguala el costo pagado con el valor actual de todos "
+                         "los cupones más el nominal al vencimiento: es la tasa de interés efectiva de cada período.",
+        "TIE anual": "Convierte la TIE periódica en tasa anual compuesta: (1 + TIE periódica) elevado a los pagos por año, menos 1.",
+        "Control VA − costo": "Descuenta todos los cupones y el nominal a la TIE periódica y le resta el costo; debe dar cero, lo que "
+                              "confirma que la TIE está bien calculada.",
+        "Cupones cobrados al corte": "Cuenta los meses completos entre la adquisición y la fecha de corte de la hoja 02 (Parámetros) y "
+                                     "los divide para los meses por período, sin decimales: son los cupones ya cobrados al corte.",
+        "Fracción del período": "Mide qué parte del período de cupón en curso ya transcurrió al corte: días desde el último cupón "
+                                "hasta la fecha de corte de la hoja 02 (Parámetros) sobre los días del período completo.",
+        "CA al último cupón": "Descuenta a la TIE periódica los cupones que faltan y el nominal: es el costo amortizado justo "
+                              "después del último cupón cobrado antes del corte.",
+        "CA al corte (con cupón corrido)": "Toma el costo amortizado al último cupón y le suma el interés efectivo de la parte del "
+                                           "período ya transcurrida (TIE periódica × fracción del período).",
+        "Cupón corrido": "Multiplica el cupón por período por la fracción del período transcurrida: es el cupón devengado al corte "
+                         "que aún no se cobra.",
+        "CA al corte (limpio)": "Resta el cupón corrido al costo amortizado al corte con cupón corrido: es la medición a costo "
+                                "amortizado que se compara con los libros en la hoja 10 (Conciliación y ajuste).",
+        "Cupones cobrados al inicio": "Cuenta los cupones cobrados hasta el inicio del ejercicio de la hoja 02 (Parámetros); si el "
+                                      "instrumento se compró después de esa fecha, pone cero.",
+        "CA al inicio del ejercicio": "Si el instrumento se compró durante el ejercicio, usa su costo; si ya existía, recalcula su "
+                                      "costo amortizado (con el interés corrido) a la fecha de inicio de la hoja 02 (Parámetros).",
+        "Cupones cobrados en el ejercicio": "Multiplica el cupón por período por los cupones cobrados entre el inicio del ejercicio "
+                                            "y el corte (cupones al corte menos cupones al inicio).",
+        "Interés efectivo del ejercicio": "Costo amortizado al corte con cupón corrido, menos el costo amortizado al inicio, más los "
+                                          "cupones cobrados en el ejercicio: es el ingreso por intereses que debió registrarse.",
+    }
+    ex_vr = {
+        "Clasificación según la norma": "Trae la clasificación que corresponde según la norma, calculada en la hoja 04 (Clasificación).",
+        "Saldo en libros": "Trae el saldo en libros del instrumento desde la hoja 03 (Inventario de inversiones).",
+        "Diferencia (ganancia/pérdida no registrada)": "Solo para instrumentos a valor razonable (VRR o VRORI): valor razonable al "
+                                                       "corte menos saldo en libros. Queda en blanco si no hay valor razonable o si "
+                                                       "el instrumento no se mide a valor razonable.",
+        "Se reconoce en": "Indica dónde va la diferencia de valor razonable: en resultados si es VRR, en ORI si es VRORI (con el "
+                          "matiz según sea deuda o patrimonio) y, en las demás clasificaciones, solo se revela.",
+        "¿Nivel informado?": "Para instrumentos a valor razonable revisa el nivel de jerarquía: avisa «Falta nivel» si está vacío, "
+                             "pide revisar supuestos si es nivel 3 y pone «Sí» en otro caso; en las demás clasificaciones queda vacío.",
+    }
+    ex_ing = {
+        "Tipo": "Copia el tipo de instrumento (deuda o patrimonio) desde la hoja 03 (Inventario de inversiones).",
+        "Clasificación según la norma": "Trae la clasificación que corresponde según la norma desde la hoja 04 (Clasificación).",
+        "Ingreso según la norma": "Para la deuda a costo amortizado o VRORI trae el interés efectivo del ejercicio de la hoja 05 "
+                                  "(Costo amortizado y TIE); para acciones trae los dividendos decretados de la hoja 03 (Inventario "
+                                  "de inversiones); en los demás casos queda en blanco.",
+        "Ingreso registrado": "Trae el ingreso por intereses o dividendos que el cliente registró en el año, desde la hoja 03 "
+                              "(Inventario de inversiones).",
+        "Diferencia": "Ingreso según la norma menos ingreso registrado: si es positivo falta registrar ingreso. Queda en blanco "
+                      "cuando no hay ingreso según la norma.",
+    }
+    if pymes:
+        ex_enfoque = ("Solo para costo amortizado (CA) y costo menos deterioro (COSTO): si hay indicio de deterioro aplica pérdida "
+                      "incurrida y, si no lo hay, no se reconoce pérdida; las demás clasificaciones dicen «No aplica».")
+        ex_base = ("Para CA trae el costo amortizado al corte con cupón corrido de la hoja 05 (Costo amortizado y TIE); para COSTO "
+                   "trae el costo de la hoja 03 (Inventario de inversiones); en otras clasificaciones queda en blanco.")
+        ex_det = ("Sin indicio de deterioro pone cero. Con indicio: en COSTO es la base menos la estimación de venta al cierre (nunca "
+                  "negativo) y en CA es la base por el % no recuperable. Si falta alguno de esos datos, queda en blanco.")
+    else:
+        ex_enfoque = ("Solo para deuda a costo amortizado o VRORI: con indicio de aumento significativo del riesgo usa pérdida esperada "
+                      "de vida entera y, sin él, de 12 meses; las demás clasificaciones dicen «No aplica».")
+        ex_base = ("Para deuda a costo amortizado o VRORI trae el costo amortizado al corte con cupón corrido de la hoja 05 (Costo "
+                   "amortizado y TIE); en los demás casos queda en blanco.")
+        ex_det = ("Pérdida esperada = base × PD % × LGD %, solo para deuda a costo amortizado o VRORI. Si falta la base, la PD o la "
+                  "LGD, queda en blanco.")
+    ex_deter = {
+        "Clasificación según la norma": "Trae la clasificación según la norma de la hoja 04 (Clasificación), que decide si se mide "
+                                        "deterioro y con qué enfoque.",
+        "Enfoque": ex_enfoque,
+        "Base (CA con cupón corrido / costo)": ex_base,
+        "Deterioro recalculado": ex_det,
+        "Deterioro registrado": "Trae la provisión por deterioro que el cliente tiene registrada, desde la hoja 03 (Inventario de "
+                                "inversiones).",
+        "Diferencia": "Deterioro recalculado menos deterioro registrado: si es positivo falta provisión. Queda en blanco si el "
+                      "deterioro no se pudo recalcular.",
+    }
+    if pymes:
+        ex_perm = ("Si la clasificación anterior y la actual son iguales dice «Sin cambio»; si cambió y la actual coincide con la de "
+                   "la norma, es permitida (revisar soporte); si no coincide, no corresponde a las condiciones del instrumento.")
+    else:
+        ex_perm = ("Si la clasificación anterior y la actual son iguales dice «Sin cambio»; unas acciones que estaban en VRORI no pueden "
+                   "salir (elección irrevocable); la deuda solo se puede reclasificar si hubo cambio de modelo de negocio.")
+    ex_recl = {
+        "Tipo": "Copia el tipo de instrumento (deuda o patrimonio) desde la hoja 03 (Inventario de inversiones), para este "
+                "instrumento reclasificado.",
+        "Clasificación anterior": "Trae la clasificación que el instrumento tenía antes del cambio, informada en la hoja 03 "
+                                  "(Inventario de inversiones).",
+        "Clasificación actual (cliente)": "Trae la clasificación que el cliente usa hoy para el instrumento, desde la hoja 03 "
+                                          "(Inventario de inversiones).",
+        "Clasificación según la norma": "Trae la clasificación que corresponde según la norma, calculada en la hoja 04 (Clasificación).",
+        "¿Permitida?": ex_perm,
+    }
+    ex_con = {
+        "Clasificación según la norma": "Trae la clasificación según la norma de la hoja 04 (Clasificación), que define con qué "
+                                        "base se mide el instrumento.",
+        "Medición según la norma": "Elige la medición correcta según la clasificación: CA usa el costo amortizado limpio de la hoja "
+                                   "05, VRR y VRORI el valor razonable al corte de la hoja 06, y COSTO el costo de la hoja 03. Si "
+                                   "falta el dato, queda en blanco.",
+        "Saldo en libros": "Trae el saldo en libros (bruto) del instrumento desde la hoja 03 (Inventario de inversiones).",
+        "Diferencia de medición": "Medición según la norma menos saldo en libros; queda en blanco si no hay medición según la norma.",
+        "Deterioro recalculado": "Trae el deterioro recalculado del instrumento desde la hoja 08 (Deterioro).",
+        "Deterioro registrado": "Trae el deterioro que el cliente tiene registrado para el instrumento, desde la hoja 08 (Deterioro).",
+        "Ajuste de deterioro": "Para CA y COSTO resta el deterioro registrado del recalculado (en blanco si no se recalculó); en las "
+                               "clasificaciones a valor razonable pone cero, porque ahí el deterioro no reduce el saldo.",
+        "Ajuste propuesto (importe neto)": "Diferencia de medición menos ajuste de deterioro: es el ajuste neto que se propone al saldo "
+                                           "de la inversión. Queda en blanco si falta alguno de los dos.",
+        "Semáforo": ("Estado del instrumento: «Alerta» si el ajuste propuesto no es cero (la medición según la norma difiere de "
+                     "los libros y hay que ajustar), «Conforme» si el ajuste es cero. Queda en blanco si no hubo medición completa."),
+    }
+    ex_resumen = {"Importe": "Trae cada cifra de la fila TOTAL de su hoja: saldo, medición, diferencia y ajuste de la hoja 10 "
+                             "(Conciliación y ajuste), deterioro de la hoja 08, ingresos no registrados de la hoja 07 y diferencia "
+                             "de valor razonable de la hoja 06."}
+
+    # 13 · Lectura de resultados (causa-efecto con las cifras embebidas por FIXED).
+    _fix = lambda cell: f"FIXED({cell},2)"
+    aj_dir = "aumenta" if t["ajuste"] > 0.005 else ("disminuye" if t["ajuste"] < -0.005 else "no modifica")
+    aj_dir_f = f'IF({tot_ref["ajuste"]}>0.005,"aumenta",IF({tot_ref["ajuste"]}<-0.005,"disminuye","no modifica"))'
+    lectura = [
+        ["Resultado principal",
+         fx(f'"La medición según la norma de las inversiones es de US$ "&{_fix(tot_ref["medicion"])}&", frente a US$ "&{_fix(tot_ref["saldoLibros"])}&" de saldo en libros bruto (hoja 10)."',
+            f"La medición según la norma de las inversiones es de US$ {fmt_m(t['medicion'])}, frente a US$ {fmt_m(t['saldoLibros'])} de saldo en libros bruto (hoja 10).")],
+        ["Ajuste propuesto",
+         fx(f'"El ajuste propuesto al importe en libros neto es de US$ "&{_fix(tot_ref["ajuste"])}&", que "&{aj_dir_f}&" la medición de las inversiones y debe registrarse."',
+            f"El ajuste propuesto al importe en libros neto es de US$ {fmt_m(t['ajuste'])}, que {aj_dir} la medición de las inversiones y debe registrarse.")],
+        ["Deterioro",
+         fx(f'"El deterioro recalculado asciende a US$ "&{_fix(tot_ref["deterioroCalc"])}&", frente a US$ "&{_fix(tot_ref["deterioroReg"])}&" registrado; la diferencia debe corregirse (NIIF 9 5.5 / Sección 11)."',
+            f"El deterioro recalculado asciende a US$ {fmt_m(t['deterioroCalc'])}, frente a US$ {fmt_m(t['deterioroReg'])} registrado; la diferencia debe corregirse (NIIF 9 5.5 / Sección 11).")],
+        ["Valor razonable e intereses",
+         fx(f'"La diferencia de valor razonable suma US$ "&{_fix(tot_ref["difVR"])}&" y los intereses o dividendos no registrados US$ "&{_fix(tot_ref["ingresoDif"])}&", que afectan la medición y los resultados del período."',
+            f"La diferencia de valor razonable suma US$ {fmt_m(t['difVR'])} y los intereses o dividendos no registrados US$ {fmt_m(t['ingresoDif'])}, que afectan la medición y los resultados del período.")],
+        ["Cierre",
+         fx(f'"En conjunto, sobre inversiones por US$ "&{_fix(tot_ref["saldoLibros"])}&" en libros, los hallazgos exigen registrar el ajuste y revelar la clasificación y la jerarquía de valor razonable de cada instrumento (NIIF 7 / Sección 11)."',
+            f"En conjunto, sobre inversiones por US$ {fmt_m(t['saldoLibros'])} en libros, los hallazgos exigen registrar el ajuste y revelar la clasificación y la jerarquía de valor razonable de cada instrumento (NIIF 7 / Sección 11).")],
+    ]
+    ex_lectura = {"Detalle": ("Redacta en lenguaje del auditor la lectura causa-efecto de los resultados e inserta cada cifra "
+                              "con FIXED desde las filas TOTAL: la medición según la norma frente al saldo en libros y el ajuste "
+                              "propuesto (hoja 10), el deterioro recalculado y registrado (hoja 08) y la diferencia de valor "
+                              "razonable e intereses no registrados (hojas 06 y 07).")}
+
     T = "t"
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", T], ["Importe", "n"]], resumen),
+        hoja("01_Resumen", "Resumen", [["Concepto", T], ["Importe", "n"]], resumen, explica=ex_resumen),
         hoja("02_Parametros", "Parámetros", [["Parámetro", T], ["Valor", "x"], ["Sustento", T]], parametros),
         hoja("03_Inventario", "Inventario de inversiones",
              [["Instrumento", T], ["Emisor", T], ["Tipo", T], ["Modelo de negocio", T], ["SPPI / básico", T], ["Clasificación del cliente", T],
@@ -656,7 +973,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("04_Clasificacion", "Clasificación",
              [["Instrumento", T], ["Tipo", T], ["Modelo de negocio", T], ["¿Flujos solo principal e intereses?", T],
               ["¿Básico 11.9 a)–d)? (PYMES)", T], ["Clasificación del cliente", T], ["¿VR medible?", T],
-              ["Clasificación según la norma", T], ["¿Consistente?", T], ["Fundamento", T]], clasif),
+              ["Clasificación según la norma", T], ["¿Consistente?", T], ["Fundamento", T]], clasif, explica=ex_clasif),
         hoja("05_Costo_amortizado", "Costo amortizado y TIE",
              [["Instrumento", T], ["Adquisición", "d"], ["Vencimiento", "d"], ["Nominal", "n"], ["Costo", "n"], ["Cupón %", "x"],
               ["Pagos por año", "i"], ["Meses por período", "i"], ["Períodos totales", "i"], ["Cupón por período", "n"], ["TIE periódica", "p"],
@@ -666,34 +983,43 @@ def hojas(res: dict) -> list[dict]:
               ["Interés efectivo del ejercicio", "n"]], cam,
              ["TOTAL", "", "", suma("D", fin_ca, sum(x["nominal"] for x in xs if x["ca"])),
               suma("E", fin_ca, sum(x["costo"] for x in xs if x["ca"])), None, None, None, None, None, None, None, None, None, None, None,
-              sc("Q", "sucio"), sc("R", "corrido"), sc("S", "limpio"), None, sc("U", "ini"), sc("V", "cupones"), sc("W", "interes")] if cam else None),
+              sc("Q", "sucio"), sc("R", "corrido"), sc("S", "limpio"), None, sc("U", "ini"), sc("V", "cupones"), sc("W", "interes")] if cam else None,
+             explica=ex_ca),
         hoja("06_Valor_razonable", "Valor razonable y jerarquía",
              [["Instrumento", T], ["Clasificación según la norma", T], ["Nivel", "i"], ["Valor razonable al corte", "n"], ["Saldo en libros", "n"],
               ["Diferencia (ganancia/pérdida no registrada)", "n"], ["Se reconoce en", T], ["¿Nivel informado?", T]], vrz,
              ["TOTAL", "", None, suma("D", fin_vr, sum(x["vr"] or 0 for x in xs if x["id"] in fila_vr)),
               suma("E", fin_vr, sum(x["libros"] for x in xs if x["id"] in fila_vr)),
-              suma("F", fin_vr, sum(x["difVR"] or 0 for x in xs if x["id"] in fila_vr)), "", ""] if vrz else None),
+              suma("F", fin_vr, sum(x["difVR"] or 0 for x in xs if x["id"] in fila_vr)), "", ""] if vrz else None, explica=ex_vr),
         hoja("07_Intereses_dividendos", "Intereses y dividendos",
              [["Instrumento", T], ["Tipo", T], ["Clasificación según la norma", T], ["Ingreso según la norma", "n"], ["Ingreso registrado", "n"],
               ["Diferencia", "n"]], ingresos,
-             ["TOTAL", "", "", s("D", fin, "ingEsp"), suma("E", fin, sum(x["ingReg"] or 0 for x in xs)), s("F", fin, "ingDif")]),
+             ["TOTAL", "", "", s("D", fin, "ingEsp"), suma("E", fin, sum(x["ingReg"] or 0 for x in xs)), s("F", fin, "ingDif")], explica=ex_ing),
         hoja("08_Deterioro", "Deterioro",
              [["Instrumento", T], ["Clasificación según la norma", T], ["Indicio", T], ["Enfoque", T], ["Base (CA con cupón corrido / costo)", "n"],
               ["PD %", "x"], ["LGD / no recuperable %", "x"], ["Estimación de venta al cierre (11.25 b)", "n"],
               ["Deterioro recalculado", "n"], ["Deterioro registrado", "n"], ["Diferencia", "n"]],
              deterioro, ["TOTAL", "", "", "", None, None, None, None, s("I", fin, "detCalc"),
-                         suma("J", fin, sum(x["detReg"] or 0 for x in xs)), s("K", fin, "detDif")]),
+                         suma("J", fin, sum(x["detReg"] or 0 for x in xs)), s("K", fin, "detDif")], explica=ex_deter),
         hoja("09_Reclasificacion", "Reclasificación",
              [["Instrumento", T], ["Tipo", T], ["Clasificación anterior", T], ["Clasificación actual (cliente)", T], ["Cambio de modelo", T],
-              ["Clasificación según la norma", T], ["¿Permitida?", T], ["Tratamiento", T]], recl),
+              ["Clasificación según la norma", T], ["¿Permitida?", T], ["Tratamiento", T]], recl, explica=ex_recl),
         hoja("10_Conciliacion", "Conciliación y ajuste",
              [["Instrumento", T], ["Clasificación según la norma", T], ["Medición según la norma", "n"], ["Saldo en libros", "n"],
               ["Diferencia de medición", "n"], ["Deterioro recalculado", "n"], ["Deterioro registrado", "n"], ["Ajuste de deterioro", "n"],
-              ["Ajuste propuesto (importe neto)", "n"]], concil,
+              ["Ajuste propuesto (importe neto)", "n"], ["Semáforo", T]], concil,
              ["TOTAL", "", s("C", fin, "medicion"), s("D", fin, "libros"), s("E", fin, "difMed"), s("F", fin, "detCalc"),
-              suma("G", fin, sum(x["detReg"] or 0 for x in xs)), s("H", fin, "ajDet"), s("I", fin, "ajuste")]),
+              suma("G", fin, sum(x["detReg"] or 0 for x in xs)), s("H", fin, "ajDet"), s("I", fin, "ajuste"), ""],
+             explica=ex_con, colores=["Semáforo"]),
         hoja("11_Problemas", "Problemas encontrados", [["Código", T], ["Descripción", T], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("12_Conclusion", "Indicadores y conclusión",
+             [["Indicador", T], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", T]], conclusion,
+             explica=ex_conclusion, colores=["Estado"]),
+        hoja("13_Lectura", "Lectura de resultados", [["Concepto", T], ["Detalle", T]], lectura, explica=ex_lectura),
+        hoja("14_Resumen_clasif", "Resumen por clasificación",
+             [["Clasificación", T], ["Saldo en libros", "n"], ["Ajuste propuesto", "n"]], resumen_clasif,
+             explica=ex_resclasif),
     ]
 
 

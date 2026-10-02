@@ -41,6 +41,7 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     FILA0, MARCO_COMPLETAS, MARCO_PYMES, a_num, campo, edicion_pymes, es_pymes, fecha, filas_mapeadas, fx, hoja,
     m, norm, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
 )
+from backend.app.aud.niif.procesadores import problemas
 
 VERSION = "provisiones_contingencias 1.0"
 RUBRO = "PROVISIONES"
@@ -465,11 +466,12 @@ CEDULAS = [
     ("10_Garantias_calculo", "Garantías: cálculo"), ("11_Onerosos", "Contratos onerosos"), ("12_Desmantelamiento", "Desmantelamiento"),
     ("13_Reconocimiento", "Provisión requerida vs libros"), ("14_Contingencias", "Contingencias a revelar"),
     ("15_Ajustes", "Ajustes propuestos y conciliación"), ("16_Problemas", "Problemas encontrados"),
+    ("17_Conclusion", "Indicadores y conclusión"), ("18_Lectura", "Lectura de resultados"),
 ]
 P = ref("02_Parametros")
-PRV, GAR, OBL, EST, VPR, REV, GCA, REC, CON, AJ = (ref(n) for n in (
+PRV, GAR, OBL, EST, VPR, REV, GCA, REC, CON, AJ, PRB = (ref(n) for n in (
     "03_Provisiones", "04_Garantias", "05_Obligacion_prob", "06_Mejor_estimacion", "07_Valor_presente", "08_Reversion_descuento",
-    "10_Garantias_calculo", "13_Reconocimiento", "14_Contingencias", "15_Ajustes"))
+    "10_Garantias_calculo", "13_Reconocimiento", "14_Contingencias", "15_Ajustes", "16_Problemas"))
 _PAR = ["corte", "marco", "edicion", "tasaDescuento", "plazoDescuento", "materialidad", "tolerancia", "mayorProvisiones"]
 PAR = {k: f"{P}$B${FILA0 + i}" for i, k in enumerate(_PAR)}
 
@@ -481,6 +483,288 @@ def _rng(h: str, col: str, n: int) -> str:
 def _si(celda: str) -> str:
     """Celda opcional: vacía queda vacía (M22)."""
     return f'IF({celda}="","",{celda})'
+
+
+_D03 = "hoja 03 (datos del cliente)"
+
+# Explicaciones humanas de «Cómo se calcula esta hoja» (una por columna calculada).
+EXPLICA = {
+    "01_Resumen": {
+        "Importe": ("Trae cada importe de la hoja 15 (Ajustes propuestos y conciliación), concepto por concepto, para que el "
+                    "resumen y el detalle coincidan siempre."),
+    },
+    "05_Obligacion_prob": {
+        "Tipo": f"Copia el tipo de la partida (litigio, garantía, oneroso, etc.) desde la {_D03}, en la misma fila.",
+        "Obligación presente": (f"Copia de la {_D03} si existe obligación presente (Sí/No); si el cliente la dejó vacía, "
+                                "queda en blanco."),
+        "Prob. abogado": f"Copia la probabilidad que asigna el abogado desde la {_D03}; si no la informó, queda en blanco.",
+        "Prob. gerencia": f"Copia la probabilidad que asigna la gerencia desde la {_D03}; si no la informó, queda en blanco.",
+        "Probabilidad usada": "Usa la probabilidad del abogado y, si no la hay, la probabilidad de la gerencia.",
+        "Clasificación (NIC 37.14, 23, 27–35)": (
+            "En un activo contingente: prácticamente cierto → reconocible, probable → revelar y lo demás → no revelar. En el "
+            "resto: sin obligación o sin probabilidad queda «Sin evaluación»; remota → no revelar; obligación presente y "
+            "probable (o prácticamente cierta) → reconocer provisión; si no, pasivo contingente a revelar."),
+        "Discrepancia": ("Marca «Discrepancia» cuando el abogado y la gerencia informaron probabilidades distintas; si "
+                         "coinciden o falta alguna, queda vacío."),
+    },
+    "06_Mejor_estimacion": {
+        "Hecho posterior": (f"Copia de la {_D03} el importe fijado después del corte por sentencia o acuerdo; vacío si no "
+                            "lo hay."),
+        "Oneroso: mín(costo neto, penalización)": (
+            f"Solo en contratos onerosos, con datos de la {_D03}: costo de cumplir menos beneficios esperados (nunca "
+            "negativo) y, si hay penalización, el menor entre ese costo neto y la penalización; si falta uno, usa el otro."),
+        "Garantías": ("Solo en provisiones de tipo garantía: suma la provisión calculada en la hoja 10 (Garantías: cálculo) "
+                      "de las líneas de la hoja 04 vinculadas a este código; vacío si no tiene líneas."),
+        "Σ probabilidades %": (f"Suma las probabilidades (%) de los tres escenarios informados en la {_D03}; las vacías "
+                               "cuentan como cero."),
+        "Valor esperado": ("Pondera el importe de cada escenario de la hoja 03 por su probabilidad y divide para la suma de "
+                           "probabilidades; en blanco si ningún escenario tiene probabilidad."),
+        "Más probable": ("Toma el importe del escenario con mayor probabilidad (en empate gana el de menor número); en "
+                         "blanco si ningún escenario tiene probabilidad."),
+        "Punto medio del rango": ("Promedia el importe mínimo y el máximo del rango informado en la hoja 03; en blanco si "
+                                  "falta alguno de los dos."),
+        "Carta del abogado": f"Copia el importe que indica la carta del abogado en la {_D03}; vacío si no lo informó.",
+        "Estimación gerencia": f"Copia la estimación de la gerencia (sin descontar) de la {_D03}; vacío si no la informó.",
+        "Base usada": ("Indica qué dato se tomó como mejor estimación, en este orden: hecho posterior, contrato oneroso, "
+                       "garantías, escenarios (valor esperado o más probable según el método), punto medio del rango, "
+                       "carta del abogado y estimación de la gerencia."),
+        "Mejor estimación": ("Toma el importe de la primera base disponible en ese mismo orden; con escenarios usa el más "
+                             "probable si el método de la hoja 03 lo pide y, si no, el valor esperado; vacío si no hay "
+                             "ninguna base."),
+    },
+    "07_Valor_presente": {
+        "Mejor estimación": "Trae la mejor estimación de la hoja 06 (Mejor estimación), en la misma fila; vacío si no hay.",
+        "Plazo (años)": f"Copia de la {_D03} el plazo esperado de salida de recursos, en años; vacío si no se informó.",
+        "Tasa antes de impuestos %": ("Usa la tasa antes de impuestos informada para la partida en la hoja 03 y, si falta, "
+                                      "la tasa por defecto de la hoja 02 (Parámetros); vacío si no hay ninguna."),
+        "¿Descontar?": ("Marca «Sí» cuando el plazo de salida supera los años a partir de los cuales se descuenta, fijados "
+                        "en la hoja 02 (Parámetros)."),
+        "Factor de descuento": ("Si no se descuenta, el factor es 1; si se descuenta, es 1 ÷ (1 + tasa)^plazo; queda en "
+                                "blanco si falta la tasa."),
+        "Valor presente": "Multiplica la mejor estimación por el factor de descuento; en blanco si falta alguno de los dos.",
+        "Efecto del descuento": ("Resta el valor presente a la mejor estimación: es cuánto baja la provisión por "
+                                 "descontarla."),
+    },
+    "08_Reversion_descuento": {
+        "Saldo inicial": f"Copia de la {_D03} el saldo de la provisión al inicio del período; vacío si no se informó.",
+        "Tasa %": "Trae la tasa de descuento aplicada a la partida en la hoja 07 (Valor presente).",
+        "¿Descontada?": "Trae de la hoja 07 (Valor presente) si la partida se descuenta o no (Sí/No).",
+        "Reversión calculada": ("Si la partida se descuenta y hay saldo inicial y tasa, multiplica el saldo inicial por la "
+                                "tasa: es el aumento de la provisión por el paso del tiempo."),
+        "Reversión registrada": (f"Copia de la {_D03} la reversión del descuento que el cliente registró en el período; "
+                                 "vacío si no la informó."),
+        "Calculada − registrada": "Resta la reversión registrada a la calculada; en blanco si falta cualquiera de las dos.",
+    },
+    "09_Litigios_abogados": {
+        "Respuesta del abogado": (f"Copia de la {_D03} si se recibió respuesta del abogado (Sí/No); vacío si no se "
+                                  "informó."),
+        "Días desde el corte": ("Resta la fecha de corte de la hoja 02 (Parámetros) a la fecha de la carta: un número "
+                                "negativo indica una carta anterior al corte."),
+        "Prob. abogado": "Trae la probabilidad del abogado de la hoja 05 (Obligación presente y probabilidad) para este litigio.",
+        "Prob. gerencia": ("Trae la probabilidad de la gerencia de la hoja 05 (Obligación presente y probabilidad) para este "
+                           "litigio."),
+        "Importe carta": f"Copia el importe que el abogado indica en su carta, tomado de la {_D03}; vacío si no lo hay.",
+        "Libros": f"Copia el saldo registrado en libros al corte para este litigio desde la {_D03}.",
+        "Libros − carta": "Resta el importe de la carta del abogado al saldo en libros; en blanco si la carta no trae importe.",
+        "Evaluación": ("Sin respuesta del abogado marca una limitación; si la carta tiene fecha anterior al corte lo "
+                       "advierte; en otro caso, «Respuesta recibida»."),
+    },
+    "10_Garantias_calculo": {
+        "Provisión": "Trae de la hoja 04 (Garantías) el código de la provisión a la que pertenece esta línea de producto.",
+        "Unidades": "Trae de la hoja 04 (Garantías) las unidades vendidas con garantía vigente al corte.",
+        "% reclamos": "Trae de la hoja 04 (Garantías) el porcentaje histórico de reclamos de esta línea.",
+        "Costo medio": "Trae de la hoja 04 (Garantías) lo que cuesta, en promedio, atender cada reclamo.",
+        "Provisión calculada": ("Multiplica las unidades por el % de reclamos y por el costo medio por reclamo: es el "
+                                "costo esperado de las garantías."),
+        "Vínculo": (f"Revisa si el código de la provisión existe en la {_D03}: «Vinculada» si existe; si no, «Sin "
+                    "provisión en el detalle»."),
+    },
+    "11_Onerosos": {
+        "Costo de cumplir": f"Copia de la {_D03} el costo de cumplir el contrato; vacío si no se informó.",
+        "Beneficios esperados (37.10)": (f"Copia de la {_D03} los beneficios económicos que se esperan del contrato; vacío "
+                                         "si no se informaron."),
+        "Costo neto de cumplir": ("Resta los beneficios esperados al costo de cumplir, sin bajar de cero; en blanco si no "
+                                  "hay costo de cumplir."),
+        "Penalización": f"Copia de la {_D03} la penalización por incumplir el contrato; vacío si no se informó.",
+        "Costos inevitables (37.68)": ("Toma el menor entre el costo neto de cumplir y la penalización; si solo hay uno de "
+                                       "los dos, usa ese; vacío si faltan ambos."),
+        "Valor presente": "Trae el valor presente de esta partida desde la hoja 07 (Valor presente).",
+        "Libros": f"Copia el saldo registrado en libros al corte para este contrato desde la {_D03}.",
+        "Ajuste": ("Trae el ajuste (provisión requerida − libros) calculado para este contrato en la hoja 13 (Provisión "
+                   "requerida vs libros)."),
+    },
+    "12_Desmantelamiento": {
+        "Costo estimado": ("Trae de la hoja 07 (Valor presente) la mejor estimación del costo de desmantelar, antes de "
+                           "descontarla."),
+        "Plazo (años)": "Trae de la hoja 07 (Valor presente) el plazo en años hasta el desmantelamiento.",
+        "Tasa %": "Trae de la hoja 07 (Valor presente) la tasa de descuento aplicada a esta partida.",
+        "Valor presente": "Trae de la hoja 07 (Valor presente) el costo estimado ya descontado a la fecha de corte.",
+        "Libros": f"Copia el saldo registrado en libros al corte para esta obligación desde la {_D03}.",
+        "Ajuste contra el costo (CINIIF 1)": ("Trae el ajuste (provisión requerida − libros) de la hoja 13 (Provisión "
+                                              "requerida vs libros); en desmantelamiento se registra contra el costo del "
+                                              "activo."),
+        "Reversión calculada": ("Trae de la hoja 08 (Reversión del descuento) el aumento de la provisión por el paso del "
+                                "tiempo que calcula el auditor."),
+        "Reversión registrada": "Trae de la hoja 08 (Reversión del descuento) la reversión que el cliente registró en el período.",
+    },
+    "13_Reconocimiento": {
+        "Tipo": "Trae el tipo de la partida desde la hoja 05 (Obligación presente y probabilidad).",
+        "Clasificación": ("Trae la clasificación (reconocer, revelar o no revelar) de la hoja 05 (Obligación presente y "
+                          "probabilidad)."),
+        "Valor presente": "Trae el valor presente de la mejor estimación desde la hoja 07 (Valor presente).",
+        "Provisión requerida": ("Si la partida se clasificó como «Reconocer provisión» o «Activo reconocible», toma su "
+                                "valor presente; si solo se revela o es remota, cero; en blanco si está sin evaluación."),
+        "Libros": f"Copia el saldo registrado en libros al corte desde la {_D03}.",
+        "Ajuste (requerida − libros)": ("Resta el saldo en libros a la provisión requerida: positivo significa que falta "
+                                        "provisión y negativo que sobra; en blanco si está sin evaluación."),
+        "Semáforo": ("Estado de la provisión: «Alerta» si la provisión requerida difiere del saldo en libros (provisión insuficiente "
+                     "o excesiva que hay que ajustar), «Conforme» si coinciden; en blanco si la partida está sin evaluación."),
+    },
+    "14_Contingencias": {
+        "Clasificación": ("Trae la clasificación de la partida desde la hoja 05 (Obligación presente y probabilidad); aquí "
+                          "solo aparecen pasivos y activos contingentes."),
+        "Probabilidad": ("Trae la probabilidad usada (la del abogado o, si falta, la de la gerencia) de la hoja 05 "
+                         "(Obligación presente y probabilidad)."),
+        "Efecto estimado": ("Trae el valor presente de la mejor estimación de la hoja 07 (Valor presente): es el efecto "
+                            "financiero que se revela."),
+        "Revelado": f"Copia de la {_D03} si la contingencia está revelada en notas (Sí/No); vacío si no se informó.",
+        "Evaluación": ("Si es un activo contingente que no se revela, lo indica; si no, dice «Revelado» cuando la nota ya "
+                       "lo incluye o «Revelar» cuando falta, distinguiendo pasivo de activo contingente."),
+        "Registrado en libros": f"Copia el saldo que el cliente tiene en libros para esta contingencia, desde la {_D03}.",
+    },
+    "15_Ajustes": {
+        "Importe": ("Libros, requerida y ajuste suman la hoja 13 (Provisión requerida vs libros) sin los activos "
+                    "contingentes; descuento, reversiones y garantías traen los totales de las hojas 07, 08 y 10; los "
+                    "contingentes salen de las hojas 13 y 14; mayor y materialidad vienen de la hoja 02 y la diferencia es "
+                    "detalle − mayor."),
+        "Base": ("Solo en la última fila: indica «Sí» si el ajuste propuesto, en valor absoluto, supera la materialidad; "
+                 "vacío si no hay materialidad."),
+    },
+    "17_Conclusion": {
+        "Importe": ("Cada indicador trae su cifra de la hoja 15 (Ajustes propuestos y conciliación): la provisión "
+                    "requerida, las provisiones en libros, el ajuste propuesto, los pasivos contingentes sin revelar y la "
+                    "diferencia contra el mayor, sin volver a calcularlos."),
+        "Porcentaje": ("Divide el ajuste propuesto para las provisiones registradas en libros (filas de esta misma hoja): "
+                       "es el peso del ajuste sobre lo contabilizado; en blanco si no hay saldo en libros."),
+        "Cantidad": ("Cuenta los problemas listados en la hoja 16 (Problemas encontrados): es cuántas excepciones dejó "
+                     "abiertas la prueba."),
+        "Estado": ("Semáforo de cada indicador: el ajuste es «Alerta» si supera la materialidad de la hoja 02, «Revisar» si "
+                   "solo pasa la tolerancia y «Conforme» si no; contingencias sin revelar y problemas abiertos marcan alerta "
+                   "o revisión, y una conciliación descuadrada contra el mayor pide revisión."),
+    },
+}
+
+# Panel del dashboard (formato en graficos.py): la población son los saldos en libros de todas las partidas evaluadas;
+# el auditor recalcula la provisión requerida y la compara con las provisiones registradas.
+PANEL = {
+    "poblacion": {"rotulo": "Saldos en libros evaluados", "hoja": "13_Reconocimiento", "col": "Libros"},
+    "recalculado": {"rotulo": "Provisión requerida", "total": "provisionRequerida"},
+    "registrado": {"rotulo": "Provisiones en libros", "total": "librosProvisiones"},
+    "composicion": {"rotulo": "Provisión requerida por tipo", "hoja": "13_Reconocimiento", "etiqueta": "Tipo",
+                    "valor": "Provisión requerida"},
+    "distribucion": {"rotulo": "Saldos en libros por tipo", "hoja": "13_Reconocimiento", "etiqueta": "Tipo",
+                     "valor": "Libros"},
+    # Tablero: conceptos fijos de la conciliación (15), provisiones en libros frente a la requerida (NIC 37.36–47 · PYMES 21.7).
+    # El detalle por partida (código) es variable y la cédula 13 se lista por partida, no por tipo; por eso el tablero se apoya
+    # en los conceptos de rótulo fijo de la cédula de ajustes.
+    "tableros": [
+        {"rotulo": "Provisiones: en libros frente a la requerida", "sub": "USD · provisión en libros frente a la requerida, por provisión o contingencia.",
+         "unidad": "USD", "hoja": "13_Reconocimiento", "etiqueta": "Código", "seccion": "Provisiones NIC 37",
+         "filas": ["LIT-01", "LIT-02", "LIT-03", "LIT-04", "GAR-01", "ONE-01", "DES-01", "REE-01", "AMB-01", "LIT-05", "LIT-06", "OTR-01", "ACT-01"],
+         "series": [["Libros", "Libros"], ["Provisión requerida", "Provisión requerida"]]},
+    ],
+}
+
+
+def _hoja(hojas, nombre):
+    return next((x for x in hojas if x["name"] == nombre), None)
+
+
+def _idx_id(h, e, prefijo: str = ""):
+    """Fila de la hoja cuyo código abre la descripción del problema («P-01: …», «P-01 (…): …»)."""
+    msg = e.get("message") or ""
+    msg = msg[len(prefijo):] if prefijo and msg.startswith(prefijo) else msg
+    hits = [(len(c), i) for i, fila in enumerate((h or {}).get("rows") or [])
+            if (c := problemas._texto(fila[0])) and (msg.startswith(c + ":") or msg.startswith(c + " ("))]
+    return max(hits)[1] if hits else None
+
+
+def _por_id(hoja_n: str, columna: str, prefijo: str = ""):
+    """Celda de ``columna`` en la fila del código citado en el problema."""
+    def f(hojas, e):
+        h = _hoja(hojas, hoja_n)
+        i = _idx_id(h, e, prefijo)
+        if i is None:
+            return None
+        j = [c[0] for c in h["cols"]].index(columna)
+        return problemas.celda(hojas, hoja_n, columna, i), problemas._num(h["rows"][i][j])
+    return f
+
+
+def _concepto(etiqueta: str):
+    """Celda «Importe» de la fila ``etiqueta`` de 15_Ajustes."""
+    def f(hojas, e):
+        h = _hoja(hojas, "15_Ajustes")
+        for i, fila in enumerate((h or {}).get("rows") or []):
+            if fila[0] == etiqueta:
+                return problemas.celda(hojas, "15_Ajustes", "Importe", i), problemas._num(fila[1])
+        return None
+    return f
+
+
+def _sin_respuesta(hojas, e):
+    """Exposición del litigio sin carta: MAX(libros, valor presente) de su fila en 13_Reconocimiento."""
+    h = _hoja(hojas, "13_Reconocimiento")
+    i = _idx_id(h, e)
+    if i is None:
+        return None
+    cols = [c[0] for c in h["cols"]]
+    lib, vp = (problemas._num(h["rows"][i][cols.index(c)]) for c in ("Libros", "Valor presente"))
+    formula = (f"MAX({problemas.celda(hojas, '13_Reconocimiento', 'Libros', i)},"
+               f"N({problemas.celda(hojas, '13_Reconocimiento', 'Valor presente', i)}))")
+    return formula, max(lib or 0, vp or 0)
+
+
+def _dif_carta(hojas, e):
+    """Libros − importe de la carta del abogado: 09 (litigios) o, si no es litigio, 13 «Libros» − 06 «Carta del abogado»."""
+    r = _por_id("09_Litigios_abogados", "Libros − carta")(hojas, e)
+    if r:
+        return r
+    h13, h06 = _hoja(hojas, "13_Reconocimiento"), _hoja(hojas, "06_Mejor_estimacion")
+    i = _idx_id(h13, e)
+    if i is None or h06 is None:
+        return None
+    lib = problemas._num(h13["rows"][i][[c[0] for c in h13["cols"]].index("Libros")])
+    carta = problemas._num(h06["rows"][i][[c[0] for c in h06["cols"]].index("Carta del abogado")])
+    if lib is None or carta is None:
+        return None
+    return (f"{problemas.celda(hojas, '13_Reconocimiento', 'Libros', i)}"
+            f"-{problemas.celda(hojas, '06_Mejor_estimacion', 'Carta del abogado', i)}"), lib - carta
+
+
+# De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
+REF_PROBLEMAS = {
+    "SIN_EVALUACION": _por_id("13_Reconocimiento", "Libros"),                     # saldo en libros sin evaluar
+    "ONEROSO_SIN_BENEFICIOS": _por_id("11_Onerosos", "Costo de cumplir"),          # costo de cumplir sin restar beneficios
+    "SIN_RESPUESTA_ABOGADO": _sin_respuesta,                                       # MAX(libros, valor presente) del litigio
+    "ACTIVO_CONTINGENTE_RECONOCIDO": _por_id("13_Reconocimiento", "Libros"),      # activo contingente registrado
+    "ACTIVO_CONTINGENTE_SIN_REVELAR": _por_id("14_Contingencias", "Efecto estimado"),  # entrada probable no revelada
+    "SIN_ESTIMACION": _por_id("13_Reconocimiento", "Libros"),                     # saldo en libros sin estimación
+    "DESCUENTO_SIN_TASA": _por_id("06_Mejor_estimacion", "Mejor estimación"),     # estimación sin descontar
+    "PROVISION_NO_REGISTRADA": _por_id("13_Reconocimiento", "Provisión requerida"),  # provisión requerida no registrada
+    "ONEROSO_NO_PROVISIONADO": _por_id("13_Reconocimiento", "Provisión requerida"),  # costos inevitables no provisionados
+    "DIFERENCIA_PROVISION": _por_id("13_Reconocimiento", "Ajuste (requerida − libros)"),  # requerida − libros
+    "DIFERENCIA_CARTA_ABOGADO": _dif_carta,                                        # libros − carta del abogado
+    "PROVISION_SIN_OBLIGACION": _por_id("13_Reconocimiento", "Libros"),           # provisión registrada a revertir
+    "PROVISION_POSIBLE_O_REMOTA": _por_id("13_Reconocimiento", "Libros"),         # provisión registrada a revertir
+    "CONTINGENCIA_SIN_REVELAR": _por_id("14_Contingencias", "Efecto estimado"),   # pasivo contingente no revelado
+    "DESCUENTO_NO_APLICADO": _por_id("07_Valor_presente", "Efecto del descuento"),  # estimación − valor presente
+    "REVERSION_NO_REGISTRADA": _por_id("08_Reversion_descuento", "Reversión calculada"),  # reversión no registrada
+    "REVERSION_DIFERENCIA": _por_id("08_Reversion_descuento", "Calculada − registrada"),  # calculada − registrada
+    "GARANTIA_SIN_PROVISION": _por_id("10_Garantias_calculo", "Provisión calculada", "Garantía "),  # garantía sin provisión
+    "CONCILIACION_MAYOR": _concepto("Diferencia detalle − mayor"),                # detalle − mayor
+    "AJUSTE_SUPERA_MATERIALIDAD": _concepto("Ajuste propuesto = requerida − libros"),  # ajuste neto de provisiones
+}
 
 
 def hojas(res: dict) -> list[dict]:
@@ -633,6 +917,8 @@ def hojas(res: dict) -> list[dict]:
             x["id"], fx(f"{OBL}B{r}", x["tipo"]), fx(f"{OBL}G{r}", x["clasif"]), fx(f"{VPR}G{r}", x["vp"]),
             fx(f'IF(C{r}="Sin evaluación","",IF(OR(C{r}="Reconocer provisión",C{r}="Activo reconocible"),D{r},0))', x["requerida"]),
             fx(X("saldo_libros", r), x["saldo_libros"]), fx(f'IF(E{r}="","",E{r}-F{r})', x["dif"]), x["contrapartida"],
+            fx(f'IF(G{r}="","",IF(ABS(G{r})>=0.005,"Alerta","Conforme"))',
+               "" if x["dif"] is None else ("Alerta" if abs(x["dif"]) >= 0.005 else "Conforme")),
         ])
 
     # 14 · contingencias a revelar.
@@ -687,8 +973,72 @@ def hojas(res: dict) -> list[dict]:
              "activoContingenteReconocido": 10, "ajusteActivoContingente": 11, "difMayor": 13}
     resumen = [[res["labels"][kk], fx(f"{AJ}B{FILA0 + celda[kk]}", k[kk])] for kk in res["labels"]]
 
+    # 17 · indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    nprob = len(res["exceptions"])
+    tol, mat = PAR["tolerancia"], PAR["materialidad"]
+    b17 = lambda kk: f"B{FILA0 + kk}"
+    dd17 = lambda kk: f"D{FILA0 + kk}"
+    mat_v, tol_v, dif_v = k["materialidad"], (pv("tolerancia") or 0.0), k["difMayor"]
+    aj_v, cont_v = k["ajusteProvisiones"], k["contingentesSinRevelar"]
+    est_ajuste = "Alerta" if (mat_v is not None and abs(aj_v) > mat_v) else ("Revisar" if abs(aj_v) > tol_v else "Conforme")
+    est_cont = "Alerta" if abs(cont_v) > tol_v else "Conforme"
+    est_dif = "" if dif_v is None else ("Revisar" if abs(dif_v) > tol_v else "Conforme")
+    con17 = [
+        ["Provisión requerida (recalculada; NIC 37.36–47 · PYMES 21.7)", fx(f"{AJ}B{FILA0 + 1}", k["provisionRequerida"]), None, None, ""],
+        ["Provisiones registradas en libros (población evaluada)", fx(f"{AJ}B{FILA0 + 0}", k["librosProvisiones"]), None, None, ""],
+        ["Ajuste propuesto = requerida − libros", fx(f"{AJ}B{FILA0 + 2}", k["ajusteProvisiones"]), None, None,
+         fx(f'IF(AND({mat}<>"",ABS({b17(2)})>{mat}),"Alerta",IF(ABS({b17(2)})>{tol},"Revisar","Conforme"))', est_ajuste)],
+        ["% del ajuste sobre las provisiones en libros", None, fx(f'IF({b17(1)}=0,"",{b17(2)}/{b17(1)})',
+         None if k["librosProvisiones"] == 0 else k["ajusteProvisiones"] / k["librosProvisiones"]), None, ""],
+        ["Pasivos contingentes sin revelar (NIC 37.86 · PYMES 21.15)", fx(f"{AJ}B{FILA0 + 9}", k["contingentesSinRevelar"]), None, None,
+         fx(f'IF(ABS({b17(4)})>{tol},"Alerta","Conforme")', est_cont)],
+        ["Diferencia detalle − mayor", fx(f"{AJ}B{FILA0 + 13}", k["difMayor"]), None, None,
+         fx(f'IF({b17(5)}="","",IF(ABS({b17(5)})>{tol},"Revisar","Conforme"))', est_dif)],
+        ["Problemas encontrados (cantidad)", None, None, fx(f"COUNTA({_rng(PRB, 'A', nprob)})", nprob),
+         fx(f'IF({dd17(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+        ["Conclusión: la provisión se reconoce solo con obligación presente probable y estimable (NIC 37.14; PYMES 21.4); "
+         "las contingencias se revelan. Esta prueba no concluye por sí sola el cumplimiento de las NIIF.", None, None, None, ""],
+    ]
+
+    # 18 · lectura causa-efecto: cada frase lee el resultado con su cifra embebida (FIXED) desde el Resumen (hoja 01).
+    R1 = ref("01_Resumen")
+    fr = {kk: FILA0 + i for i, kk in enumerate(res["labels"])}
+    rc = lambda key: f"{R1}B{fr[key]}"
+    lectura = [
+        ["Resultado de la prueba",
+         fx(f'"La provisión requerida (NIC 37 · Sección 21) es de US$ "&FIXED({rc("provisionRequerida")},2)&", frente a US$ "&'
+            f'FIXED({rc("librosProvisiones")},2)&" registrado en libros."',
+            f'La provisión requerida (NIC 37 · Sección 21) es de US$ {m(k["provisionRequerida"])}, frente a US$ '
+            f'{m(k["librosProvisiones"])} registrado en libros.')],
+        ["Ajuste propuesto y su efecto",
+         fx(f'"El ajuste propuesto a las provisiones es de US$ "&FIXED({rc("ajusteProvisiones")},2)&": "&'
+            f'IF({rc("ajusteProvisiones")}>=0,"aumenta la provisión por reconocer.","reduce la provisión registrada.")',
+            f'El ajuste propuesto a las provisiones es de US$ {m(k["ajusteProvisiones"])}: '
+            + ("aumenta la provisión por reconocer." if k["ajusteProvisiones"] >= 0 else "reduce la provisión registrada."))],
+        ["Descuento a valor presente",
+         fx(f'"El efecto del descuento a valor presente es de US$ "&FIXED({rc("descuento")},2)&"; la reversión del descuento del '
+            f'período calculada es de US$ "&FIXED({rc("reversionCalculada")},2)&" (costo financiero, NIC 37.60)."',
+            f'El efecto del descuento a valor presente es de US$ {m(k["descuento"])}; la reversión del descuento del período '
+            f'calculada es de US$ {m(k["reversionCalculada"])} (costo financiero, NIC 37.60).')],
+        ["Contingencias a revelar",
+         fx(f'"Los pasivos contingentes a revelar por su efecto estimado suman US$ "&FIXED({rc("pasivosContingentes")},2)&", de los '
+            f'cuales US$ "&FIXED({rc("contingentesSinRevelar")},2)&" están sin revelar en notas (NIC 37.86; PYMES 21.15)."',
+            f'Los pasivos contingentes a revelar por su efecto estimado suman US$ {m(k["pasivosContingentes"])}, de los cuales '
+            f'US$ {m(k["contingentesSinRevelar"])} están sin revelar en notas (NIC 37.86; PYMES 21.15).')],
+        ["Cierre",
+         fx(f'"Se reconoció indebidamente US$ "&FIXED({rc("activoContingenteReconocido")},2)&" de activos contingentes; el ajuste '
+            f'del activo contingente es de US$ "&FIXED({rc("ajusteActivoContingente")},2)&" (NIC 37.31–35; PYMES 21.13)."',
+            f'Se reconoció indebidamente US$ {m(k["activoContingenteReconocido"])} de activos contingentes; el ajuste del activo '
+            f'contingente es de US$ {m(k["ajusteActivoContingente"])} (NIC 37.31–35; PYMES 21.13).')],
+    ]
+    ex_lectura = {"Detalle": ("Lee en lenguaje corriente el resultado de la prueba y sus hallazgos materiales con la cifra embebida "
+                              "tomada del Resumen (hoja 01): la provisión requerida frente a la registrada, el ajuste propuesto y su "
+                              "efecto, el descuento a valor presente y su reversión, los pasivos contingentes a revelar y los que "
+                              "quedan sin revelar, y el activo contingente reconocido indebidamente. Cada cifra remite por fórmula a la "
+                              "celda del Resumen.")}
+
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=EXPLICA["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Provisiones", "Provisiones y contingencias (datos del cliente)",
              [[c["label"], "d" if c["type"] == "date" else ("n" if c["type"] == "number" else "t")] for c in _PROV], prv),
@@ -696,46 +1046,50 @@ def hojas(res: dict) -> list[dict]:
              [["Línea", "t"], ["Provisión", "t"], ["Descripción", "t"], ["Unidades con garantía", "n"], ["% reclamos", "n"], ["Costo medio", "n"]], gar),
         hoja("05_Obligacion_prob", "Obligación presente y probabilidad",
              [["Código", "t"], ["Tipo", "t"], ["Obligación presente", "t"], ["Prob. abogado", "t"], ["Prob. gerencia", "t"],
-              ["Probabilidad usada", "t"], ["Clasificación (NIC 37.14, 23, 27–35)", "t"], ["Discrepancia", "t"]], obl),
+              ["Probabilidad usada", "t"], ["Clasificación (NIC 37.14, 23, 27–35)", "t"], ["Discrepancia", "t"]], obl, explica=EXPLICA["05_Obligacion_prob"]),
         hoja("06_Mejor_estimacion", "Mejor estimación",
              [["Código", "t"], ["Hecho posterior", "n"], ["Oneroso: mín(costo neto, penalización)", "n"], ["Garantías", "n"], ["Σ probabilidades %", "n"],
               ["Valor esperado", "n"], ["Más probable", "n"], ["Punto medio del rango", "n"], ["Carta del abogado", "n"], ["Estimación gerencia", "n"],
-              ["Base usada", "t"], ["Mejor estimación", "n"]], est),
+              ["Base usada", "t"], ["Mejor estimación", "n"]], est, explica=EXPLICA["06_Mejor_estimacion"]),
         hoja("07_Valor_presente", "Valor presente (descuento)",
              [["Código", "t"], ["Mejor estimación", "n"], ["Plazo (años)", "n"], ["Tasa antes de impuestos %", "n"], ["¿Descontar?", "t"],
               ["Factor de descuento", "x"], ["Valor presente", "n"], ["Efecto del descuento", "n"]], vpr,
-             ["TOTAL", None, None, None, "", None, None, suma("H", fin(n), k["descuento"])]),
+             ["TOTAL", None, None, None, "", None, None, suma("H", fin(n), k["descuento"])], explica=EXPLICA["07_Valor_presente"]),
         hoja("08_Reversion_descuento", "Actualización financiera (reversión del descuento)",
              [["Código", "t"], ["Saldo inicial", "n"], ["Tasa %", "n"], ["¿Descontada?", "t"], ["Reversión calculada", "n"], ["Reversión registrada", "n"],
               ["Calculada − registrada", "n"]], rev,
              ["TOTAL", None, None, "", suma("E", fin(n), k["reversionCalculada"]), suma("F", fin(n), k["reversionRegistrada"]),
-              suma("G", fin(n), k["difReversion"])]),
+              suma("G", fin(n), k["difReversion"])], explica=EXPLICA["08_Reversion_descuento"]),
         hoja("09_Litigios_abogados", "Litigios y cartas de abogados",
              [["Código", "t"], ["Descripción", "t"], ["Respuesta del abogado", "t"], ["Fecha de la carta", "d"], ["Días desde el corte", "i"],
-              ["Prob. abogado", "t"], ["Prob. gerencia", "t"], ["Importe carta", "n"], ["Libros", "n"], ["Libros − carta", "n"], ["Evaluación", "t"]], lit),
+              ["Prob. abogado", "t"], ["Prob. gerencia", "t"], ["Importe carta", "n"], ["Libros", "n"], ["Libros − carta", "n"], ["Evaluación", "t"]], lit, explica=EXPLICA["09_Litigios_abogados"]),
         hoja("10_Garantias_calculo", "Garantías: cálculo",
              [["Línea", "t"], ["Provisión", "t"], ["Unidades", "n"], ["% reclamos", "n"], ["Costo medio", "n"], ["Provisión calculada", "n"],
               ["Vínculo", "t"]], gca,
-             ["TOTAL", "", None, None, None, suma("F", fin(ng), k["garantiasCalculadas"]), ""] if ng else None),
+             ["TOTAL", "", None, None, None, suma("F", fin(ng), k["garantiasCalculadas"]), ""] if ng else None, explica=EXPLICA["10_Garantias_calculo"]),
         hoja("11_Onerosos", "Contratos onerosos",
              [["Código", "t"], ["Descripción", "t"], ["Costo de cumplir", "n"], ["Beneficios esperados (37.10)", "n"],
               ["Costo neto de cumplir", "n"], ["Penalización", "n"], ["Costos inevitables (37.68)", "n"],
-              ["Valor presente", "n"], ["Libros", "n"], ["Ajuste", "n"]], one),
+              ["Valor presente", "n"], ["Libros", "n"], ["Ajuste", "n"]], one, explica=EXPLICA["11_Onerosos"]),
         hoja("12_Desmantelamiento", "Desmantelamiento",
              [["Código", "t"], ["Descripción", "t"], ["Costo estimado", "n"], ["Plazo (años)", "n"], ["Tasa %", "n"], ["Valor presente", "n"],
-              ["Libros", "n"], ["Ajuste contra el costo (CINIIF 1)", "n"], ["Reversión calculada", "n"], ["Reversión registrada", "n"]], des),
+              ["Libros", "n"], ["Ajuste contra el costo (CINIIF 1)", "n"], ["Reversión calculada", "n"], ["Reversión registrada", "n"]], des, explica=EXPLICA["12_Desmantelamiento"]),
         hoja("13_Reconocimiento", "Provisión requerida vs libros",
              [["Código", "t"], ["Tipo", "t"], ["Clasificación", "t"], ["Valor presente", "n"], ["Provisión requerida", "n"], ["Libros", "n"],
-              ["Ajuste (requerida − libros)", "n"], ["Contrapartida", "t"]], rec,
+              ["Ajuste (requerida − libros)", "n"], ["Contrapartida", "t"], ["Semáforo", "t"]], rec,
              ["TOTAL", "", "", None, suma("E", fin(n), sum(x["requerida"] or 0 for x in R)), suma("F", fin(n), sum(x["saldo_libros"] for x in R)),
-              suma("G", fin(n), sum(x["dif"] or 0 for x in R)), ""]),
+              suma("G", fin(n), sum(x["dif"] or 0 for x in R)), "", ""], explica=EXPLICA["13_Reconocimiento"], colores=["Semáforo"]),
         hoja("14_Contingencias", "Contingencias a revelar",
              [["Código", "t"], ["Descripción", "t"], ["Clasificación", "t"], ["Probabilidad", "t"], ["Efecto estimado", "n"], ["Revelado", "t"],
-              ["Evaluación", "t"], ["Registrado en libros", "n"]], con),
+              ["Evaluación", "t"], ["Registrado en libros", "n"]], con, explica=EXPLICA["14_Contingencias"]),
         hoja("15_Ajustes", "Ajustes propuestos y conciliación",
-             [["Concepto", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus),
+             [["Concepto", "t"], ["Importe", "n"], ["Débito (si positivo)", "t"], ["Crédito (si positivo)", "t"], ["Base", "t"]], ajus, explica=EXPLICA["15_Ajustes"]),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("17_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con17,
+             explica=EXPLICA["17_Conclusion"], colores=["Estado"]),
+        hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
     ]
 
 

@@ -62,7 +62,7 @@ def test_create_conversation_minimal(client):
 def test_send_message_with_provider_mocked(client, monkeypatch):
     captured: dict = {}
 
-    def fake_complete(messages, system=None):
+    def fake_complete(messages, system=None, temperature=None):
         captured["messages"] = messages
         captured["system"] = system
         return LLMResponse(
@@ -111,7 +111,7 @@ def test_send_message_with_provider_mocked(client, monkeypatch):
 
 
 def test_send_message_without_provider_returns_error_not_fake(client, monkeypatch):
-    def fake_complete(messages, system=None):
+    def fake_complete(messages, system=None, temperature=None):
         raise ProviderUnavailable("Sin clave configurada.")
 
     from backend.app.chat import service as chat_service
@@ -258,8 +258,9 @@ def test_local_call_maps_payload_and_response(monkeypatch):
     assert captured["url"] == "https://auditia.tailnet.ts.net/v1/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer sk-master"
     assert captured["payload"]["model"] == "auditia-rutina"
-    # timeout corto propio del local (default 15s), no los 60 por defecto
-    assert captured["timeout"] == 15
+    # timeout propio del local (default 180s; la extracción sin streaming pide
+    # un JSON grande y 15s se quedaba corto), no los 60s por defecto del resto
+    assert captured["timeout"] == 180
     # el system va como primer mensaje en el wire format OpenAI
     assert captured["payload"]["messages"][0]["role"] == "system"
 
@@ -271,12 +272,12 @@ def test_failover_from_local_to_cloud(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "gem-key")
     monkeypatch.delenv("AUDITBRAIN_LLM_PROVIDER", raising=False)
 
-    def fail_local(messages, system=None):
+    def fail_local(messages, system=None, temperature=None):
         raise chat_providers.ProviderUnavailable(
             "El proveedor no respondió en 15s (timeout de lectura)."
         )
 
-    def ok_gemini(messages, system=None):
+    def ok_gemini(messages, system=None, temperature=None):
         return chat_providers.LLMResponse(
             content="respuesta de gemini", model="gemini-2.0-flash",
             tokens_in=5, tokens_out=10,
@@ -296,12 +297,12 @@ def test_failover_when_primary_provider_fails(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "gem-key")
     monkeypatch.setenv("AUDITBRAIN_LLM_PROVIDER", "anthropic")
 
-    def fail_anthropic(messages, system=None):
+    def fail_anthropic(messages, system=None, temperature=None):
         raise chat_providers.ProviderUnavailable(
             "HTTP 400 del proveedor: credit_balance_too_low"
         )
 
-    def ok_gemini(messages, system=None):
+    def ok_gemini(messages, system=None, temperature=None):
         return chat_providers.LLMResponse(
             content="respuesta de gemini", model="gemini-2.0-flash",
             tokens_in=5, tokens_out=10,
@@ -319,7 +320,7 @@ def test_failover_propagates_last_error_when_all_fail(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key")
     monkeypatch.setenv("GEMINI_API_KEY", "gem-key")
 
-    def fail_any(messages, system=None):
+    def fail_any(messages, system=None, temperature=None):
         raise chat_providers.ProviderUnavailable("nope")
 
     monkeypatch.setattr(chat_providers, "_call_anthropic", fail_any)
@@ -371,7 +372,7 @@ def test_stream_local_emits_tokens_and_done(monkeypatch):
     monkeypatch.setenv("LOCAL_LLM_BASE_URL", "http://gw.local/v1")
     monkeypatch.setenv("AUDITBRAIN_LLM_PROVIDER", "local")
 
-    def fake_stream_provider(provider, messages, system):
+    def fake_stream_provider(provider, messages, system, temperature=None):
         assert provider == "local"
         yield {"type": "token", "text": "Hola"}
         yield {"type": "token", "text": " mundo"}
@@ -395,7 +396,7 @@ def test_stream_failover_before_first_token(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "groq-key")
     monkeypatch.delenv("AUDITBRAIN_LLM_PROVIDER", raising=False)
 
-    def fake_stream_provider(provider, messages, system):
+    def fake_stream_provider(provider, messages, system, temperature=None):
         if provider == "local":
             raise chat_providers.ProviderUnavailable("local caido")
         if provider == "groq":
@@ -416,7 +417,7 @@ def test_stream_raises_when_fails_after_first_token(monkeypatch):
     monkeypatch.setenv("LOCAL_LLM_BASE_URL", "http://gw.local/v1")
     monkeypatch.setenv("AUDITBRAIN_LLM_PROVIDER", "local")
 
-    def fake_stream_provider(provider, messages, system):
+    def fake_stream_provider(provider, messages, system, temperature=None):
         yield {"type": "token", "text": "parcial"}
         raise chat_providers.ProviderUnavailable("cortado a mitad")
 

@@ -1,0 +1,45 @@
+# ==========================================================
+# Dockerfile.render — imagen de PRODUCCIÓN del servicio auditbrain-python-runner
+# en Render (render.yaml: runtime: docker, dockerfilePath: ./Dockerfile.render).
+#
+# Por qué Docker: el PDF ejecutivo del papel NIIF se genera con WeasyPrint, que
+# necesita librerías nativas (Pango, HarfBuzz, fontconfig) que un servicio
+# `env: python` de Render no puede instalar. Aquí se instalan con apt.
+#
+# Liviano a propósito (plan starter, sin OOM): instala requirements-prod.txt
+# (NO el requirements.txt legacy con torch/transformers) + requirements-pdf.txt.
+# El Dockerfile de la raíz queda para uso local.
+# ==========================================================
+# Base: python:3.12-slim de Docker Hub. Se puede cambiar por un espejo idéntico
+# (p. ej. public.ecr.aws/docker/library/python:3.12-slim) con --build-arg.
+ARG BASE_IMAGE=python:3.12-slim
+FROM ${BASE_IMAGE}
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# Librerías nativas de WeasyPrint (>= 53 ya no usa cairo) + fuentes base.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        libharfbuzz0b \
+        libharfbuzz-subset0 \
+        libfontconfig1 \
+        fonts-dejavu-core \
+        fonts-liberation \
+        shared-mime-info \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-prod.txt requirements-pdf.txt ./
+RUN pip install --upgrade pip setuptools wheel \
+ && pip install -r requirements-prod.txt \
+ && pip install -r requirements-pdf.txt
+
+COPY . .
+
+# Render inyecta $PORT; 10000 por compatibilidad local.
+EXPOSE 10000
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-10000}"]

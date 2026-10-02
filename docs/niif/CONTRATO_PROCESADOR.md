@@ -1,8 +1,18 @@
 # Contrato de un procesador de prueba NIIF (herramientas del catálogo AUD)
 
 Cada herramienta del catálogo es **un módulo Python** en `backend/app/aud/niif/procesadores/<id>.py`
-más **una prueba** en `tests/test_proc_<id>.py`. Referencia completa y verificada:
-`procesadores/pce_simplificada_niif9.py` (léela antes de escribir). Piezas comunes: `procesadores/base.py`.
+más **una prueba** en `tests/test_proc_<id>.py`. Referencias verificadas (léelas antes de escribir):
+- `procesadores/pce_simplificada_niif9.py`: estructura básica, cédulas con fórmulas, definición, EJEMPLO.
+- `procesadores/perdidas_incurridas_s11.py`: **piloto del papel actual**: hojas «Datos del cliente»
+  (`D1_…`–`D5_…`) armadas a mano con su guía y origen, cédulas que calculan desde esos datos, `EXPLICA`,
+  `PANEL` y `REF_PROBLEMAS`. Las demás herramientas reciben sus hojas de datos de `datos_cliente.py`.
+
+Piezas comunes: `procesadores/base.py`.
+
+> **Actualizado 2026-09-25.** El papel de trabajo cambió: sin cifras calculadas pegadas, portada
+> igual al panel del HTML, Word y PowerPoint con el diseño del HTML y logotipos en todos los formatos.
+> Lo que eso exige a cada módulo está en «Lo que exige el papel de trabajo», más abajo.
+> Las reglas completas, en `CLAUDE.md` › «Papeles de trabajo de las herramientas NIIF».
 
 Metodología: Memoria AuditBrain v1.4.0 (M01–M24). Lo esencial para este contrato:
 - **M03** la norma se lee del texto oficial (NIIF completas en español: EUR-Lex, Reglamento (UE) de adopción;
@@ -39,7 +49,39 @@ def definicion() -> dict
 def validar_definicion(d): return validar_definicion_generica(d, DATASETS, PRINCIPAL)
 EJEMPLO = {"corte": "2025-12-31", "parametros": {...}, "datasets": {"<dataset>": [filas...]}}
 ESCENARIOS = [("base", datasets, parametros, corte), ...]   # para el verificador de Excel
+PANEL = {...}                  # tarjetas y gráficos del panel (HTML, portada del Excel, Word, PowerPoint)
+REF_PROBLEMAS = {...}          # de qué celda sale el importe de cada problema
 ```
+
+`PANEL` y `REF_PROBLEMAS` son **obligatorios**: se explican en «Lo que exige el papel de trabajo».
+
+### Extracción por IA de los documentos (opcional, opt-in)
+
+Si un requerimiento del procesador llega como **PDF o Word** (pólizas, facturas,
+notas de crédito, cartas, informes) en vez de Excel/CSV, el módulo puede pedir que
+la plataforma lo **transcriba con IA** al dataset. Es opt-in: se declara la tupla
+
+```python
+EXTRACCION_DATASETS = ("<dataset_pdf>", ...)   # datasets que se extraen de PDF/Word
+EXTRACCION_ENUMS = {"<dataset>": {"<campo>": ["opción", ...]}}       # opcional
+EXTRACCION_INSTRUCCIONES = {"<dataset>": "pista en español para el modelo"}  # opcional
+```
+
+- Motor genérico: `ciclo/extraccion_ia.py` (`extraer_filas`, `texto_de_documento`),
+  esquema derivado de los `CAMPOS` del dataset. **La IA solo transcribe lo explícito**
+  (sin dato → celda vacía, regla M22); nunca calcula. Proveedor = cadena compartida
+  `chat/providers.py` (servidor local primero).
+- Auto-extracción al **Procesar** (`map_validate` → `servicio._auto_extraer_ia`): los
+  PDF/Word sin extracción se leen solos y quedan `auto=True, revisado=False` con aviso
+  de revisión; el botón «Extraer con IA» permite revisar antes.
+- **OCR de documentos escaneados (pólizas fotografiadas/sin capa de texto):**
+  `texto_de_documento` cae a `utils/ocr.extract_text_smart`/`ocr_pdf_bytes` (Google
+  Vision) cuando pdfplumber/pypdf no obtienen texto. Degrada con elegancia: sin
+  `GOOGLE_APPLICATION_CREDENTIALS_JSON` (o sin `google-cloud-vision`), el OCR se omite
+  y se cae al respaldo Excel/CSV con el aviso de siempre; nunca crashea.
+- `NIIF_EXTRACCION_ENABLED=false` apaga toda la extracción por IA (respaldo Excel/CSV).
+- Un procesador que **no** declara `EXTRACCION_DATASETS` ignora todo esto: sus
+  requerimientos se suben como Excel/CSV. Prueba del puente: `tests/test_aud_extraccion_ia.py`.
 
 ### `ejecutar(datasets, parametros, corte)`
 - `datasets[ds]` = lista de filas `{campo: texto, "_row": n}` (texto crudo: usar `num()`/`fecha()` de base).
@@ -67,6 +109,19 @@ ESCENARIOS = [("base", datasets, parametros, corte), ...]   # para el verificado
 - Filas TOTAL con `suma(col, fin_fila, valor)`.
 - Formatos de columna: `t` texto, `n` importe, `p` porcentaje (valor 0–1), `i` entero, `d` fecha, `x` libre.
 - Al menos: 01_Resumen, 02_Parametros, detalle, cálculo(s) de la norma, conciliación/ajuste, problemas.
+- Cada cédula se arma con `base.hoja(name, label, cols, rows, total, explica=…, guia=…, ocultas=…, origen=…)`:
+  - `explica`: **obligatorio** para toda columna con fórmula. Es una frase en lenguaje sencillo (≥ 40 caracteres,
+    no repetida en la misma hoja) que dice qué hace la columna y con qué dato de qué hoja, como se lo
+    explicaría el auditor a un contador o a un gerente financiero. Es lo que muestra «ⓘ Cómo se calcula esta hoja»
+    en el Excel, el HTML, el PDF y el Word. La fórmula y un ejemplo con números van solos al `00_Anexo_tecnico`.
+  - `guia`: «¿De dónde saco este dato?». Indica qué reporte, cuenta y fecha alimenta la hoja. Obligatoria en las `D…`.
+  - `ocultas`: columnas técnicas (claves de cruce); el Excel las agrupa y las oculta.
+  - `origen`: {columna: texto} cuando «De dónde viene el dato» no se deduce de la fórmula.
+- La hoja de problemas tiene exactamente las columnas `Código`, `Descripción`, `Importe`.
+- Nombres y secciones de la portada: `D1_…` → «Datos del cliente»; la primera hoja `[t, n]` (Resumen), la de
+  problemas, `…Asiento…`/`…Ajuste…` → «Resultado»; el resto → «Cómo se calculó».
+- **No crees** `00_Caratula`, `00_Programa`, `00_Fuentes`, `99_Conclusion` ni `99_Control_Revision`: las agrega
+  `libro.cedulas()` desde la definición y el registro del encargo.
 
 ### `definicion()`
 Como `pce_simplificada_niif9.definicion()`: `name`, `area` (etiqueta del rubro), `processor` (= id del módulo),
@@ -77,10 +132,132 @@ exigencia), `calculo` (pasos en lenguaje contable), `fields` (= CAMPOS del princ
 `tramos` (solo si hay tasas por tramo), `cedulas`, `program` (≥5 procedimientos con code/objective/risk/assertion/
 procedure/evidence/criterion/source) y `requests` (con `req()`: uno por anexo de cálculo + los de soporte).
 Códigos de programa y requerimientos: `<PREFIJO>-01…`, `RQ-001…`.
+El `objective` de cada procedimiento se muestra en la tarjeta de la herramienta (Auditoría externa · Análisis, «Qué se
+prueba»; `servicio.pruebas_de`): escríbalo corto y en lenguaje del auditor (p. ej. «Depreciación», «Deterioro»,
+«Desmantelamiento»); los códigos de requisito entre paréntesis al final no se muestran.
+Opcional: `firmas` = lista de cédulas clave (nombres de hoja). El libro agrega la hoja `00_Firmas` con quién preparó
+(envió a revisión) y quién revisó (aprobó) cada una, con fecha, tomados de la bitácora del ciclo, y advierte si es la
+misma persona (NIA 230 y 220). La usa la planificación (`planificacion_nia`).
+Opcional: `USA_REGISTROS_ENCARGO = True` (constante del módulo). Al ejecutar, la plataforma entrega en
+`parametros["_encargo"]` los registros hechos con un clic (independencia, asistencia a la discusión, aceptación, carta de
+encargo firmada, comunicación al gobierno; `ciclo/servicio.py::registros_encargo`). El procesador no pide plantillas al
+equipo: lo que no está en los documentos del cliente sale de esos registros, y lo que falta queda «Pendiente». La usa la
+planificación.
 
 ### `EJEMPLO` (ejercicio modelo, M19)
 Datos ficticios realistas (8–20 filas por anexo) que **ejerciten todas las cédulas y al menos dos problemas**.
 Las cifras clave se recalculan a mano en la prueba. Si hay rutas por marco, `ESCENARIOS` incluye ambas.
+
+## Lo que exige el papel de trabajo (decisiones del dueño, 2026-09-24/25)
+
+El módulo solo calcula y describe sus cédulas. **Los formatos los arma `libro.py`, que no se toca.** Todo sale
+de lo que declara el módulo, así que lo que falte ahí falta en todos los formatos:
+
+| Formato | Qué produce `libro` | De dónde lo toma |
+|---|---|---|
+| Excel | Portada `00_Inicio` **igual al panel del HTML** (`panel_excel.py`): fondo #071B2F, logos, chips, 5 tarjetas y 4 gráficos nativos; botones por sección; cada cédula con fórmulas y «Cómo se calcula»; `00_Anexo_tecnico`; datos de gráficos en `00_Datos_graficos` (oculta) | `hojas()`, `PANEL`, `REF_PROBLEMAS`, `explica`/`guia` |
+| HTML | Dashboard autónomo, sin internet: panel con tarjetas y gráficos SVG, una pestaña por cédula; trae dentro el Excel, el Word y el PowerPoint | `graficos.panel(PANEL)`, `hojas()` |
+| PDF | El HTML en tema claro | ídem |
+| Word | El HTML impreso (tema claro): membrete con logos, tarjetas, los 4 gráficos (los mismos SVG como imagen, `svg_png.py`), cada cédula con «Cómo se calcula» | ídem (`papel_office.py`) |
+| PowerPoint | El HTML en pantalla (tema «Ejecutivo»): portada, panel, cédulas de lectura (`_EN_PPT`) | ídem (`papel_office.py`) |
+
+Las pruebas **declarativas** (sin procesador) salen con este mismo diseño: `procesadores/declarativo.py`
+convierte las cédulas del exportador del sitio al modelo de `libro` y deriva su `PANEL` de la definición.
+Un cambio en las piezas compartidas se prueba también con `tests/test_aud_papel_declarativo.py` y
+`python scripts/verificar_papel_declarativo.py`.
+
+### Estilos por fila (`estilos` en `base.hoja()`)
+Una entrada por fila: `{"tipo": "titulo" | "total" | "control", "sangria": n, "col": "Cuenta"}`. Da a una hoja el
+aspecto de cédula sumaria (rubro en negrita, subcuentas con sangría por nivel, total con filete y cuadre en cursiva) en
+Excel, HTML, Word y PowerPoint. Ejemplo: `08S_Sumarias` de la planificación. Con `"grupo": n` la fila queda agrupada en
+el Excel en el nivel `n` del esquema (la fila superior arriba de sus subcuentas), para elegir el detalle con los botones
+1-2-3 de Excel. Ejemplo: `08A_ESF_Detalle` y `08B_ERI_Detalle`.
+
+### Cifras dentro de un texto
+Una fórmula que escribe una cifra dentro de un texto usa `FIXED(celda;2)`, que respeta los separadores del equipo. El
+valor de Python va con los del Ecuador (`planificacion_nia._num`: 1.053.600,00). El verificador de LibreOffice
+(`scripts/verificar_datos_cliente.igual`) compara esas cifras intercambiando `.` y `,`.
+
+### Colores por nivel (`colores` en `base.hoja()`)
+Lista de columnas cuyo valor es un nivel, severidad, semáforo o estado (`colores=["Nivel"]`). Cada celda se pinta según
+`base.NIVEL_COLOR` (Significativo, Alto/Crítico/Rojo/Alerta, Medio/Revisar/Amarillo/Comunicar/Candidato,
+Bajo/Conforme/Verde/Documentado, Pendiente/No evaluado/No aplica; también «Rojo · …» por la primera palabra) con los tonos de `base.ROL_COLOR`. En el Excel es **formato
+condicional** (el color sigue a la fórmula si el auditor cambia una calificación o un parámetro); en el HTML, una
+etiqueta de color; en Word y PowerPoint, la celda sombreada. Son colores de estado: nunca se usan en los gráficos.
+
+### `PANEL` — tarjetas y gráficos
+```python
+PANEL = {
+    "poblacion":   {"rotulo": "Cartera al corte", "total": "saldo"},             # clave de totals, o…
+    "recalculado": {"rotulo": "Pérdida recalculada", "total": "perdida"},
+    "registrado":  {"rotulo": "Provisión registrada", "hoja": "06_Conciliacion", "col": "Libros"},  # …suma de columna
+    "composicion": {"rotulo": "Pérdida por tramo", "hoja": "04_Matriz", "etiqueta": "Tramo", "valor": "Pérdida"},
+    "distribucion": {"rotulo": "Cartera por tramo", "hoja": "04_Matriz", "etiqueta": "Tramo", "valor": "Saldo"},
+}
+```
+- Las cinco claves son obligatorias. `graficos.panel(mod, run, hojas)["faltan"]` debe quedar vacío.
+- Variantes admitidas: `{"total": clave}`; `{"hoja", "col"}` con filtros opcionales `donde={col: [valores]}` y
+  `con_valor="col"`; en series, `{"hoja", "etiqueta", "valor"}` (más `donde`) o `{"totales": [(rótulo, clave), …]}`.
+- En la portada del Excel cada tarjeta y cada barra es **fórmula**. Una clave `total` se enlaza a la fila del
+  Resumen que tiene ese rótulo e importe, o a la fila TOTAL de una cédula. Una columna se enlaza con
+  `SUMIFS`/`COUNTIFS`. Por eso el importe de `totals` debe existir en alguna celda del libro.
+- **Nunca** volcar todas las filas del Resumen en un gráfico: mezcla escalas y se ve como un código de barras.
+- `PANEL["textos"]` (opcional) cambia los rótulos pensados para una prueba sustantiva cuando no aplican
+  (p. ej. la planificación no tiene «cifra del cliente»): `comparativo`, `comparativo_sub`, `nota_recalculado`
+  (texto en lugar de la flecha de variación), `vs`, `igual`, `nota_registrado` y `problemas`. Por defecto rigen
+  los de `graficos.TEXTOS`, iguales en el HTML, la portada del Excel, el Word y el PowerPoint.
+- `PANEL["tableros"]` (opcional) agrega gráficos de **columnas agrupadas** (p. ej. anterior frente a actual)
+  debajo de los 4 del panel, en los cuatro formatos: HTML (`graficos_svg.agrupadas`), portada del Excel (gráfico
+  nativo cuyos datos son fórmulas a la celda de la cédula), Word y PowerPoint (el mismo SVG como imagen). Cada uno:
+  `{"rotulo", "sub", "unidad": "veces"|"días"|"%"|"USD", "hoja", "etiqueta", "filas": [rótulo | [rótulo, rótulo del
+  gráfico] | {"fila", "rotulo", "mejor": "alto"|"bajo"}], "series": [[nombre, columna], …], "estado": columna del
+  semáforo, "seccion": título de página}`. Las filas se buscan por su rótulo en la columna `etiqueta`; si una
+  no existe, el tablero va a `faltan`. Ejemplo: la planificación (índices por grupo y analítico del artefacto).
+- Diseño **premium** (pedido del dueño, 2026-09-26: «gráficos premium y no gráficos simples»): barras con
+  degradado y esquinas redondeadas, escala con cuadrícula punteada, píldora por indicador con el punto del
+  semáforo y la variación ▲/▼ (verde si mejora según `mejor`, rojo si empeora, gris sin sentido; «pp» en los
+  porcentajes). **Ningún color se repite en la misma lámina** (pedido del dueño, 2026-09-26): cada tablero lleva su
+  familia de la paleta ejecutiva `graficos_svg.TABLERO_HEX` (oro, violeta, coral, índigo, magenta, siena; sin celeste
+  ni verde; validada con la skill dataviz; `"color"` la fija), con la serie anterior en un tono translúcido y la actual
+  plena, y los tableros van en su propia lámina (pestaña «Tableros» del HTML, páginas propias en Excel y PowerPoint).
+  **Relieve 3D** (decisión del dueño: «premium = relieve o 3D, que se vea ejecutivo»): prismas con frente en degradado y
+  brillo, techo iluminado, lateral en sombra y piso en perspectiva; en el Excel, gráfico 3D nativo (`bar3DChart`,
+  ejes en ángulo recto). En el Excel: degradado en las barras y la variación en el rótulo por fórmula (`FIXED`, respeta el
+  separador decimal del equipo). Cada página impresa de tableros empieza con una franja con su título de sección:
+  LibreOffice, al exportar a PDF, no recorta los degradados en el salto de página.
+
+### `REF_PROBLEMAS` — importe de cada problema como fórmula
+```python
+REF_PROBLEMAS = {
+    "AJUSTE": ("01_Resumen", "Importe"),                 # la fila cuyo importe coincide
+    "TRAMO_NO_MEDIBLE": ("04_Matriz", "Saldo"),          # si hay varias, la del identificador citado en el mensaje
+    "DIFERENCIA": ("06_Conciliacion", "Diferencia", "total"),   # la fila TOTAL
+    "CONCILIACION_INICIAL": _funcion,                    # f(hojas, e) -> ("fórmula sin =", valor)
+}
+```
+Todo código que pueda emitir `problema(...)` necesita su entrada. Solo se enlaza si la celda tiene ese mismo
+importe; si no, queda como valor y lo reporta el verificador. Ver `procesadores/problemas.py`.
+
+### Sin cifras calculadas pegadas
+Los datos del cliente y los parámetros del auditor son valores (entradas). **Todo lo demás es fórmula** que
+remite a su origen. Una cifra calculada escrita como número es un error, aunque el valor sea correcto.
+
+### Datos del cliente dentro del libro (todas las herramientas)
+Cada documento que entrega el cliente (RQ-…) va en su hoja `D1_…`, `D2_…`. Lleva lo que entregó, fila por fila,
+más la columna «Origen del dato» (archivo · hoja · fila) y `guia`.
+- **Lo hace `procesadores/datos_cliente.py` por ti:** a partir de `definicion()["requests"]` (campo `dataset`),
+  `CAMPOS` y `kind()`, arma una hoja por requerimiento entregado y cambia cada dato del cliente que tus cédulas
+  traen pegado por una fórmula a su celda. Para que el enlace funcione: en cada fila de una cédula de detalle va
+  el **identificador de la partida** tal como lo entregó el cliente (1.ª columna del anexo), y el dato con el
+  **mismo valor** bajo un **encabezado parecido** al del campo (misma raíz o sigla). Una columna se enlaza si
+  ninguna partida la contradice; si el cliente dejó el dato en blanco y usas otro dato de la fila o un valor por
+  defecto, el enlazador escribe `IF(dato="",…,dato)`. Si es un cálculo (índices de período, vencimientos, fechas
+  derivadas), escríbelo como fórmula (`fx`): **ninguna cifra ni fecha puede quedar pegada** en una cédula
+  (solo `02_Parametros` y `00_…`); lo vigila `tests/test_aud_datos_cliente.py::test_ninguna_cifra_ni_fecha_queda_pegada`.
+- **Si la herramienta necesita cruces propios** (varios anexos por clave, como pérdidas incurridas), arma sus
+  hojas `D…` a mano en `hojas()` (con claves de cruce `F…`, `A…`, `C…` en columnas `ocultas`) y agrega su id a
+  `datos_cliente.PROPIAS`.
+- Verificación: `python scripts/verificar_datos_cliente.py <id>` (LibreOffice) debe dar «DIFERENCIAS: 0».
 
 ## Prueba `tests/test_proc_<id>.py` (sin base de datos)
 - Import: `from backend.app.aud.niif.procesadores import <id> as m`
@@ -89,12 +266,26 @@ Las cifras clave se recalculan a mano en la prueba. Si hay rutas por marco, `ESC
 - `hojas()`: nombres = CEDULAS y todas las filas con el ancho de `cols`.
 - Ejecutar: `python -m pytest tests/test_proc_<id>.py -q -p no:warnings`
 
-## Verificación en Excel real (obligatoria)
-`python scripts/verificar_formulas.py <id>` → debe terminar con `DIFERENCIAS: 0`.
+## Verificación (obligatoria, todo en verde antes de entregar)
+1. `python -m pytest tests/test_proc_<id>.py -q -p no:warnings`
+2. `python scripts/verificar_formulas.py <id>` → `DIFERENCIAS: 0`. Abre cada escenario en **Excel real**
+   (Windows + pywin32), recalcula y compara cada fórmula con Python. Sin Windows, recalcular con LibreOffice
+   (`soffice --headless --convert-to xlsx`) y comparar con `openpyxl` (`data_only=True`) es una prueba previa
+   útil, pero **no reemplaza** la de Excel real.
+3. `python scripts/verificar_explicaciones.py <id>` → sin columnas sin explicación humana y con `PANEL` resuelto.
+4. `python scripts/verificar_problemas_enlazados.py <id>` → `PENDIENTES: 0`.
+5. Pruebas transversales, filtradas a tu herramienta y sin base de datos:
+   `python -m pytest -q -p no:warnings tests/test_aud_sin_datos_fijos.py tests/test_aud_html_premium.py tests/test_aud_office_como_html.py -k <id>`
+6. El Excel no puede levantar el aviso «Excel pudo abrir el archivo reparando…» (regla suprema del `CLAUDE.md`):
+   ningún texto que empiece con `=`, `+`, `-` o `@` sin ser fórmula, y paréntesis balanceados.
 
 ## Prohibido
-Editar archivos compartidos (`procesadores/__init__.py`, `ciclo/*.py`, frontend, otros procesadores). Solo se crean
-el módulo y su prueba. No correr la suite completa (usa una base compartida).
+Editar archivos compartidos: `procesadores/__init__.py`, `ciclo/*.py`, frontend, otros procesadores, y las piezas
+de los formatos (`libro.py`, `panel_excel.py`, `papel_office.py`, `svg_png.py`, `html_ejecutivo.py`,
+`graficos.py`, `graficos_svg.py`, `problemas.py`, `marca.py`, `base.py`, `declarativo.py`). Solo se crean el
+módulo y su prueba.
+Si una pieza compartida no alcanza, se reporta como duda; no se parchea. No correr la suite completa (usa una
+base compartida).
 
 ## Códigos de rubro (tarjetas)
 CAJA_BANCOS · CXC · INVERSIONES · INVENTARIOS · ACTIVOS_FIJOS · ARRENDAMIENTOS · PROPIEDADES_INVERSION ·

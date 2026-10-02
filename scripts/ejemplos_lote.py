@@ -34,6 +34,7 @@ from datetime import date, datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.app.aud.niif.procesadores import PROCESADORES  # noqa: E402
+from backend.app.aud.niif.procesadores import datos_cliente  # noqa: E402
 from backend.app.aud.niif.ciclo import datos as datos_mod  # noqa: E402
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -88,7 +89,12 @@ def _celda(campo, valor):
 
 
 def _ejemplo_de(mod):
-    """Devuelve (datasets, parametros, corte) del ejemplo canónico del procesador."""
+    """Devuelve (datasets, parametros, corte) del ejemplo canónico del procesador.
+    PCE usa el ejemplo REALISTA compartido con pérdidas incurridas (6 clientes)."""
+    if getattr(mod, "__name__", "").endswith("pce_simplificada_niif9"):
+        from backend.app.aud.niif import ejemplos_pi
+        e = ejemplos_pi.pce_ejemplo()
+        return e["datasets"], e["parametros"], e["corte"]
     E = getattr(mod, "EJEMPLO", None)
     if E:
         return E["datasets"], E.get("parametros", {}), E["corte"]
@@ -104,6 +110,13 @@ def _archivos_de(pid):
     mod = PROCESADORES[pid]
     d = mod.definicion()
     datasets, _par, _corte = _ejemplo_de(mod)
+    # Un anexo opcional que el ejemplo canónico no usa (p. ej. el ERI al mismo corte de la revisión preliminar de la
+    # planificación) se toma del primer escenario que lo trae.
+    datasets = dict(datasets)
+    for _n, ds_esc, _p, _c in getattr(mod, "ESCENARIOS", None) or []:
+        for k, v in ds_esc.items():
+            if v and not datasets.get(k):
+                datasets[k] = v
     salida = []
     for r in d.get("requests", []):
         ds = r.get("dataset")
@@ -119,20 +132,72 @@ def _archivos_de(pid):
 
 def _libro(campos, filas, titulo, explicacion):
     from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    VERDE, VERDE_CLARO, GRIS, BORDE = "1F6B4C", "E8F1EC", "6B7280", "D1D5DB"
+    fill_req = PatternFill("solid", fgColor=VERDE)
+    fill_opt = PatternFill("solid", fgColor=GRIS)
+    fill_banda = PatternFill("solid", fgColor=VERDE_CLARO)
+    thin = Side(style="thin", color=BORDE)
+    borde = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     wb = Workbook()
+    # --- Hoja «Datos»: rótulos que la prueba reconoce (obligatorias en verde, opcionales en gris) ---
     ws = wb.active
     ws.title = "Datos"
     ws.append([c["label"] for c in campos])
+    for j, c in enumerate(campos, 1):
+        cell = ws.cell(row=1, column=j)
+        cell.font = Font(bold=True, color="FFFFFF", size=11)
+        cell.fill = fill_req if c.get("required", True) else fill_opt
+        cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
+        cell.border = borde
+        ws.column_dimensions[get_column_letter(j)].width = max(14, min(34, len(c["label"]) + 4))
+    ws.row_dimensions[1].height = 32
     for fila in filas:
         ws.append([_celda(c, fila.get(c["key"], "")) for c in campos])
-    lee = wb.create_sheet("Léame")
-    lee["A1"] = NOTA
-    lee["A3"] = titulo
-    lee["A5"] = explicacion
-    lee["A7"] = ("Formato de ejemplo con datos ficticios que muestra la estructura esperada. "
-                 "La hoja «Datos» trae los rótulos que la prueba reconoce automáticamente; "
-                 "reemplace las filas por las de su empresa sin cambiar los encabezados.")
+    for i in range(2, ws.max_row + 1):
+        for j in range(1, len(campos) + 1):
+            cc = ws.cell(row=i, column=j)
+            cc.border = borde
+            if i % 2 == 0:
+                cc.fill = fill_banda
+    ws.freeze_panes = "A2"
+    ws.sheet_view.showGridLines = False
+
+    # --- Portada «Instrucciones»: ejecutivo, con la leyenda de columnas ---
+    ins = wb.create_sheet("Instrucciones")
+    ins.sheet_view.showGridLines = False
+    ins["A1"] = "AuditConsulting Auditores Cía. Ltda."
+    ins["A1"].font = Font(bold=True, size=15, color=VERDE)
+    ins["A2"] = titulo
+    ins["A2"].font = Font(bold=True, size=12)
+    ins["A4"] = explicacion or ""
+    ins["A4"].alignment = Alignment(wrap_text=True, vertical="top")
+    ins["A6"] = ("Formato de ejemplo con datos ficticios que muestra la estructura esperada. La hoja «Datos» trae los "
+                 "rótulos que la prueba reconoce automáticamente; reemplace las filas por las de su empresa. Si su archivo "
+                 "usa otros nombres de columna, puede cargarlo igual: al procesar podrá mapear a mano dónde está cada dato.")
+    ins["A6"].alignment = Alignment(wrap_text=True, vertical="top")
+    ins["A8"] = NOTA
+    ins["A8"].font = Font(italic=True, color=GRIS)
+    hr = 10
+    for k, t in enumerate(["Columna", "Obligatoria", "Qué va aquí (ejemplo)"], 1):
+        c = ins.cell(row=hr, column=k, value=t)
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = fill_req
+        c.border = borde
+    for idx, cmp in enumerate(campos, 1):
+        row = hr + idx
+        req = cmp.get("required", True)
+        a = ins.cell(row=row, column=1, value=cmp["label"]); a.border = borde; a.alignment = Alignment(wrap_text=True, vertical="top")
+        b = ins.cell(row=row, column=2, value="Sí" if req else "Opcional"); b.border = borde
+        b.font = Font(bold=req, color=VERDE if req else GRIS)
+        d = ins.cell(row=row, column=3, value=str(cmp.get("ejemplo") or "")); d.border = borde; d.alignment = Alignment(wrap_text=True, vertical="top")
+    ins.column_dimensions["A"].width = 42
+    ins.column_dimensions["B"].width = 14
+    ins.column_dimensions["C"].width = 46
+
     wb.active = 0
     creado = datetime(FECHA_FIJA.year, FECHA_FIJA.month, FECHA_FIJA.day)
     wb.properties.creator = "AuditConsulting Auditores Cía. Ltda. · Ejercicio modelo"
@@ -220,7 +285,7 @@ def verificar(pids) -> bool:
             detalle.append(f"{ds}={len(res['rows'])}f")
         try:
             run = mod.ejecutar(datasets, par, corte)
-            hojas = mod.hojas(run)
+            hojas = datos_cliente.con_datos(mod, run, datasets)
             n_exc = len(run.get("exceptions", []))
             print(f"  [OK] {pid}: {', '.join(detalle)} -> {len(hojas)} cédulas, "
                   f"primary={run.get('primary')}, {n_exc} hallazgos")

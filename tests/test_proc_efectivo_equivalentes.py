@@ -3,6 +3,7 @@ import copy
 
 import pytest
 
+from backend.app.aud.niif.procesadores import base
 from backend.app.aud.niif.procesadores import efectivo_equivalentes as m
 
 E = m.EJEMPLO
@@ -56,6 +57,25 @@ def test_hojas_nombres_y_anchos():
         for fila in x["rows"] + ([x["total"]] if x["total"] else []):
             assert len(fila) == len(x["cols"]), x["name"]
     assert sum(isinstance(c, dict) for x in h for f in x["rows"] for c in f) > 100
+
+
+def test_conclusion():
+    """La cédula 13 lleva indicadores clave con importes en fórmula y un semáforo coloreable en «Estado»."""
+    r = _run()
+    h = m.hojas(r)
+    con = next(x for x in h if x["name"] == "13_Conclusion")
+    assert con["label"] == "Indicadores y conclusión"
+    cols = [c[0] for c in con["cols"]]
+    assert cols == ["Indicador", "Importe", "Porcentaje", "Cantidad", "Estado"]
+    assert "Estado" in con["colores"]
+    ji, je = cols.index("Importe"), cols.index("Estado")
+    # los importes son fórmulas (dict con "f")
+    assert any(isinstance(f[ji], dict) and "f" in f[ji] for f in con["rows"])
+    # «Estado» emite valores coloreables (Alerta/Revisar/Conforme → alta/media/baja)
+    roles = {base.rol_color(con, "Estado", f[je]) for f in con["rows"]}
+    assert roles & {"alta", "media", "baja"}
+    # con el ejemplo hay ajuste, diferencias y problemas: debe haber al menos una «Alerta» (rol alta)
+    assert "alta" in roles
 
 
 def test_anexo_vacio():
@@ -138,6 +158,22 @@ def test_definicion():
     assert m.RUBRO == "CAJA_BANCOS" and m.TOTAL_EJEMPLO in _run()["totals"]
 
 
+def test_lectura():
+    """La cédula 14 lee los resultados en causa-efecto con las cifras embebidas por FIXED."""
+    r = _run()
+    h = m.hojas(r)
+    lec = next(x for x in h if x["name"] == "14_Lectura")
+    assert lec["label"] == "Lectura de resultados"
+    assert [c[0] for c in lec["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(lec["rows"]) <= 5
+    for fila in lec["rows"]:
+        assert isinstance(fila[0], str) and fila[0]
+        det = fila[1]
+        assert isinstance(det, dict) and "f" in det and "FIXED(" in det["f"]
+    # explica de la columna calculada presente
+    assert "Detalle" in m.EXPLICA["14_Lectura"]
+
+
 def test_bordes_tres_meses_y_al_menos_doce_meses():
     """NIC 7.7 se mide con EDATE(adquisición;3), no con 90 días; NIC 1.66 d) dice «al menos» doce meses."""
     d = {"cuentas": [
@@ -153,3 +189,16 @@ def test_bordes_tres_meses_y_al_menos_doce_meses():
     assert cu["I1"]["plazo"] == 92 and cu["I1"]["califica"] == "Sí"
     assert cu["B1"]["clasif"] == "No corriente" and cu["B1"]["reclasR"] == 5000
     assert r["totals"]["reclasNoEquivalentes"] == "0.00" and r["totals"]["reclasRestringido"] == "5000.00"
+
+
+def test_estilos_efectivo_auditado():
+    """La cédula 10 (estado del efectivo auditado) trae estilos de cédula sumaria: una entrada por fila
+    de datos, con subtotales (notas, auditado, ajuste) y subcuentas con sangría (composición)."""
+    h = {x["name"]: x for x in m.hojas(_run())}["10_Efectivo_auditado"]
+    estilos = h["estilos"]
+    assert len(estilos) == len(h["rows"])                       # exactamente una entrada por fila de datos
+    assert any((e or {}).get("tipo") == "total" for e in estilos)
+    assert any((e or {}).get("sangria") for e in estilos)
+    for e in estilos:
+        if e and e.get("sangria"):
+            assert e["col"] == "Concepto"                       # la sangría va en la 1.ª columna de texto

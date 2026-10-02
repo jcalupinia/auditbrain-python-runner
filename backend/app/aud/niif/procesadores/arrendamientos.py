@@ -39,6 +39,7 @@ from datetime import date, timedelta
 
 from openpyxl.utils import get_column_letter
 
+from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y filas_mapeadas los usa el ciclo)
     FILA0, a_fecha, a_num, campo, es_pymes, edicion_pymes, filas_mapeadas, fx, hoja, m as _m, norm, problema,
     r2, ref, req, suma, validar_campos, validar_definicion_generica,
@@ -107,14 +108,39 @@ PRINCIPAL = "contratos"
 CONTROL = "pasivo_reg"
 TOTAL_EJEMPLO = "pasivo"
 
+# Extracción por IA del contrato (PDF/Word). El servicio y el frontend leen estas constantes
+# genéricamente (igual que en ppe y en la planificación): habilitan subir el contrato firmado para
+# que la IA llene la fila del anexo. La IA solo transcribe lo explícito; la tasa y los juicios del
+# auditor (clasificación, renovación cierta, bajo valor, exención) quedan vacíos para que el auditor
+# los complete antes de procesar.
+EXTRACCION_DATASETS = ("contratos",)
+EXTRACCION_ENUMS = {"contratos": {"periodicidad": ["Mensual", "Trimestral", "Semestral", "Anual"], "momento": ["Inicio", "Final"]}}
+EXTRACCION_INSTRUCCIONES = {
+    "contratos": (
+        "Cada contrato de arrendamiento es una fila. Extraiga SOLO lo que conste expresamente en el documento: el "
+        "activo arrendado (objeto del contrato), la fecha de comienzo (inicio del arriendo), el plazo no cancelable en "
+        "meses (si solo constan las fechas de inicio y fin, calcule los meses entre ellas), el canon o cuota periódica "
+        "y su periodicidad (mensual, trimestral, semestral o anual), si el pago es al inicio o al final del período, "
+        "los meses de la opción de renovación si existe, el precio de la opción de compra si existe, y —solo si el "
+        "contrato lo dice— si la renta se ajusta por un índice de inflación y el importe del componente ligado al "
+        "índice. NO complete la tasa de descuento (casi nunca consta en el contrato; la fija el auditor con la tasa "
+        "referencial del Banco Central del Ecuador), ni la clasificación financiero/operativo, ni si la renovación o la "
+        "compra son razonablemente ciertas, ni el bajo valor, ni la exención: esos son juicios del auditor. Lo que no "
+        "aparezca, déjelo vacío."
+    ),
+}
+
 CONVENCIONES = ("Efectiva anual", "Nominal anual")
-PARAMETROS = {"convencionTasa": "Efectiva anual", "umbralVida": 75, "umbralVP": 90, "limiteBajoValor": 5000}
+# Default «Nominal anual»: el auditor tipea la tasa anual tal cual la publica el BCE y la herramienta la divide ÷12
+# (decisión del dueño, para no confundir al equipo con conversiones de tasa efectiva).
+PARAMETROS = {"convencionTasa": "Nominal anual", "umbralVida": 75, "umbralVP": 90, "limiteBajoValor": 5000, "tarifaIR": 25}
 PARAM_NEGATIVOS = ()
 ETIQUETAS_PARAM = {
     "convencionTasa": "Tasa anual del contrato (efectiva o nominal)",
     "umbralVida": "PYMES: plazo ≥ % de la vida económica (indicador 20.5 c)",
     "umbralVP": "PYMES: VP de los pagos mínimos ≥ % del valor razonable (indicador 20.5 d)",
     "limiteBajoValor": "Límite de «bajo valor» del activo nuevo (USD)",
+    "tarifaIR": "Tarifa de impuesto a la renta (%) para el impuesto diferido (NIC 12 / Secc. 29)",
 }
 
 COL = {c["key"]: get_column_letter(i + 1) for i, c in enumerate(_CONTRATOS)}
@@ -244,6 +270,34 @@ def _dep(t, roi, md, ev):
     if t <= me:
         return roi * min(t, md) / md
     return roi * min(me, md) / md + (roi * (1 - min(me, md) / md) + aj) * min(t - me, md2 - me) / (md2 - me)
+
+
+def _idiferido(c: dict, tarifa: float) -> dict:
+    """Impuesto diferido (NIC 12 / Secc. 29) del arrendamiento capitalizado, por año fiscal.
+
+    La diferencia temporaria nace porque el gasto contable del arrendatario (depreciación del derecho de uso
+    + interés del pasivo) se separa del gasto deducible, que en Ecuador es el canon devengado del período. Cada
+    período con diferencia POSITIVA genera (gasto no deducible → casillero F-101 1114) y con diferencia NEGATIVA
+    revierte (casillero 1115); ambos se llevan en bruto y por separado, no neteados. Sobre toda la vida la suma
+    de (depreciación + interés) iguala la suma de los cánones, así que la diferencia acumulada revierte a cero.
+
+    Devuelve {anios: {año: {dep, interes, canon, dif, gen, rev}}, tarifa, gen, rev} con los subtotales en bruto
+    por año. El efecto en el impuesto diferido se obtiene multiplicando por la tarifa (fórmula del lado Excel)."""
+    roi, md, ev, m = c["activo_ini"], c["md"], c["ev"], c["m"]
+    anios: dict[int, dict] = {}
+    for x in c["tabla"]:
+        j = x["j"]
+        dep = _dep(j * m, roi, md, ev) - _dep((j - 1) * m, roi, md, ev)
+        dif = dep + x["interes"] - x["pago"]
+        y = c["inicio"].year + (c["inicio"].month - 1 + (j - 1) * m) // 12
+        a = anios.setdefault(y, {"dep": 0.0, "interes": 0.0, "canon": 0.0, "dif": 0.0, "gen": 0.0, "rev": 0.0})
+        a["dep"] += dep
+        a["interes"] += x["interes"]
+        a["canon"] += x["pago"]
+        a["dif"] += dif
+        a["gen" if dif > 0 else "rev"] += dif
+    return {"anios": anios, "tarifa": tarifa / 100,
+            "gen": sum(a["gen"] for a in anios.values()), "rev": sum(a["rev"] for a in anios.values())}
 
 
 # --- cálculo ---------------------------------------------------------------------------
@@ -434,6 +488,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     p["limiteBajoValor"] = a_num(p["limiteBajoValor"])
     if p["limiteBajoValor"] is None or p["limiteBajoValor"] < 0:
         raise ValueError("Límite de bajo valor: indique un importe no negativo.")
+    p["tarifaIR"] = a_num(p["tarifaIR"])
+    if p["tarifaIR"] is None or not 0 <= p["tarifaIR"] <= 100:
+        raise ValueError("Tarifa de impuesto a la renta: use un porcentaje entre 0 y 100.")
     pymes = es_pymes(p)
     if not datasets.get("contratos"):
         raise ValueError("Cargue el anexo de contratos de arrendamiento.")
@@ -500,9 +557,12 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             c["deterioro"] = 0 if c["recuperable"] is None else max(0, c["neto_antes"] - c["recuperable"])
             c["neto"] = c["neto_antes"] - c["deterioro"]
             c["gasto"] = 0.0
+            # impuesto diferido (NIC 12 / Secc. 29): solo en contratos capitalizados (ver _idiferido)
+            c["idiferido"] = _idiferido(c, p["tarifaIR"])
         else:
             for k in ("pasivo", "interes", "pagos", "remedicion", "cp", "lp", "devengo", "dep", "deterioro", "neto"):
                 c[k] = 0.0
+            c["idiferido"] = None  # operativo/exento: gasto = deducible, sin diferencia temporaria
             # 7 · gasto lineal de exentos y operativos
             c["pagos_tot"] = c["pago_medido"] * c["n"]
             c["meses_anio"] = min(max(M, 0), c["plazo_total"]) - min(max(M - 12, 0), c["plazo_total"])
@@ -636,13 +696,16 @@ CEDULAS = [
     ("13_Venta_arr_posterior", "Venta con arrendamiento posterior: medición inicial"),
     ("14_Venta_medicion_post", "Venta con arrendamiento posterior: medición posterior"),
     ("15_Conciliacion", "Conciliación y ajuste"), ("16_Problemas", "Problemas encontrados"),
+    ("17_Conclusion", "Indicadores y conclusión"), ("18_Lectura", "Lectura de resultados"),
+    ("19_Impuesto_Diferido", "Impuesto diferido (NIC 12)"),
+    ("20_Conciliacion_F101", "Conciliación F-101 y asiento"),
 ]
 P = ref("02_Parametros")
 CT, ID, PL, MI, PG, RE, TA, PC, DU, GL, VA = (ref(n) for n in ("03_Contratos", "04_Identificacion", "05_Plazo", "06_Medicion_inicial",
                                                               "07_Pagos_variables", "08_Remedicion", "09_Tabla_amortizacion",
                                                               "10_Pasivo_corte", "11_Derecho_uso", "12_Gasto_lineal",
                                                               "13_Venta_arr_posterior"))
-PAR = {k: FILA0 + i for i, k in enumerate(["corte", "conv", "umbralVida", "umbralVP", "limiteBajoValor", "marco"])}
+PAR = {k: FILA0 + i for i, k in enumerate(["corte", "conv", "umbralVida", "umbralVP", "limiteBajoValor", "marco", "tarifaIR"])}
 
 
 def _x(key: str, r: int) -> str:
@@ -666,6 +729,450 @@ def _dep_f(t: str, r: int, ev: bool) -> str:
     return f"IF({t}<={F},{base},{C}*MIN({F},{D})/{D}+({C}*(1-MIN({F},{D})/{D})+{G})*MIN({t}-{F},{H}-{F})/({H}-{F}))"
 
 
+def _dep_f_du(t: str, du: str, rc: int, ev: bool) -> str:
+    """Igual que _dep_f, pero desde otra hoja: cualifica C/D/F/G/H de 11_Derecho_uso con su prefijo (`du`)."""
+    C, D, F, G, H = f"{du}C{rc}", f"{du}D{rc}", f"{du}F{rc}", f"{du}G{rc}", f"{du}H{rc}"
+    base = f"{C}*MIN({t},{D})/{D}"
+    if not ev:
+        return base
+    return f"IF({t}<={F},{base},{C}*MIN({F},{D})/{D}+({C}*(1-MIN({F},{D})/{D})+{G})*MIN({t}-{F},{H}-{F})/({H}-{F}))"
+
+
+# --- explicaciones humanas de «Cómo se calcula esta hoja» y panel del dashboard --------------
+
+_PLAZO_04 = ("Trae el plazo del arrendamiento (plazo no cancelable más la renovación razonablemente cierta) calculado en la "
+             "hoja 05 (Plazo y opciones).")
+_EX_COMUN = {
+    "01_Resumen": {
+        "Importe": "Trae cada importe de su hoja de origen, concepto por concepto: pasivo, activo, depreciación e interés de la fila TOTAL "
+                   "de la hoja 15 (Conciliación y ajuste); corriente y no corriente de la hoja 10; deterioro de la hoja 11; gasto lineal "
+                   "de la hoja 12; pagos variables de la hoja 07 y remedición de la hoja 08. Los ajustes son recalculado menos registrado.",
+    },
+    "05_Plazo": {
+        "Plazo no cancelable (meses)": "Trae el plazo no cancelable del contrato, en meses, de la hoja 03 (Universo de contratos).",
+        "Renovación razonablemente cierta": "Trae de la hoja 03 (Universo de contratos) si es razonablemente cierto que se ejercerá la "
+                                            "renovación; en blanco si no se informó.",
+        "Meses de renovación": "Trae los meses de la opción de renovación de la hoja 03 (Universo de contratos); si no hay dato, cuenta cero.",
+        "Plazo del arrendamiento (18)": "Suma al plazo no cancelable los meses de renovación solo cuando la renovación es razonablemente "
+                                        "cierta («Sí»); si no, el plazo es solo el no cancelable.",
+        "Plazo usado por el cliente": "Trae de la hoja 03 (Universo de contratos) el plazo en meses que usó el cliente, para compararlo "
+                                      "con el recalculado; en blanco si no se informó.",
+        "Meses por período": "Convierte la periodicidad de pago de la hoja 03 en meses: mensual 1, trimestral 3, semestral 6 y "
+                             "cualquier otra (anual) 12.",
+        "Períodos": "Divide el plazo del arrendamiento entre los meses por período: es el número de cuotas del contrato.",
+        "Meses transcurridos al corte": "Cuenta los meses completos desde la fecha de comienzo (hoja 03) hasta el día siguiente a la "
+                                        "fecha de corte de la hoja 02 (Parámetros).",
+        "Meses de depreciación (32 / 20.12)": "Si la compra es razonablemente cierta, usa la vida útil del activo (o el plazo si falta); "
+                                              "si no, el menor entre el plazo del arrendamiento y la vida útil (o el plazo si no hay vida útil).",
+    },
+    "06_Medicion_inicial": {
+        "Tipo de tasa": "Trae de la hoja 03 (Universo de contratos) si la tasa del contrato es implícita o incremental; en blanco si "
+                        "no se informó.",
+        "Tasa anual (%)": "Trae la tasa anual del contrato, en porcentaje, de la hoja 03 (Universo de contratos).",
+        "Tasa periódica": "Convierte la tasa anual en la tasa de cada período de pago con la convención de la hoja 02: nominal = tasa × "
+                          "meses ÷ 12; efectiva = (1 + tasa)^(meses ÷ 12) − 1, con los meses por período de la hoja 05.",
+        "Pago al inicio (1) / al final (0)": "Pone 1 si el contrato se paga al inicio de cada período, según la hoja 03 (Universo de "
+                                             "contratos), y 0 si se paga al final.",
+        "Opción de compra incluida (27 d)": "Si la compra es razonablemente cierta, incluye el precio de la opción de compra de la hoja "
+                                            "03 (Universo de contratos); si no, pone 0.",
+        "VP de los pagos": "Descuenta con la tasa periódica (función VA de Excel) el pago usado en la medición (hoja 07) durante los "
+                           "períodos de la hoja 05, más la opción de compra incluida, según se pague al inicio o al final.",
+        "Valor razonable": "Trae el valor razonable del activo de la hoja 03 (Universo de contratos); en blanco si no se informó.",
+        "Pago en el comienzo": "Si el pago es al inicio del período, es el primer pago (el usado en la medición, hoja 07), que se paga el "
+                               "mismo día del comienzo; si es al final, es 0.",
+        "Pasivo inicial": "Resta a la base de medición el pago hecho en el comienzo: es el pasivo que queda por pagar al inicio del "
+                          "contrato.",
+        "Pagos anticipados": "Trae los pagos hechos antes del comienzo, de la hoja 03 (Universo de contratos); sin dato cuenta cero.",
+        "Costos directos iniciales": "Trae los costos directos iniciales del arrendatario, de la hoja 03 (Universo de contratos); sin "
+                                     "dato cuenta cero.",
+        "Desmantelamiento": "Trae el costo estimado de desmantelar o restaurar el activo, de la hoja 03 (Universo de contratos); sin "
+                            "dato cuenta cero.",
+        "Incentivos": "Trae los incentivos recibidos del arrendador, de la hoja 03 (Universo de contratos); sin dato cuenta cero.",
+    },
+    "07_Pagos_variables": {
+        "Pago periódico total del contrato": "Trae de la hoja 03 (Universo de contratos) el pago periódico total, que incluye el "
+                                             "componente ligado al índice.",
+        "Ligado a un índice de inflación": "Marca «Sí» si el cliente declaró en la hoja 03 que el pago se ajusta por un índice de "
+                                           "inflación o informó el importe del componente indexado; si no, «No».",
+        "Índice o referencia": "Trae el nombre del índice o referencia del reajuste, de la hoja 03 (Universo de contratos); en blanco "
+                               "si no se informó.",
+        "Componente ligado al índice": "Si el pago no está ligado a un índice es 0; si lo está, trae de la hoja 03 el importe por "
+                                       "período del componente indexado, y queda en blanco si el cliente no lo informó.",
+        "Pago base": "Resta del pago periódico total el componente ligado al índice; en blanco cuando ese componente no se pudo medir.",
+        "Pago variable no ligado a un índice (38 b)": "Trae de la hoja 03 el pago variable del período que no depende de un índice "
+                                                      "(por ejemplo, por ventas o por uso); en blanco si no hay.",
+        "Períodos del ejercicio": "Cuenta los períodos de pago del ejercicio: si el contrato se reconoce, períodos vencidos al corte "
+                                  "menos los vencidos al inicio del año (hoja 10); si no, meses del contrato en el año (hoja 12) "
+                                  "entre meses por período (hoja 05).",
+    },
+    "08_Remedicion": {
+        "Períodos al evento": "Cuenta los meses completos desde el comienzo (hoja 03) hasta la fecha del evento y los divide entre los "
+                              "meses por período (hoja 05), sin decimales: son las cuotas ya transcurridas.",
+        "Plazo revisado (meses)": "Toma el nuevo plazo total informado en la hoja 03; si no hay, mantiene el plazo del arrendamiento de "
+                                  "la hoja 05.",
+        "Períodos revisados": "Divide el plazo revisado entre los meses por período de la hoja 05: número total de cuotas después del "
+                              "evento.",
+        "Pago revisado": "Toma el nuevo pago periódico de la hoja 03; si no se informó, mantiene el pago usado en la medición de la "
+                         "hoja 07.",
+        "Tasa anual revisada (%)": "Toma la tasa anual revisada de la hoja 03; si no se informó, mantiene la tasa anual original de la "
+                                   "hoja 06.",
+        "Tasa periódica revisada": "Convierte la tasa anual revisada en tasa por período con la convención de la hoja 02 (nominal o "
+                                   "efectiva) y los meses por período de la hoja 05.",
+        "Pasivo antes del evento": "Busca en la hoja 09 (Tabla de amortización) el saldo final de este contrato en el período del "
+                                   "evento, antes de remedir.",
+        "Pasivo remedido (40–45)": "Descuenta con la tasa revisada las cuotas que faltan (períodos revisados − períodos al evento) con "
+                                   "el pago revisado y la opción de compra de la hoja 06; si se paga al inicio, resta el pago que vence ese día.",
+        "Ajuste al pasivo y al derecho de uso": "Resta el pasivo antes del evento del pasivo remedido: es lo que sube o baja el pasivo, "
+                                                "y se lleva contra el derecho de uso.",
+        "Remedido por el cliente": "Trae de la hoja 03 (Universo de contratos) si el cliente registró la remedición del pasivo; en "
+                                   "blanco si no lo indicó.",
+    },
+    "09_Tabla_amortizacion": {
+        "Período": "Numera las cuotas de cada contrato: cuenta cuántas filas del mismo contrato hay desde la primera de la tabla "
+                   "hasta esta.",
+        "Vencimiento": "Suma a la fecha de comienzo del contrato (hoja 03) el número de período por los meses por período de la "
+                       "hoja 05 (Plazo y opciones): es la fecha en que vence la cuota.",
+        "Tasa periódica": "Trae la tasa por período del contrato: la tasa usada de la hoja 06 (Medición inicial) o, en los períodos "
+                          "posteriores a una remedición, la tasa revisada de la hoja 08.",
+        "Saldo inicial": "En el primer período es el pasivo inicial de la hoja 06; en los siguientes, el saldo final ajustado de la "
+                         "fila anterior.",
+        "Interés (37)": "Multiplica el saldo inicial del período por la tasa periódica: es el interés que devenga el pasivo en ese período.",
+        "Pago": "Antes de la última cuota es el pago del contrato (hoja 07, o el revisado de la hoja 08 tras una remedición); en la "
+                "última suma la opción de compra y, si se paga al final, la cuota; después del plazo es 0.",
+        "Saldo final": "Saldo inicial más el interés menos el pago del período.",
+        "Remedición": "Solo en el período del evento: diferencia entre el pasivo remedido (hoja 08) y el saldo final de ese período; "
+                      "en los demás períodos es 0.",
+        "Saldo final ajustado": "Suma al saldo final la remedición del período: es el saldo con que empieza el período siguiente.",
+        "Año de devengo": "Año calendario en que se devenga la cuota: el año del mes de comienzo del período (fecha de comienzo de "
+                          "la hoja 03 más los meses transcurridos). Sirve para agrupar el impuesto diferido por ejercicio.",
+        "Depreciación del período": "Depreciación del derecho de uso que corresponde al período: la depreciación acumulada al final "
+                                    "del período menos la del período anterior (lineal sobre los meses de depreciación de la hoja 11).",
+        "Diferencia temporaria (NIC 12)": "Depreciación del período más el interés menos el pago (canon): la diferencia entre el gasto "
+                                          "contable del arrendamiento y el gasto deducible, que origina el impuesto diferido (hoja 19).",
+    },
+    "10_Pasivo_corte": {
+        "Reconoce": "Trae de la hoja 04 (Identificación) si el contrato se reconoce en balance; si no, el resto de la fila queda en "
+                    "cero o en blanco.",
+        "Períodos finales": "Número total de cuotas del contrato: los períodos de la hoja 05 o, si hubo remedición, los períodos "
+                            "revisados de la hoja 08.",
+        "Meses transcurridos": "Trae los meses completos transcurridos desde el comienzo hasta el corte, calculados en la hoja 05 "
+                               "(Plazo y opciones).",
+        "Períodos vencidos al corte": "Divide los meses transcurridos entre los meses por período (hoja 05), sin decimales y sin pasar "
+                                      "de los períodos finales: cuotas ya vencidas al corte.",
+        "Períodos vencidos al inicio del año": "Igual que la columna anterior pero con 12 meses menos: las cuotas que ya habían vencido "
+                                               "al empezar el ejercicio.",
+        "Pasivo al corte": "Si no ha vencido ninguna cuota, es el pasivo inicial de la hoja 06; si no, busca en la hoja 09 (Tabla de "
+                           "amortización) el saldo final ajustado del último período vencido al corte.",
+        "Pasivo al inicio del año": "Si el contrato empezó hace menos de 12 meses es 0; si no, el pasivo inicial (sin cuotas vencidas) "
+                                    "o el saldo de la hoja 09 en el último período vencido al inicio del año.",
+        "Altas del año": "Si el contrato comenzó dentro de los últimos 12 meses, su pasivo inicial (hoja 06) es un alta del año; si es "
+                         "anterior, 0.",
+        "Interés del ejercicio": "Suma el interés de la hoja 09 (Tabla de amortización) de los períodos de este contrato que vencen en "
+                                 "el ejercicio: después de los vencidos al inicio del año y hasta los vencidos al corte.",
+        "Pagos del ejercicio": "Suma los pagos de la hoja 09 (Tabla de amortización) de los períodos de este contrato que vencen "
+                               "dentro del ejercicio.",
+        "Remedición del ejercicio": "Suma los ajustes por remedición de la hoja 09 de los períodos de este contrato que caen dentro "
+                                    "del ejercicio.",
+        "Comprobación (0)": "Cuadra el movimiento del año: pasivo al inicio + altas + interés − pagos + remedición − pasivo al corte. "
+                            "Debe dar 0.",
+        "Saldo después de 12 meses": "Busca en la hoja 09 el saldo que quedará después de 12 meses más de cuotas (o al final del plazo, "
+                                     "si llega antes): es el capital que no se paga en los próximos 12 meses.",
+        "Corriente": "Pasivo al corte menos el saldo que quedará dentro de 12 meses: es el capital que se paga en los próximos 12 meses.",
+        "No corriente": "Es el saldo que quedará después de los próximos 12 meses (columna «Saldo después de 12 meses»): la parte no "
+                        "corriente del pasivo.",
+        "Pasivo registrado": "Trae el pasivo por arrendamiento que el cliente registró al corte, de la hoja 03 (Universo de "
+                             "contratos); sin dato cuenta cero.",
+        "Diferencia": "Resta el pasivo registrado del pasivo al corte recalculado.",
+        "Corriente registrado": "Trae el pasivo corriente registrado por el cliente, de la hoja 03 (Universo de contratos); en blanco "
+                                "si no lo informó.",
+        "Diferencia corriente": "Resta el corriente registrado del corriente recalculado; en blanco si el cliente no informó su "
+                                "pasivo corriente.",
+        "Interés registrado": "Trae el gasto por interés del ejercicio registrado por el cliente, de la hoja 03 (Universo de "
+                              "contratos); en blanco si no se informó.",
+        "Diferencia interés": "Resta el interés registrado del interés del ejercicio recalculado; en blanco si no hay interés registrado.",
+        "Interés devengado no vencido (informativo)": "Si quedan cuotas por vencer, estima el interés que corre desde el último "
+                                                      "vencimiento hasta el corte: pasivo al corte × tasa periódica × meses del "
+                                                      "período en curso ÷ meses por período. Es informativo y no entra en el recálculo.",
+    },
+    "11_Derecho_uso": {
+        "Reconoce": "Trae de la hoja 04 (Identificación) si el contrato se reconoce; solo los reconocidos tienen un activo que depreciar.",
+        "Costo inicial": "Trae el costo inicial del activo (derecho de uso o activo arrendado) calculado en la hoja 06 (Medición inicial).",
+        "Meses de depreciación": "Trae de la hoja 05 (Plazo y opciones) el número de meses en que se deprecia el activo.",
+        "Meses transcurridos": "Trae de la hoja 05 los meses transcurridos desde el comienzo hasta el corte; si fueran negativos, pone 0.",
+        "Meses al evento": "Si hubo remedición, multiplica los períodos al evento de la hoja 08 por los meses por período (hoja 05): "
+                           "meses desde el comienzo hasta la remedición.",
+        "Ajuste por remedición": "Trae de la hoja 08 (Remedición) el ajuste del pasivo, que se suma o resta al activo; sin evento es 0.",
+        "Meses de depreciación revisados": "Tras la remedición: si la compra es razonablemente cierta, mantiene los meses de "
+                                           "depreciación; si no, el menor entre el plazo revisado (hoja 08) y la vida útil (hoja 03), o el plazo revisado si "
+                                           "no hay vida útil.",
+        "Depreciación acumulada al corte": "Deprecia el costo inicial en línea recta por los meses transcurridos, sin pasar de los meses "
+                                           "de depreciación. Si hubo remedición, desde el evento reparte lo que faltaba más el ajuste "
+                                           "en los meses que quedan hasta los meses revisados.",
+        "Depreciación acumulada al inicio del año": "Misma cuenta que la depreciación acumulada al corte, pero con 12 meses menos (nunca "
+                                                    "menos de 0): lo depreciado hasta el inicio del ejercicio.",
+        "Depreciación del ejercicio": "Depreciación acumulada al corte menos la acumulada al inicio del año: el gasto de depreciación "
+                                      "del ejercicio.",
+        "Neto antes de deterioro": "Costo inicial más el ajuste por remedición menos la depreciación acumulada al corte.",
+        "Importe recuperable": "Trae el importe recuperable del activo informado en la hoja 03 (Universo de contratos); en blanco si "
+                               "no hay indicio de deterioro.",
+        "Deterioro (33 / Secc. 27)": "Si hay importe recuperable y es menor que el neto antes de deterioro, la diferencia es el "
+                                     "deterioro; si no, 0.",
+        "Neto recalculado": "Neto antes de deterioro menos el deterioro: es el activo que debería quedar al corte.",
+        "Registrado neto": "Trae el derecho de uso o activo registrado neto por el cliente, de la hoja 03 (Universo de contratos); sin "
+                           "dato cuenta cero.",
+        "Diferencia": "Resta el registrado neto por el cliente del neto recalculado por el auditor.",
+        "Depreciación registrada": "Trae la depreciación del ejercicio que registró el cliente, de la hoja 03 (Universo de contratos); "
+                                   "en blanco si no se informó.",
+        "Diferencia depreciación": "Resta la depreciación registrada de la depreciación del ejercicio recalculada; en blanco si no hay "
+                                   "depreciación registrada.",
+    },
+    "12_Gasto_lineal": {
+        "Pagos totales del plazo": "Multiplica el pago usado en la medición (hoja 07) por el número de períodos del contrato (hoja 05): "
+                                   "total a pagar en todo el plazo.",
+        "Plazo (meses)": "Trae el plazo del arrendamiento en meses de la hoja 05 (Plazo y opciones).",
+        "Meses del contrato en el año": "Meses transcurridos al corte (hoja 05) menos los transcurridos al inicio del año, ambos sin "
+                                        "pasar del plazo: los meses del contrato que caen dentro del ejercicio.",
+        "Gasto lineal del ejercicio (6 / 20.15)": "Reparte los pagos totales en partes iguales por mes (pagos ÷ plazo) y multiplica por "
+                                                  "los meses del contrato en el año.",
+    },
+    "13_Venta_arr_posterior": {
+        "Precio de venta": "Trae el precio de venta del activo, de la hoja 03 (Universo de contratos).",
+        "Valor razonable": "Trae el valor razonable del activo vendido, de la hoja 03 (Universo de contratos).",
+        "Importe en libros previo": "Trae el importe en libros del activo antes de la venta, de la hoja 03 (Universo de contratos).",
+        "Ganancia registrada": "Trae la ganancia en la venta que registró el cliente, de la hoja 03 (Universo de contratos); en blanco "
+                               "si no se informó.",
+    },
+    "14_Venta_medicion_post": {
+        "Pasivo al inicio del ejercicio": "Trae el pasivo al inicio del año de este contrato, de la hoja 10 (Pasivo al corte).",
+        "Altas del ejercicio": "Trae las altas del año de este contrato, de la hoja 10 (Pasivo al corte).",
+        "Interés del ejercicio (36–37)": "Trae el interés del ejercicio recalculado en la hoja 10 (Pasivo al corte).",
+        "Pagos fijos del ejercicio": "Trae los pagos del ejercicio de la hoja 10 (Pasivo al corte), según la tabla de amortización.",
+        "Pagos variables del ejercicio (38 b)": "Trae el gasto del ejercicio por pagos variables de la hoja 07; en blanco si allí quedó "
+                                                "en blanco.",
+        "Remedición del ejercicio (40–43)": "Trae la remedición del ejercicio de la hoja 10 (Pasivo al corte) para este contrato.",
+        "Pasivo al corte": "Trae el pasivo al corte recalculado de la hoja 10 (Pasivo al corte).",
+        "Comprobación del pasivo (0)": "Trae de la hoja 10 la comprobación del movimiento del pasivo del año; debe dar 0.",
+        "Derecho de uso conservado inicial (100 a)": "Trae de la hoja 11 (Depreciación y deterioro del activo) el costo inicial del "
+                                                     "activo, que en esta operación es el derecho de uso conservado.",
+        "Depreciación del ejercicio (29–35)": "Trae la depreciación del ejercicio del activo, de la hoja 11 (Depreciación y deterioro "
+                                              "del activo).",
+        "Derecho de uso neto al corte": "Trae el neto recalculado del activo al corte, de la hoja 11 (Depreciación y deterioro del activo).",
+        "Ganancia reconocida en la venta": "Trae de la hoja 13 la ganancia que se reconoce en la venta (la inmediata en PYMES; la de los "
+                                           "derechos transferidos en NIIF completas).",
+        "Ganancia posterior registrada": "Trae de la hoja 03 la ganancia o pérdida que el cliente reconoció después de la venta por la "
+                                         "medición posterior; en blanco si no se informó.",
+        "Control 102A: ganancia sobre el derecho de uso conservado (0)": "Repite la ganancia posterior registrada cuando existe (en "
+                                                                         "blanco si no): cualquier importe distinto de 0 es una ganancia "
+                                                                         "sobre el derecho de uso conservado que no debió reconocerse.",
+    },
+    "15_Conciliacion": {
+        "Pasivo recalculado": "Trae el pasivo al corte recalculado de este contrato, de la hoja 10 (Pasivo al corte).",
+        "Pasivo registrado": "Trae el pasivo registrado por el cliente para este contrato, de la hoja 10 (Pasivo al corte).",
+        "Ajuste pasivo": "Pasivo recalculado menos pasivo registrado: el ajuste propuesto al pasivo de este contrato.",
+        "Activo recalculado": "Trae el neto recalculado del activo, de la hoja 11 (Depreciación y deterioro del activo).",
+        "Activo registrado": "Trae el activo registrado neto por el cliente, de la hoja 11 (Depreciación y deterioro del activo).",
+        "Ajuste activo": "Activo recalculado menos activo registrado: el ajuste propuesto al activo de este contrato.",
+        "Depreciación del ejercicio": "Trae la depreciación del ejercicio de la hoja 11; en los contratos que no se reconocen es 0.",
+        "Interés del ejercicio": "Trae el interés del ejercicio de la hoja 10 (Pasivo al corte); en los contratos que no se reconocen es 0.",
+        "Pasivo corriente": "Trae la parte corriente del pasivo de la hoja 10 (Pasivo al corte); en los contratos que no se reconocen es 0.",
+        "Semáforo": ("Estado del contrato: «Alerta» si el ajuste del pasivo o el del activo no es cero (hay diferencia frente a lo "
+                     "registrado que debe investigarse), «Conforme» si ambos cuadran."),
+    },
+}
+_EX_COMPLETAS = {
+    "04_Identificacion": {
+        "Plazo (meses)": _PLAZO_04,
+        "Opción de compra": "Marca «Sí» si el contrato tiene un precio de opción de compra mayor que cero en la hoja 03 (Universo de "
+                            "contratos); si no, «No».",
+        "Corto plazo (≤ 12 m, sin opción)": "Marca «Sí» cuando el plazo del arrendamiento es de 12 meses o menos y el contrato no "
+                                            "tiene opción de compra; de lo contrario, «No».",
+        "Bajo valor declarado": "Trae de la hoja 03 (Universo de contratos) si el cliente declaró el activo como de bajo valor; si no "
+                                "lo indicó, se toma «No».",
+        "Valor del activo nuevo (B3)": "Trae de la hoja 03 el valor del activo en estado nuevo; si falta queda en blanco y el contrato "
+                                       "no puede calificar como de bajo valor.",
+        "Automóvil (B6)": "Marca «Sí» si la descripción del activo contiene palabras como automóvil, vehículo, camioneta, coche o "
+                          "furgoneta; esos activos no califican como de bajo valor.",
+        "Uso independiente y sin subarriendo (B5, B7)": "Trae la respuesta del cliente en la hoja 03 sobre si el activo se usa por sí "
+                                                        "solo, sin depender de otros activos, y no se subarrienda; en blanco si no respondió.",
+        "Bajo valor elegible (B3, B5–B7)": "Es «Sí» solo si el cliente lo declaró de bajo valor, informó el valor del activo nuevo, ese "
+                                           "valor no pasa del límite de la hoja 02 (Parámetros), no es un automóvil y el uso "
+                                           "independiente no es «No».",
+        "Exención elegible (5)": "Marca «Sí» si el contrato califica como de corto plazo o como de bajo valor elegible; si no califica "
+                                 "por ninguna de las dos vías, «No».",
+        "Exención aplicada por el cliente": "Trae de la hoja 03 (Universo de contratos) si el cliente aplicó la exención y no reconoció "
+                                            "el arrendamiento; si no lo indicó, se toma «No».",
+        "Reconoce pasivo": "Solo es «No» cuando el cliente aplicó la exención y además es elegible; en cualquier otro caso el contrato "
+                           "debe reconocerse en balance («Sí»).",
+        "Tipo de tasa (26)": "Trae de la hoja 03 (Universo de contratos) si la tasa del contrato es implícita o incremental; en blanco "
+                             "si no se informó.",
+    },
+    "06_Medicion_inicial": {
+        "Base de medición (26)": "En NIIF completas la base de medición es directamente el VP de los pagos calculado en esta misma hoja.",
+        "Tasa usada en la tabla": "Es la misma tasa periódica del contrato; con ella se calcula el interés en la hoja 09 (Tabla de "
+                                  "amortización).",
+        "Derecho de uso (24)": "Pasivo inicial + pago en el comienzo + pagos anticipados + costos directos + desmantelamiento − "
+                               "incentivos. En una venta con arrendamiento posterior que se reconoce, trae en su lugar el derecho de "
+                               "uso conservado de la hoja 13.",
+    },
+    "07_Pagos_variables": {
+        "Pago usado en la medición del pasivo": "En NIIF completas el pasivo se mide con el pago periódico total, incluido el "
+                                                "componente ligado al índice.",
+        "Gasto del ejercicio por pagos variables": "Multiplica el pago variable no ligado a un índice por los períodos del ejercicio "
+                                                   "(sin dato cuenta cero): es el gasto del año por pagos variables.",
+    },
+    "13_Venta_arr_posterior": {
+        "Financiación adicional (101 b)": "Si el precio de venta supera el valor razonable, el exceso es financiación adicional recibida "
+                                          "del comprador; si no, 0.",
+        "Pago anticipado (101 a)": "Si el precio de venta es menor que el valor razonable, la diferencia es un pago anticipado del "
+                                   "arrendamiento; si no, 0.",
+        "Pasivo inicial": "Trae el pasivo inicial del arrendamiento posterior calculado en la hoja 06 (Medición inicial).",
+        "Parte del arrendamiento": "Pasivo inicial menos la financiación adicional más el pago anticipado: el valor de los pagos que "
+                                   "corresponde al arrendamiento.",
+        "Derecho de uso conservado (100 a)": "Importe en libros previo × parte del arrendamiento ÷ valor razonable: la porción del "
+                                             "importe en libros que se conserva como derecho de uso.",
+        "Ganancia total": "Valor razonable menos importe en libros previo: la ganancia total que tendría la venta.",
+        "Ganancia reconocida (derechos transferidos)": "Ganancia total × (valor razonable − parte del arrendamiento) ÷ valor razonable: "
+                                                       "solo la ganancia de los derechos transferidos al comprador.",
+        "Diferencia": "Resta la ganancia registrada de la ganancia reconocida recalculada; en blanco si no hay ganancia registrada.",
+    },
+}
+_EX_PYMES = {
+    "04_Identificacion": {
+        "Plazo (meses)": _PLAZO_04,
+        "Vida útil (meses)": "Trae la vida útil del activo en meses de la hoja 03 (Universo de contratos); en blanco si el cliente no "
+                             "la informó.",
+        "Plazo / vida útil": "Divide el plazo del arrendamiento entre la vida útil del activo; en blanco si falta la vida útil.",
+        "VP de los pagos mínimos": "Trae el valor presente de los pagos calculado en la hoja 06 (Medición inicial).",
+        "Valor razonable": "Trae el valor razonable del activo informado en la hoja 03 (Universo de contratos); en blanco si falta.",
+        "VP / valor razonable": "Divide el VP de los pagos mínimos entre el valor razonable del activo; en blanco si falta el valor "
+                                "razonable.",
+        "Compra razonablemente cierta": "Trae de la hoja 03 si es razonablemente cierto que se ejercerá la opción de compra; si no se "
+                                        "indicó, se toma «No».",
+        "Indicador de financiero (20.5)": "Marca «Sí» si la compra es razonablemente cierta, si el plazo cubre al menos el porcentaje "
+                                          "de vida útil de la hoja 02 (Parámetros) o si el VP de los pagos alcanza el porcentaje del "
+                                          "valor razonable fijado allí.",
+        "Clasificación del cliente": "Trae de la hoja 03 la clasificación (financiero u operativo) que el cliente dio al contrato; en "
+                                     "blanco si no la informó.",
+        "Clasificación auditada": "Es «Financiero» si se cumple algún indicador de financiero o si el cliente ya lo clasificó así; en "
+                                  "los demás casos es «Operativo».",
+        "Reconoce pasivo": "Marca «Sí» (se reconocen activo y pasivo) solo cuando la clasificación auditada es «Financiero»; los "
+                           "operativos van a gasto lineal en la hoja 12.",
+    },
+    "06_Medicion_inicial": {
+        "Base de medición (menor VR / VP, 20.9)": "Toma el menor entre el valor razonable del activo y el VP de los pagos; si no hay "
+                                                  "valor razonable, usa el VP.",
+        "Tasa usada en la tabla": "Usa la tasa periódica del contrato, salvo que el valor razonable sea menor que el VP: entonces "
+                                  "recalcula con la función TASA de Excel la tasa que iguala los pagos al valor razonable. Alimenta la hoja 09.",
+        "Activo arrendado (20.9)": "Suma a la base de medición (el menor entre valor razonable y VP) los costos directos iniciales "
+                                   "del contrato.",
+    },
+    "07_Pagos_variables": {
+        "Pago usado en la medición del pasivo": "En PYMES el pasivo se mide con el pago base, sin el componente ligado al índice; si el "
+                                                "pago base está en blanco, usa el pago total.",
+        "Gasto del ejercicio por pagos variables": "Suma el componente ligado al índice y el pago variable no ligado a un índice y lo "
+                                                   "multiplica por los períodos del ejercicio; en blanco si el pago está indexado pero "
+                                                   "falta el importe del componente.",
+    },
+    "13_Venta_arr_posterior": {
+        "Clasificación": "Trae de la hoja 04 (Identificación) la clasificación auditada del arrendamiento posterior: financiero u "
+                         "operativo.",
+        "Ganancia inmediata (20.33–20.34)": "Si es financiero, solo reconoce de inmediato una pérdida (precio − libros, si es "
+                                            "negativa). Si es operativo, reconoce el menor entre precio y valor razonable menos el "
+                                            "importe en libros.",
+        "Ganancia diferida": "Si es financiero, difiere la ganancia (precio − libros, si es positiva). Si es operativo, difiere el exceso "
+                             "del precio sobre el valor razonable.",
+        "Diferencia": "Resta la ganancia registrada de la ganancia inmediata recalculada; en blanco si no hay ganancia registrada.",
+    },
+}
+
+
+def _explica(nombre: str, pymes: bool) -> dict:
+    """Explicaciones de una cédula; las columnas de 04, 06, 07 y 13 cambian con el marco."""
+    return {**_EX_COMUN.get(nombre, {}), **(_EX_PYMES if pymes else _EX_COMPLETAS).get(nombre, {})}
+
+
+PANEL = {
+    "poblacion": {"rotulo": "Pasivo inicial de los contratos", "hoja": "06_Medicion_inicial", "col": "Pasivo inicial"},
+    "recalculado": {"rotulo": "Pasivo recalculado", "total": "pasivo"},
+    "registrado": {"rotulo": "Pasivo registrado", "total": "pasivoRegistrado"},
+    "composicion": {"rotulo": "Pasivo recalculado por contrato", "hoja": "15_Conciliacion", "etiqueta": "Contrato", "valor": "Pasivo recalculado"},
+    "distribucion": {"rotulo": "Pasivo inicial por contrato", "hoja": "06_Medicion_inicial", "etiqueta": "Contrato", "valor": "Pasivo inicial"},
+    # Tablero premium (columnas): indicadores fijos de la conclusión (17), serie «Importe» en USD.
+    "tableros": [
+        {"rotulo": "Pasivo por arrendamiento: recalculado frente a registrado", "sub": "USD · pasivo recalculado frente al registrado, por contrato.",
+         "unidad": "USD", "hoja": "15_Conciliacion", "etiqueta": "Contrato", "seccion": "Arrendamientos (NIIF 16 · Secc. 20)",
+         "series": [["Pasivo recalculado", "Pasivo recalculado"], ["Pasivo registrado", "Pasivo registrado"]],
+         "filas": ["C-01", "C-02", "C-03", "C-04", "C-05", "C-06", "C-07", "C-08", "C-09", "C-10", "C-11"]},
+    ],
+}
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) --------------
+
+def _por_contrato(hoja_: str, columna: str):
+    """Celda de la columna en la fila del contrato que abre la descripción del problema («C-01: …»)."""
+    def f(hojas, e):
+        h = next((x for x in hojas if x["name"] == hoja_), None)
+        if h is None:
+            return None
+        msg = e.get("message") or ""
+        j = [c[0] for c in h["cols"]].index(columna)
+        for i, fila in enumerate(h["rows"]):
+            if msg.startswith(f"{problemas._texto(fila[0])}:"):
+                return problemas.celda(hojas, hoja_, columna, i), fila[j]
+        return None
+    return f
+
+
+def _indexado_remedicion(hojas, e):
+    """Componente ligado al índice por período × períodos del ejercicio (hoja 07) del contrato."""
+    h = next(x for x in hojas if x["name"] == "07_Pagos_variables")
+    msg = e.get("message") or ""
+    for i, fila in enumerate(h["rows"]):
+        if msg.startswith(f"{problemas._texto(fila[0])}:"):
+            comp, q = problemas._num(fila[4]), problemas._num(fila[10])
+            if comp is None or q is None:
+                return None
+            return (f"{problemas.celda(hojas, '07_Pagos_variables', 'Componente ligado al índice', i)}"
+                    f"*{problemas.celda(hojas, '07_Pagos_variables', 'Períodos del ejercicio', i)}"), comp * q
+    return None
+
+
+# De qué celda sale el importe de cada problema (una fila por contrato en cada cédula).
+REF_PROBLEMAS = {
+    "PASIVO_DIFERENCIA": _por_contrato("10_Pasivo_corte", "Diferencia"),                # pasivo recalculado − registrado
+    "BAJO_VALOR_VEHICULO": _por_contrato("10_Pasivo_corte", "Pasivo al corte"),         # pasivo que debe reconocerse (B6)
+    "BAJO_VALOR_SIN_VALOR": _por_contrato("10_Pasivo_corte", "Pasivo al corte"),        # pasivo que debe reconocerse (B3)
+    "BAJO_VALOR_B5_B7": _por_contrato("10_Pasivo_corte", "Pasivo al corte"),            # pasivo que debe reconocerse (B5, B7)
+    "EXENCION_MAL_APLICADA": _por_contrato("10_Pasivo_corte", "Pasivo al corte"),       # pasivo del exento no elegible (22)
+    "CLASIFICACION_CP_LP": _por_contrato("10_Pasivo_corte", "Diferencia corriente"),    # corriente recalculado − registrado
+    "MODIFICACION_NO_REMEDIDA": _por_contrato("08_Remedicion", "Ajuste al pasivo y al derecho de uso"),  # pasivo remedido − antes
+    "PYMES_DERECHO_USO": _por_contrato("10_Pasivo_corte", "Pasivo registrado"),         # pasivo registrado de un operativo
+    "DETERIORO": _por_contrato("11_Derecho_uso", "Deterioro (33 / Secc. 27)"),          # MAX(0, neto − recuperable)
+    "ACTIVO_DIFERENCIA": _por_contrato("11_Derecho_uso", "Diferencia"),                 # activo neto recalculado − registrado
+    "DEPRECIACION_DIFERENCIA": _por_contrato("11_Derecho_uso", "Diferencia depreciación"),  # depreciación recalculada − registrada
+    "INTERES_DIFERENCIA": _por_contrato("10_Pasivo_corte", "Diferencia interés"),       # interés recalculado − registrado
+    "INTERES_DEVENGADO_NO_VENCIDO": _por_contrato("10_Pasivo_corte", "Interés devengado no vencido (informativo)"),  # devengo al corte (37)
+    "INDEXADO_PYMES_GASTO": _por_contrato("07_Pagos_variables", "Gasto del ejercicio por pagos variables"),  # gasto del componente indexado
+    "INDEXADO_REMEDICION": _indexado_remedicion,                                        # componente indexado × períodos del año
+    "VENTA_GANANCIA_POSTERIOR": _por_contrato("14_Venta_medicion_post",
+                                              "Control 102A: ganancia sobre el derecho de uso conservado (0)"),  # debe ser 0 (102A)
+    "VENTA_GANANCIA": _por_contrato("13_Venta_arr_posterior", "Diferencia"),            # ganancia a reconocer − registrada
+}
+
+
+_EX_CONCLUSION = {
+    "Importe": ("Trae la cifra de cada indicador de la hoja que la calcula: el pasivo recalculado, el registrado y los ajustes al pasivo y al "
+                "activo salen del total de la hoja 15 (Conciliación y ajuste) y el deterioro suma la columna de la hoja 11 (Depreciación y "
+                "deterioro del activo)."),
+    "Porcentaje": ("Divide el ajuste propuesto al pasivo para el pasivo registrado (ambos de esta misma hoja): mide qué tan material es el "
+                   "ajuste frente al saldo del mayor. Queda en blanco si el pasivo registrado es cero."),
+    "Cantidad": "Cuenta los problemas detectados en la hoja 16 (Problemas encontrados) contando los códigos que se listaron.",
+    "Estado": ("Semáforo del indicador: «Alerta» cuando hay un ajuste al pasivo o al activo o un deterioro que corregir, «Revisar» cuando hay "
+               "problemas por atender y «Conforme» cuando el indicador no exige acción. En blanco en las filas solo informativas (pasivo "
+               "recalculado, pasivo registrado y porcentaje)."),
+}
+
+
 def hojas(res: dict) -> list[dict]:
     d = res["detalle"]
     cs, p, pymes = d["contratos"], d["parametros"], d["pymes"]
@@ -686,6 +1193,8 @@ def hojas(res: dict) -> list[dict]:
          else "NIIF completas · NIIF 16 (modelo único del arrendatario)",
          "Tercera edición: Sección 20 con modificaciones solo editoriales; se mantiene financiero/operativo; vigente desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada" if pymes
          else "NIIF 16 párr. 22–46"],
+        ["Tarifa de impuesto a la renta (%)", float(p["tarifaIR"]),
+         "Impuesto diferido del arrendamiento capitalizado (NIC 12 / Secc. 29); tarifa de sociedades del Art. 37 LRTI o la del encargo"],
     ]
 
     # 03 · universo (datos del cliente normalizados)
@@ -871,11 +1380,14 @@ def hojas(res: dict) -> list[dict]:
         conc.append([c["id"], fx(f"{PC}G{r}", c["pasivo"]), fx(f"{PC}Q{r}", c["pasivo_reg"]), fx(f"B{r}-C{r}", c["pasivo"] - c["pasivo_reg"]),
                      fx(f"{DU}O{r}", c["neto"]), fx(f"{DU}P{r}", c["activo_reg"]), fx(f"E{r}-F{r}", c["neto"] - c["activo_reg"]),
                      fx(f"{DU}K{r}" if c["reconoce"] == "Sí" else "0", c["dep"]),
-                     fx(f"{PC}J{r}" if c["reconoce"] == "Sí" else "0", c["interes"]), fx(f"{PC}O{r}" if c["reconoce"] == "Sí" else "0", c["cp"])])
+                     fx(f"{PC}J{r}" if c["reconoce"] == "Sí" else "0", c["interes"]), fx(f"{PC}O{r}" if c["reconoce"] == "Sí" else "0", c["cp"]),
+                     fx(f'IF(OR(ABS(D{r})>=0.005,ABS(G{r})>=0.005),"Alerta","Conforme")',
+                        "Alerta" if (abs(c["pasivo"] - c["pasivo_reg"]) >= 0.005 or abs(c["neto"] - c["activo_reg"]) >= 0.005) else "Conforme")])
 
     # 08 · tabla de amortización
     fila_c = {c["id"]: FILA0 + i for i, c in enumerate(cs)}
     tabla = []
+    tot_dep_per = tot_dif_per = 0.0
     for k, x in enumerate(tab):
         rr = FILA0 + k
         rc = fila_c[x["id"]]
@@ -886,10 +1398,100 @@ def hojas(res: dict) -> list[dict]:
         ne = f"{RE}F{rc}" if x["nuevo"] else f"{PL}H{rc}"
         ini = f"{MI}L{rc}" if x["j"] == 1 else f"J{rr - 1}"
         es_ev = ev is not None and x["j"] == ev["ke"]
-        tabla.append([x["id"], x["j"], x["vence"], fx(tasa, x["tasa"]), fx(ini, x["ini"]), fx(f"E{rr}*D{rr}", x["interes"]),
+        # columnas K/L/M (NIC 12): año de devengo, depreciación del período y diferencia temporaria del período.
+        ini_d = a_fecha(c["inicio"])
+        anio_v = ini_d.year + (ini_d.month - 1 + (x["j"] - 1) * c["m"]) // 12
+        dep_v = _dep(x["j"] * c["m"], c["activo_ini"], c["md"], ev) - _dep((x["j"] - 1) * c["m"], c["activo_ini"], c["md"], ev)
+        dif_v = dep_v + x["interes"] - x["pago"]
+        tot_dep_per += dep_v
+        tot_dif_per += dif_v
+        tj, tj1 = f"B{rr}*{PL}G{rc}", f"(B{rr}-1)*{PL}G{rc}"
+        tabla.append([x["id"], fx(f"COUNTIF(A${FILA0}:A{rr},A{rr})", x["j"]),
+                      fx(f"EDATE({_x('inicio', rc)},B{rr}*{PL}G{rc})", x["vence"]), fx(tasa, x["tasa"]), fx(ini, x["ini"]), fx(f"E{rr}*D{rr}", x["interes"]),
                       fx(f"IF(B{rr}<{ne},{pg},IF(B{rr}={ne},{MI}F{rc}+(1-{MI}E{rc})*{pg},0))", x["pago"]),
                       fx(f"E{rr}+F{rr}-G{rr}", x["fin"]), fx(f"{RE}K{rc}-H{rr}", x["ajuste"]) if es_ev else 0,
-                      fx(f"H{rr}+I{rr}", x["saldo"])])
+                      fx(f"H{rr}+I{rr}", x["saldo"]),
+                      fx(f"YEAR(EDATE({_x('inicio', rc)},{tj1}))", anio_v),
+                      fx(f"({_dep_f_du(tj, DU, rc, bool(ev))})-({_dep_f_du(tj1, DU, rc, bool(ev))})", dep_v),
+                      fx(f"L{rr}+F{rr}-G{rr}", dif_v)])
+
+    # 19 · impuesto diferido (NIC 12 / Secc. 29) — contrato × año, solo contratos capitalizados.
+    TA_Ad, TA_Kd, TA_Md = rng(TA, "A"), rng(TA, "K"), rng(TA, "M")
+    TA_Ld, TA_Fd, TA_Gd = rng(TA, "L"), rng(TA, "F"), rng(TA, "G")
+    tarifa_cell = f"{P}$B${PAR['tarifaIR']}/100"
+    idiferido_rows, tot_idf = [], {"gasto": 0.0, "canon": 0.0, "dif": 0.0, "gen": 0.0, "rev": 0.0, "idg": 0.0, "idr": 0.0, "neto": 0.0}
+    for c in cs:
+        idf = c.get("idiferido")
+        if not idf:
+            continue
+        tasa, acum, rc, primero = idf["tarifa"], 0.0, fila_c[c["id"]], True
+        for y in sorted(idf["anios"]):
+            a = idf["anios"][y]
+            acum += a["dif"]
+            r = FILA0 + len(idiferido_rows)
+            # el año se escribe como fórmula (nada pegado): YEAR(comienzo) el primer año del contrato, +1 los siguientes
+            anio_f = fx(f"YEAR({_x('inicio', rc)})", y) if primero else fx(f"B{r - 1}+1", y)
+            primero = False
+            crit = f"{TA_Md},{TA_Ad},A{r},{TA_Kd},B{r}"  # misma diferencia, por contrato y año
+            idiferido_rows.append([
+                c["id"], anio_f,
+                fx(f"SUMIFS({TA_Ld},{TA_Ad},A{r},{TA_Kd},B{r})+SUMIFS({TA_Fd},{TA_Ad},A{r},{TA_Kd},B{r})", a["dep"] + a["interes"]),
+                fx(f"SUMIFS({TA_Gd},{TA_Ad},A{r},{TA_Kd},B{r})", a["canon"]),
+                fx(f"C{r}-D{r}", a["dif"]),
+                fx(f'SUMIFS({crit},{TA_Md},">0")', a["gen"]),
+                fx(f'SUMIFS({crit},{TA_Md},"<0")', a["rev"]),
+                fx(tarifa_cell, tasa),
+                fx(f"F{r}*H{r}", a["gen"] * tasa), fx(f"G{r}*H{r}", a["rev"] * tasa), fx(f"I{r}+J{r}", (a["gen"] + a["rev"]) * tasa),
+                fx(f'SUMIFS({TA_Md},{TA_Ad},A{r},{TA_Kd},"<="&B{r})*H{r}', acum * tasa),
+            ])
+            tot_idf["gasto"] += a["dep"] + a["interes"]
+            tot_idf["canon"] += a["canon"]
+            tot_idf["dif"] += a["dif"]
+            tot_idf["gen"] += a["gen"]
+            tot_idf["rev"] += a["rev"]
+            tot_idf["idg"] += a["gen"] * tasa
+            tot_idf["idr"] += a["rev"] * tasa
+            tot_idf["neto"] += (a["gen"] + a["rev"]) * tasa
+    fin_idf = FILA0 + max(len(idiferido_rows), 1) - 1
+    Si = lambda col, v: suma(col, fin_idf, v)
+    total_idf = (["TOTAL", None, Si("C", tot_idf["gasto"]), Si("D", tot_idf["canon"]), Si("E", tot_idf["dif"]),
+                  Si("F", tot_idf["gen"]), Si("G", tot_idf["rev"]), None, Si("I", tot_idf["idg"]), Si("J", tot_idf["idr"]),
+                  Si("K", tot_idf["neto"]), None] if idiferido_rows else None)
+    n_idf_real = len(idiferido_rows)
+    if not idiferido_rows:
+        idiferido_rows = [["— Sin contratos capitalizados: el gasto contable es el deducible, no hay diferencia temporaria "
+                           "(NIC 12 / Secc. 29) —"] + [None] * 11]
+
+    # 20 · conciliación F-101 y asiento del impuesto diferido (año del corte).
+    IDF = ref("19_Impuesto_Diferido")
+    a_idf, b_idf = FILA0, FILA0 + max(n_idf_real, 1) - 1
+    IB = f"{IDF}$B${a_idf}:$B${b_idf}"
+    II, IJ, IK = (f"{IDF}${col}${a_idf}:${col}${b_idf}" for col in ("I", "J", "K"))
+    corte_ref = f"{P}$B${PAR['corte']}"
+    corte_y = int(d["corte"][:4])
+    tfr = p["tarifaIR"] / 100
+    gen_cy = sum((c["idiferido"]["anios"].get(corte_y, {}).get("gen", 0.0)) for c in cs if c.get("idiferido")) * tfr
+    rev_cy = sum((c["idiferido"]["anios"].get(corte_y, {}).get("rev", 0.0)) for c in cs if c.get("idiferido")) * tfr
+    neto_cy = gen_cy + rev_cy
+    saldo_cy = sum(sum(a["dif"] for y, a in c["idiferido"]["anios"].items() if y <= corte_y) * c["idiferido"]["tarifa"]
+                   for c in cs if c.get("idiferido"))
+    r0 = FILA0
+    if neto_cy >= 0:
+        cta_d, cta_h, mf = "Dr. Activo por impuesto diferido", "Cr. Ingreso por impuesto a la renta diferido", f"MAX(C{r0 + 2},0)"
+    else:
+        cta_d, cta_h, mf = "Dr. Gasto por impuesto a la renta diferido", "Cr. Activo por impuesto diferido", f"-MIN(C{r0 + 2},0)"
+    monto_asiento = abs(neto_cy)
+    concil_rows = [
+        ["Impuesto diferido generado en el ejercicio (gasto no deducible temporario)", "1114",
+         fx(f"SUMIFS({II},{IB},YEAR({corte_ref}))", gen_cy), None, None],
+        ["Impuesto diferido revertido en el ejercicio", "1115", fx(f"SUMIFS({IJ},{IB},YEAR({corte_ref}))", rev_cy), None, None],
+        ["Efecto neto en resultados: ingreso/(gasto) por impuesto a la renta diferido", "889",
+         fx(f"C{r0}+C{r0 + 1}", neto_cy), None, None],
+        ["Saldo del activo/(pasivo) por impuesto diferido al corte", "",
+         fx(f'SUMIFS({IK},{IB},"<="&YEAR({corte_ref}))', saldo_cy), None, None],
+        [cta_d, "Asiento del ejercicio", None, fx(mf, monto_asiento), None],
+        [cta_h, "", None, None, fx(mf, monto_asiento)],
+    ]
 
     t = d["totales"]
     fin = FILA0 + N - 1
@@ -904,6 +1506,48 @@ def hojas(res: dict) -> list[dict]:
                "gastoLineal": f"SUM({GL}F{FILA0}:F{fin})", "gastoVariable": f"SUM({PG}L{FILA0}:L{fin})",
                "remedicion": f"SUM({RE}L{FILA0}:L{fin})"}
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
+
+    # 17 · indicadores y conclusión (con semáforo por indicador).
+    nprob = len(res["exceptions"])
+    PBL = ref("16_Problemas")
+    bc = lambda kk: f"B{FILA0 + kk}"
+    rc = lambda kk: FILA0 + kk
+    conclusion = [
+        ["Pasivo por arrendamiento recalculado", fx(f"{CO}B{tot}", t["pasivo"]), None, None, ""],
+        ["Pasivo por arrendamiento registrado (mayor)", fx(f"{CO}C{tot}", t["pasivoRegistrado"]), None, None, ""],
+        ["Ajuste propuesto al pasivo", fx(f"{CO}D{tot}", t["ajuste"]), None, None,
+         fx(f'IF(ABS(B{rc(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(t["ajuste"]) > 0.005 else "Conforme")],
+        ["Ajuste propuesto al activo (derecho de uso)", fx(f"{CO}G{tot}", t["ajusteActivo"]), None, None,
+         fx(f'IF(ABS(B{rc(3)})>0.005,"Alerta","Conforme")', "Alerta" if abs(t["ajusteActivo"]) > 0.005 else "Conforme")],
+        ["% del ajuste del pasivo sobre el registrado", None,
+         fx(f'IF({bc(1)}=0,"",{bc(2)}/{bc(1)})', None if t["pasivoRegistrado"] == 0 else t["ajuste"] / t["pasivoRegistrado"]), None, ""],
+        ["Deterioro del activo", fx(f"SUM({DU}N{FILA0}:N{fin})", t["deterioro"]), None, None,
+         fx(f'IF(B{rc(5)}>0.005,"Alerta","Conforme")', "Alerta" if t["deterioro"] > 0.005 else "Conforme")],
+        ["Problemas detectados", None, None, fx(f"COUNTA({PBL}A{FILA0}:A{FILA0 + max(nprob, 1) - 1})", nprob),
+         fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+    ]
+
+    # 18 · lectura causa-efecto: el resultado y las variaciones materiales con su cifra embebida (FIXED
+    # respeta los separadores del equipo; el valor de Python va con los del Ecuador, como hace m()).
+    RES = ref("01_Resumen")
+    rl = lambda k: f"{RES}$B${fila_res[k]}"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"El pasivo por arrendamiento recalculado asciende a US$ "&FIXED({rl("pasivo")},2)&" frente a US$ "&FIXED({rl("pasivoRegistrado")},2)&" registrado en el mayor."',
+            f'El pasivo por arrendamiento recalculado asciende a US$ {_m(t["pasivo"])} frente a US$ {_m(t["pasivoRegistrado"])} registrado en el mayor.')],
+        ["Ajuste y su efecto",
+         fx(f'"El ajuste propuesto al pasivo es de US$ "&FIXED({rl("ajuste")},2)&" y el ajuste al activo (derecho de uso) es de US$ "&FIXED({rl("ajusteActivo")},2)&"."',
+            f'El ajuste propuesto al pasivo es de US$ {_m(t["ajuste"])} y el ajuste al activo (derecho de uso) es de US$ {_m(t["ajusteActivo"])}.')],
+        ["Depreciación e interés (hallazgo material)",
+         fx(f'"La depreciación del ejercicio suma US$ "&FIXED({rl("depreciacion")},2)&" y el interés del ejercicio US$ "&FIXED({rl("intereses")},2)&"."',
+            f'La depreciación del ejercicio suma US$ {_m(t["depreciacion"])} y el interés del ejercicio US$ {_m(t["intereses"])}.')],
+        ["Deterioro y remedición (hallazgo material)",
+         fx(f'"El deterioro del activo asciende a US$ "&FIXED({rl("deterioro")},2)&" y la remedición del pasivo a US$ "&FIXED({rl("remedicion")},2)&"."',
+            f'El deterioro del activo asciende a US$ {_m(t["deterioro"])} y la remedición del pasivo a US$ {_m(t["remedicion"])}.')],
+        ["Cierre",
+         fx(f'"El pasivo recalculado se compone de US$ "&FIXED({rl("corriente")},2)&" corriente y US$ "&FIXED({rl("noCorriente")},2)&" no corriente."',
+            f'El pasivo recalculado se compone de US$ {_m(t["corriente"])} corriente y US$ {_m(t["noCorriente"])} no corriente.')],
+    ]
 
     n_ = "n"
     cols_ident = ([["Contrato", "t"], ["Activo", "t"], ["Plazo (meses)", "i"], ["Vida útil (meses)", "i"], ["Plazo / vida útil", "p"],
@@ -923,14 +1567,14 @@ def hojas(res: dict) -> list[dict]:
                    ["Ganancia registrada", n_], ["Diferencia", n_]])
     S = lambda col, v: suma(col, fin, v)
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=_explica("01_Resumen", pymes)),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Contratos", "Universo de contratos", cols03, contratos),
-        hoja("04_Identificacion", "Identificación, clasificación y exenciones", cols_ident, ident),
+        hoja("04_Identificacion", "Identificación, clasificación y exenciones", cols_ident, ident, explica=_explica("04_Identificacion", pymes)),
         hoja("05_Plazo", "Plazo y opciones",
              [["Contrato", "t"], ["Plazo no cancelable (meses)", "i"], ["Renovación razonablemente cierta", "t"], ["Meses de renovación", "i"],
               ["Plazo del arrendamiento (18)", "i"], ["Plazo usado por el cliente", "i"], ["Meses por período", "i"], ["Períodos", "i"],
-              ["Meses transcurridos al corte", "i"], ["Meses de depreciación (32 / 20.12)", "i"]], plazo),
+              ["Meses transcurridos al corte", "i"], ["Meses de depreciación (32 / 20.12)", "i"]], plazo, explica=_explica("05_Plazo", pymes)),
         hoja("06_Medicion_inicial", "Medición inicial: pasivo y activo",
              [["Contrato", "t"], ["Tipo de tasa", "t"], ["Tasa anual (%)", "x"], ["Tasa periódica", "p"], ["Pago al inicio (1) / al final (0)", "i"],
               ["Opción de compra incluida (27 d)", n_], ["VP de los pagos", n_], ["Valor razonable", n_],
@@ -938,7 +1582,7 @@ def hojas(res: dict) -> list[dict]:
               ["Pago en el comienzo", n_], ["Pasivo inicial", n_], ["Pagos anticipados", n_], ["Costos directos iniciales", n_],
               ["Desmantelamiento", n_], ["Incentivos", n_], ["Activo arrendado (20.9)" if pymes else "Derecho de uso (24)", n_]], medi,
              ["TOTAL", "", None, None, None, None, S("G", sum(c["vp"] for c in cs)), None, None, None, None,
-              S("L", sum(c["pasivo_ini"] for c in cs)), None, None, None, None, S("Q", sum(c["activo_ini"] for c in cs))]),
+              S("L", sum(c["pasivo_ini"] for c in cs)), None, None, None, None, S("Q", sum(c["activo_ini"] for c in cs))], explica=_explica("06_Medicion_inicial", pymes)),
         hoja("07_Pagos_variables", "Pago base, componente indexado y pagos variables",
              [["Contrato", "t"], ["Pago periódico total del contrato", n_], ["Ligado a un índice de inflación", "t"],
               ["Índice o referencia", "t"], ["Componente ligado al índice", n_], ["Pago base", n_],
@@ -947,28 +1591,30 @@ def hojas(res: dict) -> list[dict]:
               ["Períodos del ejercicio", "x"], ["Gasto del ejercicio por pagos variables", n_]], pagvar,
              ["TOTAL", S("B", sum(c["pago"] for c in cs)), "", "", S("E", sum(c["pago_ind"] or 0 for c in cs)),
               S("F", sum(c["pago_base"] or 0 for c in cs)), S("G", sum(c["pago_medido"] for c in cs)), "", "",
-              S("J", sum(c["pago_variable"] or 0 for c in cs)), None, S("L", t["gastoVariable"])]),
+              S("J", sum(c["pago_variable"] or 0 for c in cs)), None, S("L", t["gastoVariable"])], explica=_explica("07_Pagos_variables", pymes)),
         hoja("08_Remedicion", "Remedición y modificaciones",
              [["Contrato", "t"], ["Fecha del evento", "d"], ["Tipo / nota", "t"], ["Períodos al evento", "i"], ["Plazo revisado (meses)", "i"],
               ["Períodos revisados", "i"], ["Pago revisado", n_], ["Tasa anual revisada (%)", "x"], ["Tasa periódica revisada", "p"],
               ["Pasivo antes del evento", n_], ["Pasivo remedido (40–45)", n_], ["Ajuste al pasivo y al derecho de uso", n_], ["Remedido por el cliente", "t"]],
-             reme, ["TOTAL", None, "", None, None, None, None, None, None, None, None, S("L", t["remedicion"]), ""]),
+             reme, ["TOTAL", None, "", None, None, None, None, None, None, None, None, S("L", t["remedicion"]), ""], explica=_explica("08_Remedicion", pymes)),
         hoja("09_Tabla_amortizacion", "Tabla de amortización",
              [["Contrato", "t"], ["Período", "i"], ["Vencimiento", "d"], ["Tasa periódica", "p"], ["Saldo inicial", n_], ["Interés (37)", n_],
-              ["Pago", n_], ["Saldo final", n_], ["Remedición", n_], ["Saldo final ajustado", n_]], tabla,
+              ["Pago", n_], ["Saldo final", n_], ["Remedición", n_], ["Saldo final ajustado", n_], ["Año de devengo", "i"],
+              ["Depreciación del período", n_], ["Diferencia temporaria (NIC 12)", n_]], tabla,
              ["TOTAL", None, None, None, None, suma("F", fin_t, sum(x["interes"] for x in tab)), suma("G", fin_t, sum(x["pago"] for x in tab)),
-              None, suma("I", fin_t, sum(x["ajuste"] for x in tab)), None] if tab else None),
+              None, suma("I", fin_t, sum(x["ajuste"] for x in tab)), None, None, suma("L", fin_t, tot_dep_per), suma("M", fin_t, tot_dif_per)]
+             if tab else None, explica=_explica("09_Tabla_amortizacion", pymes)),
         hoja("10_Pasivo_corte", "Pasivo al corte: corriente y no corriente",
              [["Contrato", "t"], ["Reconoce", "t"], ["Períodos finales", "i"], ["Meses transcurridos", "i"], ["Períodos vencidos al corte", "i"],
               ["Períodos vencidos al inicio del año", "i"], ["Pasivo al corte", n_], ["Pasivo al inicio del año", n_], ["Altas del año", n_],
               ["Interés del ejercicio", n_], ["Pagos del ejercicio", n_], ["Remedición del ejercicio", n_], ["Comprobación (0)", n_],
-              ["Pasivo dentro de 12 meses", n_], ["Corriente", n_], ["No corriente", n_], ["Pasivo registrado", n_], ["Diferencia", n_],
+              ["Saldo después de 12 meses", n_], ["Corriente", n_], ["No corriente", n_], ["Pasivo registrado", n_], ["Diferencia", n_],
               ["Corriente registrado", n_], ["Diferencia corriente", n_], ["Interés registrado", n_], ["Diferencia interés", n_],
               ["Interés devengado no vencido (informativo)", n_]], pasi,
              ["TOTAL", "", None, None, None, None, S("G", t["pasivo"]), S("H", sum(c.get("pasivo_ia") or 0 for c in cs)),
               S("I", sum(c.get("altas") or 0 for c in cs)), S("J", t["intereses"]), S("K", sum(c["pagos"] for c in cs)),
               S("L", sum(c["remedicion"] for c in cs)), None, None, S("O", t["corriente"]), S("P", t["noCorriente"]), S("Q", t["pasivoRegistrado"]),
-              S("R", t["ajuste"]), None, None, None, None, S("W", sum(c["devengo"] for c in cs))]),
+              S("R", t["ajuste"]), None, None, None, None, S("W", sum(c["devengo"] for c in cs))], explica=_explica("10_Pasivo_corte", pymes)),
         hoja("11_Derecho_uso", "Depreciación y deterioro del activo",
              [["Contrato", "t"], ["Reconoce", "t"], ["Costo inicial", n_], ["Meses de depreciación", "i"], ["Meses transcurridos", "i"],
               ["Meses al evento", "i"], ["Ajuste por remedición", n_], ["Meses de depreciación revisados", "i"], ["Depreciación acumulada al corte", n_],
@@ -976,12 +1622,12 @@ def hojas(res: dict) -> list[dict]:
               ["Importe recuperable", n_], ["Deterioro (33 / Secc. 27)", n_], ["Neto recalculado", n_], ["Registrado neto", n_], ["Diferencia", n_],
               ["Depreciación registrada", n_], ["Diferencia depreciación", n_]], rou,
              ["TOTAL", "", None, None, None, None, None, None, None, None, S("K", t["depreciacion"]), None, None, S("N", t["deterioro"]),
-              S("O", t["activo"]), S("P", t["activoRegistrado"]), S("Q", t["ajusteActivo"]), None, None]),
+              S("O", t["activo"]), S("P", t["activoRegistrado"]), S("Q", t["ajusteActivo"]), None, None], explica=_explica("11_Derecho_uso", pymes)),
         hoja("12_Gasto_lineal", "Gasto lineal: exentos y operativos",
              [["Contrato", "t"], ["Tratamiento", "t"], ["Pagos totales del plazo", n_], ["Plazo (meses)", "i"], ["Meses del contrato en el año", "i"],
               ["Gasto lineal del ejercicio (6 / 20.15)", n_]], gasto,
-             ["TOTAL", "", None, None, None, S("F", t["gastoLineal"])]),
-        hoja("13_Venta_arr_posterior", "Venta con arrendamiento posterior: medición inicial", cols_venta, venta),
+             ["TOTAL", "", None, None, None, S("F", t["gastoLineal"])], explica=_explica("12_Gasto_lineal", pymes)),
+        hoja("13_Venta_arr_posterior", "Venta con arrendamiento posterior: medición inicial", cols_venta, venta, explica=_explica("13_Venta_arr_posterior", pymes)),
         hoja("14_Venta_medicion_post", "Venta con arrendamiento posterior: medición posterior",
              [["Contrato", "t"], ["Tratamiento y marco", "t"], ["Pasivo al inicio del ejercicio", n_], ["Altas del ejercicio", n_],
               ["Interés del ejercicio (36–37)", n_], ["Pagos fijos del ejercicio", n_], ["Pagos variables del ejercicio (38 b)", n_],
@@ -991,14 +1637,59 @@ def hojas(res: dict) -> list[dict]:
               ["Ganancia posterior registrada", n_], ["Control 102A: ganancia sobre el derecho de uso conservado (0)", n_]], slbpost,
              ["TOTAL", "", None, None, None, None, None, None, S("I", sum(c["pasivo"] for c in cs if c["venta_posterior"] == "Sí" and c["slb"] and c["reconoce"] == "Sí")),
               None, None, None, S("M", sum(c["neto"] for c in cs if c["venta_posterior"] == "Sí" and c["slb"] and c["reconoce"] == "Sí")),
-              None, None, S("P", sum(c["ganancia_post_reg"] or 0 for c in cs if c["venta_posterior"] == "Sí"))]),
+              None, None, S("P", sum(c["ganancia_post_reg"] or 0 for c in cs if c["venta_posterior"] == "Sí"))], explica=_explica("14_Venta_medicion_post", pymes)),
         hoja("15_Conciliacion", "Conciliación y ajuste",
              [["Contrato", "t"], ["Pasivo recalculado", n_], ["Pasivo registrado", n_], ["Ajuste pasivo", n_], ["Activo recalculado", n_],
-              ["Activo registrado", n_], ["Ajuste activo", n_], ["Depreciación del ejercicio", n_], ["Interés del ejercicio", n_], ["Pasivo corriente", n_]],
+              ["Activo registrado", n_], ["Ajuste activo", n_], ["Depreciación del ejercicio", n_], ["Interés del ejercicio", n_], ["Pasivo corriente", n_],
+              ["Semáforo", "t"]],
              conc, ["TOTAL", S("B", t["pasivo"]), S("C", t["pasivoRegistrado"]), S("D", t["ajuste"]), S("E", t["activo"]),
-                    S("F", t["activoRegistrado"]), S("G", t["ajusteActivo"]), S("H", t["depreciacion"]), S("I", t["intereses"]), S("J", t["corriente"])]),
+                    S("F", t["activoRegistrado"]), S("G", t["ajusteActivo"]), S("H", t["depreciacion"]), S("I", t["intereses"]), S("J", t["corriente"]), ""],
+             explica=_explica("15_Conciliacion", pymes), colores=["Semáforo"]),
         hoja("16_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("17_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=_EX_CONCLUSION, colores=["Estado"]),
+        hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica={"Detalle": "Lee el resultado del rubro y las variaciones o hallazgos materiales con su cifra "
+                                 "tomada del Resumen (hoja 01), redactados como causa-efecto para el lector del papel."}),
+        hoja("19_Impuesto_Diferido", "Impuesto diferido (NIC 12)",
+             [["Contrato", "t"], ["Año de devengo", "i"], ["Gasto NIIF 16 (depreciación + interés)", n_], ["Canon deducible", n_],
+              ["Diferencia temporaria", n_], ["Generación · cas 1114", n_], ["Reversión · cas 1115", n_], ["Tarifa IR", "p"],
+              ["Impuesto diferido generado", n_], ["Impuesto diferido revertido", n_], ["Efecto neto del año · cas 889", n_],
+              ["Saldo activo/(pasivo) por impuesto diferido", n_]], idiferido_rows, total_idf,
+             explica={
+                 "Año de devengo": "Año calendario del ejercicio: en el primer año del contrato toma el año de la fecha de comienzo "
+                     "(hoja 03) y en los siguientes suma uno al año de la fila anterior.",
+                 "Gasto NIIF 16 (depreciación + interés)": "Suma, por contrato y año de devengo, la depreciación del derecho de uso y el "
+                     "interés del pasivo de la tabla de amortización (hoja 09): es el gasto contable del arrendamiento.",
+                 "Canon deducible": "Suma, por contrato y año, el canon de la tabla de amortización (hoja 09): es el gasto que el fisco "
+                     "ecuatoriano admite como deducible (el pago del arriendo).",
+                 "Diferencia temporaria": "Gasto contable NIIF 16 menos canon deducible. Positiva cuando el gasto contable supera al "
+                     "deducible (primeros años, por el interés) y negativa cuando se revierte.",
+                 "Generación · cas 1114": "Suma solo las diferencias positivas del año (gasto no deducible temporario): genera un activo "
+                     "por impuesto diferido. Va al casillero 1114 del F-101.",
+                 "Reversión · cas 1115": "Suma solo las diferencias negativas del año: revierte el activo por impuesto diferido. Va al "
+                     "casillero 1115 del F-101.",
+                 "Tarifa IR": "Trae la tarifa de impuesto a la renta de la hoja 02 (Parámetros).",
+                 "Impuesto diferido generado": "Generación del año por la tarifa de impuesto a la renta.",
+                 "Impuesto diferido revertido": "Reversión del año por la tarifa de impuesto a la renta.",
+                 "Efecto neto del año · cas 889": "Impuesto diferido generado más revertido: el efecto neto del año en resultados "
+                     "(ingreso/gasto por impuesto diferido). Casillero 889 del F-101. Sobre la vida del contrato suma cero.",
+                 "Saldo activo/(pasivo) por impuesto diferido": "Diferencia temporaria acumulada hasta el año, por la tarifa: es el saldo "
+                     "del activo (o pasivo) por impuesto diferido en el balance al cierre de ese año.",
+             }),
+        hoja("20_Conciliacion_F101", "Conciliación F-101 y asiento",
+             [["Concepto", "t"], ["Casillero F-101", "t"], ["Importe", n_], ["Debe", n_], ["Haber", n_]], concil_rows,
+             explica={
+                 "Importe": "Para el año del corte (hoja 02): la generación (casillero 1114) y la reversión (casillero 1115) suman de la "
+                     "hoja 19 el impuesto diferido generado y revertido de ese año; el efecto neto (casillero 889) es su suma; y el saldo "
+                     "acumula el efecto neto de todos los años hasta el corte.",
+                 "Debe": "Asiento sugerido del ejercicio: si el efecto neto es una generación, debita el activo por impuesto diferido; si "
+                     "es una reversión, debita el gasto por impuesto a la renta diferido. Toma el importe del efecto neto del año.",
+                 "Haber": "Contrapartida del asiento: si es una generación, acredita el ingreso por impuesto a la renta diferido; si es "
+                     "una reversión, acredita el activo por impuesto diferido. Toma el importe del efecto neto del año.",
+             }),
     ]
 
 

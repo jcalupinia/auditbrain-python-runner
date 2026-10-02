@@ -14,7 +14,10 @@ jobs:
   pytest:
     name: pytest (python 3.12)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # La suite completa ya tarda ~19-20 min en el runner (2368 tests, papeles NIIF de las
+    # 20 herramientas y la planificación NIA en todos los formatos). Con 20 min se cancelaba
+    # justo al terminar (PR #171: 2368 pasaron en 19:16 y el trabajo se canceló igual).
+    timeout-minutes: 35
 
     steps:
       - uses: actions/checkout@v4

@@ -247,6 +247,14 @@ describe("textoEncargo", () => {
     );
   });
 
+  it("incluye las reglas vigentes del papel de trabajo y remite al contrato del procesador", () => {
+    const t = textoEncargo(fichaGuardada(), RUBROS);
+    expect(t).toContain("## 7 · Papel de trabajo");
+    expect(t).toContain("sin cifras calculadas pegadas");
+    expect(t).toContain("docs/niif/CONTRATO_PROCESADOR.md");
+    expect(t).toContain("5 tarjetas y los 4 gráficos del panel del HTML");
+  });
+
   it("deja constancia de quién diseñó y quién probó la ficha", () => {
     const t = textoEncargo(fichaGuardada(), RUBROS);
     expect(t).toContain("autor@auditconsulting.ec");

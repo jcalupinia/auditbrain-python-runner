@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import win32com.client  # noqa: E402
 
 from backend.app.aud.niif.procesadores import libro  # noqa: E402
+from backend.app.aud.niif.procesadores import datos_cliente  # noqa: E402
 
 FILA0 = 5
 
@@ -30,6 +31,8 @@ def comparar(py, xl, fmt):
         return False
     if py in (None, "") and xl in (None, ""):
         return True
+    if isinstance(py, str) and len(py) == 10 and py[4] == "-" and hasattr(xl, "year"):  # fecha ISO vs fecha de Excel
+        return f"{xl.year:04d}-{xl.month:02d}-{xl.day:02d}" == py
     if isinstance(py, str):
         return py == xl
     if isinstance(py, bool):
@@ -45,7 +48,7 @@ def verificar(excel, nombre_mod):
     fallas, total = 0, 0
     for esc, datasets, param, corte in escenarios(m):
         res = m.ejecutar(datasets, param, corte)
-        res["hojas"] = m.hojas(res)
+        res["hojas"] = datos_cliente.con_datos(m, res, datasets)
         reg = {"run": res, "engagement": {"client": "Verificación", "cutoff": corte}, "program": [], "sources": []}
         ruta = os.path.join(tempfile.gettempdir(), f"verif_{nombre_mod}_{esc}.xlsx")
         with open(ruta, "wb") as fh:

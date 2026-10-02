@@ -5,18 +5,24 @@ import "../of/ofWorkspace.css";
 import EjercicioModelo from "./EjercicioModelo";
 import { ejemploDe, formatosTexto } from "./ejemplosRequerimientos";
 import {
+  admiteExtraccionIA,
   archivosDe,
+  archivosExtraibles,
   detalleRequerimiento,
   erroresLegibles,
   estadoTributario,
+  extraccionDe,
+  filasConvertidas,
   formulasLegibles,
   herramientaDePrueba,
+  mapeoConManual,
   marcoAplicable,
   mejorEncabezado,
   niasDe,
   nombreEstado,
   pasoPreparar,
   problemasDe,
+  subirArchivosEnCadena,
   textoTributarioInicial,
   tramosDeTexto,
 } from "./cicloLogic";
@@ -51,12 +57,20 @@ const ETIQUETA_PARAM = {
   umbralIndividual: "Saldo significativo", pctDeducible: "Límite anual (%)", pctLimite: "Límite acumulado (%)",
   tasaImp: "Tasa del impuesto (%)", provFiscalAnt: "Provisión fiscal anterior", dtaIniManual: "Diferido inicial",
 };
-// Formatos del papel de un procesador (el Excel va en «Descargar Excel»).
+// Formatos del papel (el Excel va en «Descargar Excel»). Siempre los arma el servidor
+// con el mismo diseño; en una prueba declarativa, con las cédulas del sitio que envía
+// el navegador (papelDeclarativo.js).
 const FORMATOS_PAPEL = [
   ["docx", "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
   ["pptx", "PowerPoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
   ["html", "HTML sin conexión (y PDF)", "text/html;charset=utf-8"],
 ];
+const cargarPapel = () => import("./papelDeclarativo");
+// Excel, Word, PowerPoint o HTML (con los demás dentro) de una prueba declarativa.
+async function papelDeclarativo(t, ext) {
+  const m = await cargarPapel();
+  return api.cicloPapelDeclarativo(m.cargaPapel(t), ext);
+}
 // Procesadores instalados por ficha (cartera con tramos de mora); los demás son herramientas del catálogo.
 const PROC_FICHA = ["perdidas_incurridas_s11", "pce_simplificada_niif9"];
 // Saldo escrito por el auditor («125.000,00» o «125000.00») al formato del servidor (punto decimal, sin miles).
@@ -89,13 +103,34 @@ function descargar(nombre, contenido, tipo) {
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const mostrar = (v) => (v && typeof v === "object" ? String(v.v ?? v.n ?? "") : String(v ?? ""));
 
-function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor, onModelo }) {
+export function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor, onModelo, onConvertir, listarArchivos = true }) {
   const input = useRef(null);
+  const convertInput = useRef(null);
   const [parte, setParte] = useState(req.components?.[0] || "");
   const [error, setError] = useState("");
   const [subiendo, setSubiendo] = useState(false);
+  const [convirtiendo, setConvirtiendo] = useState(false);
+  const [aviso, setAviso] = useState("");
+  const [borrando, setBorrando] = useState(0); // id del archivo que se está eliminando (0 = ninguno)
   const completo = cobertura?.complete;
-  const n = (prueba.archivos || []).filter((a) => a.requerimiento === req.id && a.estado !== "rechazado").length;
+  // Archivos subidos (vigentes) de este requerimiento: se listan con una «✕» para
+  // borrar uno por error sin tener que encerar toda la carga.
+  const misArchivos = (prueba.archivos || []).filter((a) => a.requerimiento === req.id && a.estado !== "rechazado");
+  const n = misArchivos.length;
+
+  async function eliminar(a) {
+    setBorrando(a.id);
+    setError("");
+    setAviso("");
+    try {
+      await api.cicloAccion(prueba.id, "delete_file", prueba.revision, { fileId: a.id });
+      await onSubido();
+    } catch (err) {
+      setError(err.message || String(err));
+    } finally {
+      setBorrando(0);
+    }
+  }
   // Flecha para bajar el FORMATO VÁLIDO: un ejemplo lleno del manifiesto, o el
   // modelo en blanco del propio requerimiento, o nada (solo los formatos).
   const ejemplo = ejemploDe(processor, req, undefined, import.meta.env.BASE_URL || "/");
@@ -109,16 +144,14 @@ function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor
     if (!archivos.length) return;
     setSubiendo(true);
     setError("");
-    const fallos = [];
     // Se suben uno por uno (el backend recibe un archivo por request), pero el
-    // auditor puede elegir varios de una en el selector.
-    for (const archivo of archivos) {
-      try {
-        await api.cicloSubirArchivo(prueba.id, prueba.revision, req.id, parte, archivo);
-      } catch (err) {
-        fallos.push(`${archivo.name}: ${err.message || String(err)}`);
-      }
-    }
+    // auditor puede elegir varios de una en el selector (un cliente con varios
+    // bancos sube un PDF por banco). `subirArchivosEnCadena` encadena la revisión
+    // que devuelve el backend: si mandáramos siempre la inicial, del segundo
+    // archivo en adelante respondería «La prueba cambió mientras la editaba».
+    const { fallos } = await subirArchivosEnCadena(archivos, prueba.revision, (revision, archivo) =>
+      api.cicloSubirArchivo(prueba.id, revision, req.id, parte, archivo),
+    );
     try {
       await onSubido();
     } catch (err) {
@@ -126,6 +159,27 @@ function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor
     }
     setError(fallos.join(" · "));
     setSubiendo(false);
+  }
+
+  async function convertir(e) {
+    const archivo = (e.target.files || [])[0];
+    e.target.value = "";
+    if (!archivo) return;
+    setConvirtiendo(true);
+    setError("");
+    setAviso("");
+    try {
+      const faltan = await onConvertir(req, archivo);
+      setAviso(
+        faltan?.length
+          ? `Convertido y descargado. Columnas no reconocidas: ${faltan.join(", ")} — complételas a mano en el archivo.`
+          : "Convertido al formato de la herramienta y descargado. Revíselo y súbalo aquí.",
+      );
+    } catch (err) {
+      setError(err.message || String(err));
+    } finally {
+      setConvirtiendo(false);
+    }
   }
 
   return (
@@ -137,15 +191,40 @@ function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor
       )}
       <button
         type="button"
-        className={`pc-chip ${completo ? "on" : req.required !== false ? "warn" : ""}`}
+        className={`pc-chip nf-req ${completo ? "on" : req.required !== false ? "warn" : ""}`}
         disabled={!habilitado || subiendo}
         title={[req.id, req.purpose, ...detalleRequerimiento(req), "Puede seleccionar varios archivos a la vez"].filter(Boolean).join(" · ")}
         onClick={() => input.current?.click()}
         data-requerimiento={req.id}
       >
-        {subiendo ? "Subiendo…" : `${completo ? "✓" : "○"} ${req.document}${n ? ` (${n})` : ""}`}
+        <span className="nf-req-ico" aria-hidden="true">{subiendo ? "…" : completo ? "✓" : "○"}</span>
+        <span className="nf-req-txt">{subiendo ? "Subiendo…" : req.document}</span>
+        {n > 0 && !subiendo && (
+          <span className="nf-req-n" aria-label={`${n} archivo${n === 1 ? "" : "s"} subido${n === 1 ? "" : "s"}`}>{n}</span>
+        )}
       </button>
       <input ref={input} type="file" multiple accept={accept} hidden onChange={subir} data-requerimiento={req.id} />
+      {listarArchivos && misArchivos.length > 0 && (
+        <ul className="nf-doc-archivos">
+          {misArchivos.map((a) => (
+            <li key={a.id} className="nf-doc-archivo" title={a.nombre}>
+              <span className="nf-doc-archivo-nom">{a.nombre}</span>
+              {habilitado && (
+                <button
+                  type="button"
+                  className="nf-doc-archivo-x"
+                  disabled={borrando === a.id}
+                  title={`Eliminar «${a.nombre}»`}
+                  aria-label={`Eliminar ${a.nombre}`}
+                  onClick={() => eliminar(a)}
+                >
+                  {borrando === a.id ? "…" : "✕"}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
       {(formatos || ejemplo) && (
         <small className="nf-doc-formatos">
           {formatos && (
@@ -178,8 +257,138 @@ function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, processor
           )}
         </small>
       )}
+      {req.dataset && onConvertir && (
+        <small className="nf-doc-formatos">
+          <button
+            type="button"
+            className="link nf-doc-ejemplo"
+            disabled={convirtiendo}
+            title="Suba el Excel tal como lo maneja la compañía y descárguelo en el formato que pide este anexo"
+            onClick={() => convertInput.current?.click()}
+            data-convertir={req.id}
+          >
+            {convirtiendo ? "Convirtiendo…" : "⇄ Convertir mi formato"}
+          </button>
+          <input ref={convertInput} type="file" accept=".xlsx,.csv" hidden onChange={convertir} />
+        </small>
+      )}
+      {admiteExtraccionIA(req) && (
+        <ExtraccionIA prueba={prueba} req={req} habilitado={habilitado} onSubido={onSubido} />
+      )}
+      {aviso && <small className="muted">{aviso}</small>}
       {error && <small className="nf-error">{error}</small>}
     </span>
+  );
+}
+
+// Extracción por IA de la carta de control interno / informe del año anterior:
+// por cada PDF/Word subido, se ofrece «Extraer con IA»; la tabla resultante se
+// muestra EDITABLE y solo alimenta la herramienta cuando el auditor la confirma
+// (la IA no decide sola). El respaldo Excel/CSV sigue disponible en el mismo chip.
+function ExtraccionIA({ prueba, req, habilitado, onSubido }) {
+  const campos = useMemo(() => {
+    const d = prueba.definicion || {};
+    const tipo = (d.tipos && d.tipos[req.dataset]) || req.dataset;
+    return (d.campos && d.campos[tipo]) || [];
+  }, [prueba.definicion, req.dataset]);
+  const archivos = archivosExtraibles(prueba, req.id);
+  if (!archivos.length || !campos.length) return null;
+  return (
+    <div className="nf-ia-extraccion">
+      {archivos.map((a) => (
+        <ExtraccionArchivo key={a.id} prueba={prueba} campos={campos} archivo={a}
+          habilitado={habilitado} onSubido={onSubido} />
+      ))}
+    </div>
+  );
+}
+
+function ExtraccionArchivo({ prueba, campos, archivo, habilitado, onSubido }) {
+  const guardada = extraccionDe(prueba, archivo.id);
+  const [filas, setFilas] = useState(() => (guardada?.rows || []).map((r) => ({ ...r })));
+  const [trabajando, setTrabajando] = useState("");
+  const [error, setError] = useState("");
+  const [aviso, setAviso] = useState("");
+
+  // Re-siembra la tabla local cuando llega una extracción nueva (otro `at`).
+  useEffect(() => {
+    setFilas((extraccionDe(prueba, archivo.id)?.rows || []).map((r) => ({ ...r })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guardada?.at, archivo.id]);
+
+  const correr = async (accion, datos, fin) => {
+    setTrabajando(accion); setError(""); setAviso("");
+    try {
+      await api.cicloAccion(prueba.id, accion, prueba.revision, datos);
+      await onSubido();
+      if (fin) setAviso(fin);
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setTrabajando("");
+    }
+  };
+
+  const extraer = () => correr("extraer_ia", { fileId: archivo.id },
+    "Tabla extraída por IA. Revísela y corríjala; luego confirme.");
+  const confirmar = () => correr("guardar_extraccion", { fileId: archivo.id, rows: filas },
+    "Tabla confirmada: ya alimenta la planificación.");
+  const editar = (i, k, v) => setFilas((fs) => fs.map((f, j) => (j === i ? { ...f, [k]: v } : f)));
+  const quitar = (i) => setFilas((fs) => fs.filter((_, j) => j !== i));
+  const val = guardada?.validation;
+
+  return (
+    <div className="nf-ia-doc">
+      <div className="nf-ia-doc-top">
+        <span className="nf-ia-doc-nom">📄 {archivo.nombre}</span>
+        <button type="button" className="link nf-ia-extraer" disabled={!habilitado || !!trabajando} onClick={extraer}>
+          {trabajando === "extraer_ia" ? "Extrayendo…" : guardada ? "↻ Volver a extraer con IA" : "✨ Extraer con IA"}
+        </button>
+      </div>
+      {guardada && (
+        <>
+          <p className="nf-ia-aviso muted">
+            La IA transcribió lo que leyó del documento. <strong>Revise y corrija</strong> cada fila antes de confirmar;
+            la IA no decide sola.
+          </p>
+          <div className="nf-ia-tabla-wrap">
+            <table className="nf-ia-tabla">
+              <thead>
+                <tr>{campos.map((c) => <th key={c.key}>{c.label}</th>)}<th aria-label="Quitar" /></tr>
+              </thead>
+              <tbody>
+                {filas.map((f, i) => (
+                  <tr key={i}>
+                    {campos.map((c) => (
+                      <td key={c.key}>
+                        <input value={f[c.key] ?? ""} disabled={!habilitado}
+                          onChange={(e) => editar(i, c.key, e.target.value)} aria-label={`${c.label}, fila ${i + 1}`} />
+                      </td>
+                    ))}
+                    <td>
+                      <button type="button" className="link" disabled={!habilitado} onClick={() => quitar(i)}
+                        aria-label={`Quitar la fila ${i + 1}`}>✕</button>
+                    </td>
+                  </tr>
+                ))}
+                {!filas.length && (
+                  <tr><td colSpan={campos.length + 1} className="muted">
+                    La IA no detectó filas. Revise el documento o suba la tabla en Excel/CSV.
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {val && !val.ok && <p role="alert" className="nf-error">{erroresLegibles(val, 5).join(" · ")}</p>}
+          <button type="button" className="pc-chip nf-ia-confirmar" disabled={!habilitado || !!trabajando || !filas.length}
+            onClick={confirmar}>
+            {trabajando === "guardar_extraccion" ? "Confirmando…" : "Confirmar tabla"}
+          </button>
+        </>
+      )}
+      {aviso && <small className="muted">{aviso}</small>}
+      {error && <small className="nf-error">{error}</small>}
+    </div>
   );
 }
 
@@ -360,6 +569,97 @@ function PanelCedula({ prueba, indice, etiqueta, nombre, hojas, notas, calculo }
   );
 }
 
+// Señal interna: `mapear` la devuelve cuando hay columnas sin reconocer y abre
+// el modal de mapeo manual en vez de lanzar un error. `procesar` la reconoce y
+// corta el intento en curso limpiamente (sin toast de error).
+const PENDIENTE_MAPEO = Symbol("pendiente-mapeo");
+
+// Modal de mapeo manual de columnas. Se abre cuando el reconocimiento por alias
+// no cubre todos los campos obligatorios de algún archivo subido: por cada
+// archivo pendiente lista sus campos y, para cada uno, un <select> con las
+// columnas del archivo. Precarga las columnas ya reconocidas y resalta las
+// obligatorias que faltan. Al confirmar entrega {fileId: {campo.key: colIndex}}.
+export function MapeoManual({ pendientes, onCancelar, onConfirmar }) {
+  const [seleccion, setSeleccion] = useState(() =>
+    Object.fromEntries(
+      pendientes.map((pf) => [
+        pf.fileId,
+        Object.fromEntries(pf.campos.map((c) => [c.key, c.key in pf.mapping ? String(pf.mapping[c.key]) : ""])),
+      ]),
+    ),
+  );
+  const set = (fileId, key, val) => setSeleccion((s) => ({ ...s, [fileId]: { ...s[fileId], [key]: val } }));
+  const faltaRequerido = (pf) => pf.campos.some((c) => c.required !== false && !seleccion[pf.fileId]?.[c.key]);
+  const listo = !pendientes.some(faltaRequerido);
+  const confirmar = () => {
+    const maps = {};
+    for (const pf of pendientes) {
+      const m = {};
+      for (const c of pf.campos) {
+        const v = seleccion[pf.fileId]?.[c.key];
+        if (v !== "" && v !== undefined) m[c.key] = Number(v);
+      }
+      maps[pf.fileId] = m;
+    }
+    onConfirmar(maps);
+  };
+  return (
+    <div className="nf-em-overlay" role="dialog" aria-modal="true" aria-label="Mapear columnas del archivo">
+      <div className="nf-em-panel nf-map-panel">
+        <div className="nf-em-head">
+          <div>
+            <span className="nf-em-marca">MAPEO MANUAL DE COLUMNAS</span>
+            <h3 style={{ margin: "4px 0 6px" }}>Asigne las columnas no reconocidas</h3>
+            <p className="muted" style={{ margin: 0 }}>
+              No se reconocieron por su nombre algunas columnas obligatorias. Indique, por cada campo, qué columna de su
+              archivo le corresponde. Los campos ya reconocidos vienen pre-seleccionados; los pendientes van resaltados.
+            </p>
+          </div>
+          <button type="button" className="pc-chip" onClick={onCancelar} aria-label="Cerrar">✕</button>
+        </div>
+        <div className="nf-map-cuerpo">
+          {pendientes.map((pf) => (
+            <section key={pf.fileId} className="nf-map-archivo">
+              <h4 className="nf-map-archivo-tit">📄 {pf.nombre}</h4>
+              <div className="nf-map-filas">
+                {pf.campos.map((c) => {
+                  const requerido = c.required !== false;
+                  const pendiente = requerido && !seleccion[pf.fileId]?.[c.key];
+                  return (
+                    <label key={c.key} className={`nf-map-fila${pendiente ? " nf-map-pend" : ""}`}>
+                      <span className="nf-map-campo">
+                        {c.label || c.key}
+                        {requerido && <span className="nf-map-req" title="Obligatorio"> *</span>}
+                      </span>
+                      <select
+                        value={seleccion[pf.fileId]?.[c.key] ?? ""}
+                        onChange={(e) => set(pf.fileId, c.key, e.target.value)}
+                        aria-label={`Columna para ${c.label || c.key} en ${pf.nombre}`}
+                      >
+                        <option value="">— sin asignar —</option>
+                        {pf.columnas.map((col, i) => (
+                          <option key={i} value={String(i)}>{i + 1} · {col || "(sin título)"}</option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+        <div className="nf-em-nav">
+          <button type="button" className="pc-chip" onClick={onCancelar}>Cancelar</button>
+          <button type="button" className="pc-chip accent" disabled={!listo} onClick={confirmar} style={{ fontWeight: 700 }}
+            title={listo ? "Guardar el mapeo y continuar el procesamiento" : "Asigne una columna a cada campo obligatorio (*)"}>
+            Confirmar mapeo y procesar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   const reg = prueba.registro;
   const d = prueba.definicion;
@@ -373,6 +673,11 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   const [tramos, setTramos] = useState([{ min: "0", max: "30", rate: "" }, { min: "31", max: "", rate: "" }]);
   const [cedula, setCedula] = useState(0);
   const [modeloAbierto, setModeloAbierto] = useState(false);
+  // Mapeo manual: archivos con columnas sin reconocer (abre el modal) y el mapeo
+  // que el auditor asigna a mano, por fileId. El ref lo lee `mapear` sin depender
+  // del re-render (evita cerrar sobre un estado viejo al reprocesar).
+  const [pendientesMapeo, setPendientesMapeo] = useState(null);
+  const manualMapsRef = useRef({});
   const [param, setParam] = useState(() => ({ ...(d.parametros || {}), ...Object.fromEntries(Object.entries(reg.parameters || {}).filter(([k]) => k in (d.parametros || {}))) }));
   const [tasas, setTasas] = useState(reg.parameters?.tasas || {});
   // Tramos de mora solo en las pruebas de cartera que los usan.
@@ -440,15 +745,30 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
   // manda al servidor la lista para unirla en una sola población.
   async function mapear(p) {
     const [, , files] = sitio || (await cargarSitio());
-    const armar = async (req, campos) => {
+    // Archivos cuyas columnas obligatorias no se reconocen ni con el mapeo manual
+    // guardado: se juntan para abrir el modal en vez de lanzar un error.
+    const pendientes = [];
+    const armar = async (req, campos, dataset) => {
       const partes = [];
       for (const a of archivosDe(p, req)) {
         const bytes = await api.cicloBajarArchivo(p.id, a.id);
-        const elegido = mejorEncabezado(files.readSpreadsheet(bytes, a.nombre).sheets, campos);
+        const { sheets } = files.readSpreadsheet(bytes, a.nombre);
+        const elegido = mejorEncabezado(sheets, campos);
         if (!elegido) throw new Error(`${a.nombre}: no se pudo leer ninguna hoja.`);
-        if (elegido.faltan.length)
-          throw new Error(`${a.nombre}: no se reconocen las columnas ${elegido.faltan.join(", ")}. Use el modelo de ${req} o el mapeo manual del circuito detallado.`);
-        partes.push({ fileId: a.id, sheet: elegido.sheet, header: elegido.header, mapping: elegido.mapping });
+        // El mapeo manual del auditor pisa lo que detectó el reconocimiento por alias.
+        const combinado = mapeoConManual(elegido, manualMapsRef.current[a.id], campos);
+        if (combinado.faltan.length) {
+          const hoja = (sheets || []).find((s) => s.name === combinado.sheet);
+          const filaEnc = ((hoja && hoja.rows) || [])[combinado.header - 1] || [];
+          pendientes.push({
+            req, dataset, fileId: a.id, nombre: a.nombre,
+            sheet: combinado.sheet, header: combinado.header,
+            columnas: filaEnc.map((c) => String(c ?? "")),
+            campos, mapping: combinado.mapping,
+          });
+          continue;
+        }
+        partes.push({ fileId: a.id, sheet: combinado.sheet, header: combinado.header, mapping: combinado.mapping });
       }
       return partes;
     };
@@ -456,20 +776,23 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
       const datasets = {};
       for (const r of p.registro.requests.filter((x) => x.dataset)) {
         const tipo = d.tipos?.[r.dataset] || (["a1", "a2", "a3"].includes(r.dataset) ? "cartera" : r.dataset);
-        const partes = await armar(r.id, d.campos[tipo]);
+        const partes = await armar(r.id, d.campos[tipo], r.dataset);
         if (partes.length) datasets[r.dataset] = partes;
       }
+      if (pendientes.length) { setPendientesMapeo(pendientes); return PENDIENTE_MAPEO; }
       if (!datasets.a3 && !datasets.actual) throw new Error("Suba el anexo de cartera del ejercicio corriente antes de procesar.");
       return paso("map_validate", { datasets });
     }
     const [poblacion, flujos] = (p.modelos || []);
-    const files_ = await armar(poblacion, d.fields);
+    const files_ = await armar(poblacion, d.fields, poblacion);
+    let flowsParte = null;
+    if (d.flows && flujos) flowsParte = (await armar(flujos, FLOW_FIELDS, flujos))[0] || null;
+    if (pendientes.length) { setPendientesMapeo(pendientes); return PENDIENTE_MAPEO; }
     if (!files_.length) throw new Error("Suba el reporte de cálculo antes de procesar.");
     const datos = { files: files_ };
     if (d.flows && flujos) {
-      const f = (await armar(flujos, FLOW_FIELDS))[0];
-      if (!f) throw new Error("Suba el calendario de pagos antes de procesar.");
-      Object.assign(datos, { flowsFile: f.fileId, flowsSheet: f.sheet, flowsHeader: f.header, flowsMapping: f.mapping });
+      if (!flowsParte) throw new Error("Suba el calendario de pagos antes de procesar.");
+      Object.assign(datos, { flowsFile: flowsParte.fileId, flowsSheet: flowsParte.sheet, flowsHeader: flowsParte.header, flowsMapping: flowsParte.mapping });
     }
     return paso("map_validate", datos);
   }
@@ -483,6 +806,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         if ((p.huecos || []).length) throw new Error(`Faltan documentos: ${p.huecos.join(" · ")}`);
         if (!p.registro.validation?.ok || p.estado === "REQUERIMIENTO_APROBADO" || !p.registro.rows?.length) {
           p = await mapear(p);
+          if (p === PENDIENTE_MAPEO) return; // se abrió el modal de mapeo manual: se corta sin error.
           if (!p.registro.validation?.ok)
             throw new Error(`La población tiene errores: ${erroresLegibles(p.registro.validation, 5).join(" · ")}`);
         }
@@ -520,6 +844,29 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
     } catch (e) {
       setError(e.message || String(e));
     }
+  }
+
+  // «Convertir mi formato»: el auditor sube el Excel tal como lo tiene la
+  // compañía y se descarga en el formato que pide este anexo. Reconoce las
+  // columnas por alias (mejorEncabezado) y escribe la hoja «Datos» con las
+  // etiquetas de la herramienta. Devuelve las columnas obligatorias que no se
+  // reconocieron, para completarlas a mano. Todo en el navegador; no toca el motor.
+  async function convertirFormato(req, archivo) {
+    const [, , files] = sitio || (await cargarSitio());
+    const tipo = d.tipos?.[req.dataset] || req.dataset;
+    const campos = (d.campos && d.campos[tipo]) || d.fields;
+    const bytes = new Uint8Array(await archivo.arrayBuffer());
+    const { sheets } = files.readSpreadsheet(bytes, archivo.name);
+    const { columnas, filas, faltan } = filasConvertidas(sheets, campos);
+    if (!filas.length)
+      throw new Error("No se reconocieron filas de datos. Verifique que el archivo tenga una fila de encabezados y datos debajo.");
+    const { default: ExcelJS } = await import("exceljs");
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Datos");
+    ws.addRow(columnas);
+    filas.forEach((f) => ws.addRow(f));
+    descargar(`Convertido_${req.id}.xlsx`, await wb.xlsx.writeBuffer(), XLSX);
+    return faltan;
   }
 
   // «Editar datos» y «Encerar» abren su panel de abajo, que pide las
@@ -581,7 +928,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
           onClick={async () => {
             const nombre = `${d.name.replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}.xlsx`;
             try {
-              descargar(nombre, d.processor ? await api.cicloBajarLibro(prueba.id) : sitio[1].buildWorkbook(t), XLSX);
+              descargar(nombre, d.processor ? await api.cicloBajarLibro(prueba.id) : await papelDeclarativo(t, "xlsx"), XLSX);
             } catch (e) {
               setError(e.message || String(e));
             }
@@ -589,11 +936,29 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         >
           Descargar Excel
         </button>
-        {d.processor && FORMATOS_PAPEL.map(([ext, etiqueta, tipo]) => (
-          <button key={ext} type="button" className="pc-chip" disabled={!reg.run} title={ext === "html" ? "Funciona sin internet y trae dentro Excel, Word, PowerPoint y PDF" : undefined}
+        {d.processor === "efectivo_equivalentes" && (
+          <button
+            type="button"
+            className="pc-chip"
+            title="Papel de trabajo DA con fórmulas vivas: Sumaria, Movimiento, Conciliaciones, Partidas, Arqueo y Hallazgos"
             onClick={async () => {
               try {
-                descargar(`${d.name.replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}.${ext}`, await api.cicloBajarLibro(prueba.id, ext), tipo);
+                const cliente = (reg.engagement?.client || "cliente").replace(/[^\w-]+/g, "_").slice(0, 40);
+                descargar(`DA_Efectivo_Equivalentes_${cliente}.xlsx`, await api.cicloBajarPapelBancos(prueba.id), XLSX);
+              } catch (e) {
+                setError(e.message || String(e));
+              }
+            }}
+          >
+            Papel formulado (DA)
+          </button>
+        )}
+        {FORMATOS_PAPEL.map(([ext, etiqueta, tipo]) => (
+          <button key={ext} type="button" className="pc-chip" disabled={!reg.run} title={ext === "html" ? "Funciona sin internet y trae dentro Excel, Word y PowerPoint; «Guardar como PDF» lo imprime" : undefined}
+            onClick={async () => {
+              try {
+                const contenido = d.processor ? await api.cicloBajarLibro(prueba.id, ext) : await papelDeclarativo(t, ext);
+                descargar(`${d.name.replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}.${ext}`, contenido, tipo);
               } catch (e) {
                 setError(e.message || String(e));
               }
@@ -613,6 +978,18 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         <button type="button" className="pc-chip danger" onClick={abrirEncerar}>Encerar</button>
       </div>
       {modeloAbierto && <EjercicioModelo prueba={prueba} onCerrar={() => setModeloAbierto(false)} />}
+      {pendientesMapeo?.length > 0 && (
+        <MapeoManual
+          pendientes={pendientesMapeo}
+          onCancelar={() => setPendientesMapeo(null)}
+          onConfirmar={(maps) => {
+            // El mapeo manual pisa el auto por archivo; al reprocesar, `mapear` lo lee del ref.
+            manualMapsRef.current = { ...manualMapsRef.current, ...maps };
+            setPendientesMapeo(null);
+            procesar();
+          }}
+        />
+      )}
       {avance && <p className="muted">{avance}</p>}
       {error && <p role="alert" className="nf-error">{error}</p>}
 
@@ -625,7 +1002,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
           <div className="pc-scenarios nf-vista-subir">
             <span className="pc-scenarios-l" style={{ color: "var(--accent)" }}>SUBIR DOCUMENTOS</span>
             {(reg.requests || []).map((r) => (
-              <ChipDocumento key={r.id} prueba={prueba} req={r} cobertura={cobertura[r.id]} onSubido={onRecargar} habilitado={CON_SUBIDA.includes(prueba.estado) && !bloqueado} processor={d.processor} onModelo={bajarModelo} />
+              <ChipDocumento key={r.id} prueba={prueba} req={r} cobertura={cobertura[r.id]} onSubido={onRecargar} habilitado={CON_SUBIDA.includes(prueba.estado) && !bloqueado} processor={d.processor} onModelo={bajarModelo} onConvertir={convertirFormato} listarArchivos={false} />
             ))}
           </div>
           {calculo.length > 0 && (
@@ -648,9 +1025,16 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
                     {a.requerimiento}{a.componente ? ` · ${a.componente}` : ""} · {a.nombre} ·{" "}
                     <span className={a.estado === "rechazado" ? "nf-error" : "nf-ok"}>{a.estado}</span>
                     {CON_SUBIDA.includes(prueba.estado) && (
-                      <button type="button" className="link" disabled={bloqueado} onClick={() => onAccion("reject_file", { fileId: a.id })}>
-                        {a.estado === "rechazado" ? " · Restituir" : " · Rechazar"}
-                      </button>
+                      <>
+                        <button type="button" className="link" disabled={bloqueado} onClick={() => onAccion("reject_file", { fileId: a.id })}>
+                          {a.estado === "rechazado" ? " · Restituir" : " · Rechazar"}
+                        </button>
+                        <button type="button" className="link nf-error" disabled={bloqueado}
+                          title={`Eliminar «${a.nombre}» (borra el archivo; no es lo mismo que rechazar)`}
+                          onClick={() => onAccion("delete_file", { fileId: a.id })}>
+                          {" · ✕ Eliminar"}
+                        </button>
+                      </>
                     )}
                   </li>
                 ))}

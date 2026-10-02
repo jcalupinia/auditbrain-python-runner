@@ -1,0 +1,1203 @@
+{
+ "herramienta": {
+  "definition": {
+   "id": "custom",
+   "name": "Arrendamientos NIIF 16",
+   "area": "Arrendamientos",
+   "fields": [
+    {
+     "key": "id",
+     "label": "Contrato",
+     "type": "text"
+    },
+    {
+     "key": "pago",
+     "label": "Pago por período",
+     "type": "number"
+    },
+    {
+     "key": "tasa",
+     "label": "Tasa incremental",
+     "type": "number"
+    },
+    {
+     "key": "n",
+     "label": "Períodos",
+     "type": "number"
+    },
+    {
+     "key": "directos",
+     "label": "Costos directos iniciales",
+     "type": "number"
+    }
+   ],
+   "series": {
+    "count": "n",
+    "backward": [
+     {
+      "key": "pendiente",
+      "label": "Saldo más pago",
+      "op": "add",
+      "a": "@apertura",
+      "b": "pago",
+      "precision": 6
+     },
+     {
+      "key": "factor",
+      "label": "Uno más la tasa",
+      "op": "add",
+      "a": "tasa",
+      "b": "#1",
+      "precision": 6
+     },
+     {
+      "key": "apertura",
+      "label": "Pasivo al inicio del período",
+      "op": "divide",
+      "a": "pendiente",
+      "b": "factor",
+      "precision": 6
+     }
+    ],
+    "forward": [
+     {
+      "key": "interes",
+      "label": "Interés del período",
+      "op": "multiply",
+      "a": "apertura",
+      "b": "tasa",
+      "precision": 2
+     },
+     {
+      "key": "con_interes",
+      "label": "Pasivo más interés",
+      "op": "add",
+      "a": "apertura",
+      "b": "interes",
+      "precision": 6
+     },
+     {
+      "key": "cierre",
+      "label": "Pasivo al cierre",
+      "op": "subtract",
+      "a": "con_interes",
+      "b": "pago",
+      "precision": 2
+     },
+     {
+      "key": "activo_inicial",
+      "label": "Activo por derecho de uso inicial",
+      "op": "add",
+      "a": "^apertura",
+      "b": "directos",
+      "precision": 2
+     },
+     {
+      "key": "depreciacion",
+      "label": "Depreciación del período",
+      "op": "divide",
+      "a": "^activo_inicial",
+      "b": "periodos",
+      "precision": 2
+     },
+     {
+      "key": "acumulada",
+      "label": "Depreciación acumulada",
+      "op": "multiply",
+      "a": "depreciacion",
+      "b": "periodo",
+      "precision": 2
+     },
+     {
+      "key": "activo",
+      "label": "Activo al cierre",
+      "op": "subtract",
+      "a": "^activo_inicial",
+      "b": "acumulada",
+      "precision": 2
+     }
+    ]
+   },
+   "rules": [
+    {
+     "key": "pasivo_inicial",
+     "label": "Pasivo en el reconocimiento",
+     "op": "add",
+     "a": "apertura_inicial",
+     "b": "#0",
+     "precision": 2
+    },
+    {
+     "key": "activo_reconocido",
+     "label": "Activo en el reconocimiento",
+     "op": "add",
+     "a": "pasivo_inicial",
+     "b": "directos",
+     "precision": 2
+    },
+    {
+     "key": "interes_plazo",
+     "label": "Interés total del plazo",
+     "op": "add",
+     "a": "interes_total",
+     "b": "#0",
+     "precision": 2
+    }
+   ],
+   "control": "pago",
+   "primary": "pasivo_inicial"
+  },
+  "version": 1,
+  "draft": true,
+  "state": "BORRADOR",
+  "country": "Ecuador",
+  "engagement": {
+   "firm": "Audit Consulting Group",
+   "client": "Cliente pendiente",
+   "year": "",
+   "cutoff": "",
+   "preparer": "",
+   "reviewer": ""
+  },
+  "parameters": {},
+  "reconciliation": {
+   "ledger": "0",
+   "tolerance": "0",
+   "difference": "0",
+   "within": true,
+   "acceptance": ""
+  },
+  "program": [],
+  "sources": [],
+  "events": [],
+  "notes": [],
+  "run": {
+   "engine": "3.0.0",
+   "totals": {
+    "pasivo_inicial": "42123.64",
+    "activo_reconocido": "43323.64",
+    "interes_plazo": "7876.37",
+    "pago": "10000.00"
+   },
+   "exceptions": [
+    {
+     "row": 2,
+     "id": "L-001",
+     "code": "RESULT",
+     "message": "Pasivo en el reconocimiento: requiere evaluación.",
+     "amount": "42123.64"
+    }
+   ]
+  }
+ },
+ "cedulas": {
+  "nombres": [
+   "01_Caratula",
+   "02_Programa",
+   "03_Parametros",
+   "04_Fuentes",
+   "05_Data_Original",
+   "06_Data_Procesada",
+   "07_Calculos",
+   "08_Pruebas",
+   "09_Excepciones",
+   "10_Sumaria",
+   "11_Conclusion",
+   "12_Control_Revision",
+   "13_Cuadro"
+  ],
+  "etiquetas": [
+   "Portada ejecutiva",
+   "Programa de auditoría",
+   "Parámetros y reglas",
+   "Fuentes normativas",
+   "Datos originales",
+   "Datos procesados",
+   "Cálculos auditables",
+   "Controles y conciliación",
+   "Excepciones",
+   "Sumaria de resultados",
+   "Conclusión profesional",
+   "Control de revisión",
+   "Cuadro de períodos"
+  ],
+  "hojas": [
+   [
+    [
+     "AuditBrain · AUDITORÍA EXTERNA"
+    ],
+    [
+     "Audit Consulting Group"
+    ],
+    [
+     "Cliente pendiente · Arrendamientos · "
+    ],
+    [
+     "Arrendamientos NIIF 16"
+    ],
+    [
+     "REGISTROS",
+     "",
+     "RESULTADO PRINCIPAL",
+     "",
+     "VERSIÓN"
+    ],
+    [
+     {
+      "f": "COUNTIF('05_Data_Original'!A5:A5,\"<>\")",
+      "v": "1",
+      "type": "auto"
+     },
+     "",
+     {
+      "f": "SUM('07_Calculos'!B5:B5)",
+      "v": "42123.64",
+      "type": "auto"
+     },
+     "",
+     {
+      "n": "1"
+     }
+    ],
+    [],
+    [
+     "DATOS DEL ENCARGO"
+    ],
+    [
+     "Cliente",
+     "",
+     "Cliente pendiente"
+    ],
+    [
+     "Período / corte",
+     "",
+     " · Pendiente"
+    ],
+    [
+     "Preparado por",
+     "",
+     "Pendiente"
+    ],
+    [
+     "Revisado por",
+     "",
+     "Pendiente"
+    ],
+    [
+     "Marco / país",
+     "",
+     "Pendiente · Ecuador"
+    ],
+    [
+     "Estado del archivo",
+     "",
+     "BORRADOR · Pendiente de aprobación"
+    ],
+    [],
+    [
+     "ÍNDICE DE CÉDULAS · pulse un nombre para abrir"
+    ],
+    [
+     "Programa de auditoría",
+     "",
+     "",
+     "",
+     "",
+     "02"
+    ],
+    [
+     "Parámetros y reglas",
+     "",
+     "",
+     "",
+     "",
+     "03"
+    ],
+    [
+     "Fuentes normativas",
+     "",
+     "",
+     "",
+     "",
+     "04"
+    ],
+    [
+     "Datos originales",
+     "",
+     "",
+     "",
+     "",
+     "05"
+    ],
+    [
+     "Datos procesados",
+     "",
+     "",
+     "",
+     "",
+     "06"
+    ],
+    [
+     "Cálculos auditables",
+     "",
+     "",
+     "",
+     "",
+     "07"
+    ],
+    [
+     "Controles y conciliación",
+     "",
+     "",
+     "",
+     "",
+     "08"
+    ],
+    [
+     "Excepciones",
+     "",
+     "",
+     "",
+     "",
+     "09"
+    ],
+    [
+     "Sumaria de resultados",
+     "",
+     "",
+     "",
+     "",
+     "10"
+    ],
+    [
+     "Conclusión profesional",
+     "",
+     "",
+     "",
+     "",
+     "11"
+    ],
+    [
+     "Control de revisión",
+     "",
+     "",
+     "",
+     "",
+     "12"
+    ],
+    [
+     "Cuadro de períodos",
+     "",
+     "",
+     "",
+     "",
+     "13"
+    ],
+    [],
+    [
+     "Entradas en verde claro · Fórmulas visibles · Diferencias resaltadas en ámbar"
+    ],
+    [
+     "Borrador generado desde ChatGPT. Fuentes y conclusión pendientes de revisión profesional."
+    ],
+    [],
+    [
+     "CÓMO SE PREPARA Y CALCULA"
+    ],
+    [
+     "La ficha identifica cliente, marco, edición, país, visita, corte, firma y responsables. Los resultados requieren revisión profesional."
+    ]
+   ],
+   [
+    [
+     "Programa de auditoría"
+    ],
+    [
+     "Cliente pendiente · Corte Pendiente · Audit Consulting Group · Ref. CUSTOM · v1 · Preparó: Pendiente · Revisó: Pendiente"
+    ],
+    [
+     "BORRADOR — PENDIENTE DE REVISIÓN — FUENTES NO VERIFICADAS"
+    ],
+    [
+     "Código",
+     "Objetivo",
+     "Riesgo",
+     "Afirmación",
+     "Procedimiento",
+     "Evidencia",
+     "Criterio",
+     "Norma / fuente",
+     "Estado"
+    ],
+    [],
+    [
+     "CÓMO SE PREPARA Y CALCULA"
+    ],
+    [
+     "Cada procedimiento se vincula con su objetivo, riesgo, evidencia, criterio y fuente verificada. Los textos del programa no son resultados de cálculo."
+    ]
+   ],
+   [
+    [
+     "Parámetros y reglas"
+    ],
+    [
+     "Cliente pendiente · Corte Pendiente · Audit Consulting Group · Ref. CUSTOM · v1 · Preparó: Pendiente · Revisó: Pendiente"
+    ],
+    [
+     "BORRADOR — PENDIENTE DE REVISIÓN — FUENTES NO VERIFICADAS"
+    ],
+    [
+     "Parámetro",
+     "Valor",
+     "Sustento / unidad"
+    ],
+    [
+     "Fecha de corte",
+     {
+      "n": 36526,
+      "date": true
+     },
+     "Fecha del encargo"
+    ],
+    [
+     "Tolerancia",
+     {
+      "n": "0"
+     },
+     "Aceptada por auditor"
+    ],
+    [
+     "Saldo contable",
+     {
+      "n": "0"
+     },
+     "Saldo de control"
+    ],
+    [
+     "Motor",
+     "3.0.0",
+     "Decimal, redondeo por partida"
+    ],
+    [
+     "Constante #0",
+     {
+      "n": "0"
+     },
+     "Constante de metodología"
+    ],
+    [
+     "Mora desde",
+     "Mora hasta",
+     "Tasa (0 a 1)"
+    ],
+    [],
+    [
+     "Código",
+     "Operación",
+     "Operando A",
+     "Operando B",
+     "Decimales",
+     "Si no (C) / tramos"
+    ],
+    [
+     "pasivo_inicial",
+     "add",
+     "apertura_inicial",
+     "#0",
+     {
+      "n": "2"
+     },
+     ""
+    ],
+    [
+     "activo_reconocido",
+     "add",
+     "pasivo_inicial",
+     "directos",
+     {
+      "n": "2"
+     },
+     ""
+    ],
+    [
+     "interes_plazo",
+     "add",
+     "interes_total",
+     "#0",
+     {
+      "n": "2"
+     },
+     ""
+    ],
+    [],
+    [
+     "CONTEXTO METODOLÓGICO",
+     "Valor"
+    ],
+    [
+     "Marco contable",
+     "Por confirmar"
+    ],
+    [
+     "Edición",
+     "Por confirmar"
+    ],
+    [
+     "Adopción local",
+     "Por confirmar"
+    ],
+    [
+     "Visita",
+     "Por confirmar"
+    ],
+    [
+     "Moneda",
+     "Por confirmar"
+    ],
+    [
+     "Alcance de reutilización",
+     "Por confirmar"
+    ],
+    [
+     "Versión de memoria",
+     "No registrada"
+    ],
+    [
+     "Revisión de evidencia",
+     "Pendiente"
+    ],
+    [],
+    [
+     "CÓMO SE PREPARA Y CALCULA"
+    ],
+    [
+     "Los parámetros documentan entradas, constantes, unidades y metodología. Sustento pendiente."
+    ]
+   ],
+   [
+    [
+     "Fuentes y normativa"
+    ],
+    [
+     "Cliente pendiente · Corte Pendiente · Audit Consulting Group · Ref. CUSTOM · v1 · Preparó: Pendiente · Revisó: Pendiente"
+    ],
+    [
+     "BORRADOR — PENDIENTE DE REVISIÓN — FUENTES NO VERIFICADAS"
+    ],
+    [
+     "Categoría",
+     "Organismo",
+     "Documento",
+     "Artículo / párrafo",
+     "Fecha / vigencia",
+     "URL",
+     "Procedimientos",
+     "Verificada"
+    ],
+    [],
+    [
+     "CÓMO SE PREPARA Y CALCULA"
+    ],
+    [
+     "La selección normativa requiere verificar documento, edición, vigencia local y párrafo o artículo para el marco elegido. Una URL consultada no equivale a una fuente aprobada."
+    ]
+   ],
+   [
+    [
+     "Datos originales mapeados"
+    ],
+    [
+     "Cliente pendiente · Corte Pendiente · Audit Consulting Group · Ref. CUSTOM · v1 · Preparó: Pendiente · Revisó: Pendiente"
+    ],
+    [
+     "BORRADOR — PENDIENTE DE REVISIÓN — FUENTES NO VERIFICADAS"
+    ],
+    [
+     "Identificador",
+     "Pago por período",
+     "Tasa incremental",
+     "Períodos",
+     "Costos directos iniciales",
+     "Archivo",
+     "Hoja",
+     "Fila origen"
+    ],
+    [
+     "L-001",
+     {
+      "n": "10000"
+     },
+     {
+      "n": "0.06"
+     },
+     {
+      "n": "5"
+     },
+     {
+      "n": "1200"
+     },
+     "",
+     "",
+     ""
+    ],
+    [],
+    [
+     "CÓMO SE PREPARA Y CALCULA"
+    ],
+    [
+     "Se conserva la población mapeada con archivo, hoja y fila de origen. Los datos faltantes no deben sustituirse por cero. Los originales completos se consultan en el sitio hasta encerar."
+    ]
+   ],
+   [
+    [
+     "Datos procesados"
+    ],
+    [
+     "Cliente pendiente · Corte Pendiente · Audit Consulting Group · Ref. CUSTOM · v1 · Preparó: Pendiente · Revisó: Pendiente"
+    ],
+    [
+     "BORRADOR — PENDIENTE DE REVISIÓN — FUENTES NO VERIFICADAS"
+    ],
+    [
+     "Contrato",
+     "Pago por período",
+     "Tasa incremental",
+     "Períodos",
+     "Costos directos iniciales"
+    ],
+    [
+     {
+      "f": "IF('05_Data_Original'!A5=\"\",\"\",'05_Data_Original'!A5)",
+      "v": "L-001",
+      "type": "text"
+     },
+     {
+      "f": "IF('05_Data_Original'!B5=\"\",\"\",'05_Data_Original'!B5)",
+      "v": "10000",
+      "type": "auto"
+     },
+     {
+      "f": "IF('05_Data_Original'!C5=\"\",\"\",'05_Data_Original'!C5)",
+      "v": "0.06",
+      "type": "auto"
+     },
+     {
+      "f": "IF('05_Data_Original'!D5=\"\",\"\",'05_Data_Original'!D5)",
+      "v": "5",
+      "type": "auto"
+     },
+     {
+      "f": "IF('05_Data_Original'!E5=\"\",\"\",'05_Data_Original'!E5)",
+      "v": "1200",
+      "type": "auto"
+     }
+    ],
+    [],
+    [
+     "CÓMO SE PREPARA Y CALCULA"
+    ],
+    [
+     "Las celdas de datos procesados referencian la población original. Los importes no se modifican para forzar una conciliación."
+    ]
+   ],
+   [
+    [
+     "Cálculos auditables"
+    ],
+    [
+     "Cliente pendiente · Corte Pendiente · Audit Consulting Group · Ref. CUSTOM · v1 · Preparó: Pendiente · Revisó: Pendiente"
+    ],
+    [
+     "BORRADOR — PENDIENTE DE REVISIÓN — FUENTES NO VERIFICADAS"
+    ],
+    [
+     "Identificador",
+     "Pasivo en el reconocimiento",
+     "Activo en el reconocimiento",
+     "Interés total del plazo"
+    ],
+    [
+     {
+      "f": "IF('06_Data_Procesada'!A5=\"\",\"\",'06_Data_Procesada'!A5)",
+      "v": "L-001",
+      "type": "text"
+     },
+     {
+      "f": "IF(COUNTA('05_Data_Original'!A5:E5)=0,\"\",IF(COUNTA('05_Data_Original'!A5:E5)<5,NA(),ROUND(ROUND(A5+'03_Parametros'!$B$9,6),2)))",
+      "v": "42123.64",
+      "type": "auto"
+     },
+     {
+      "f": "IF(COUNTA('05_Data_Original'!A5:E5)=0,\"\",IF(COUNTA('05_Data_Original'!A5:E5)<5,NA(),ROUND(ROUND(B5+'06_Data_Procesada'!E5,6),2)))",
+      "v": "43323.64",
+      "type": "auto"
+     },
+     {
+      "f": "IF(COUNTA('05_Data_Original'!A5:E5)=0,\"\",IF(COUNTA('05_Data_Original'!A5:E5)<5,NA(),ROUND(ROUND(A5+'03_Parametros'!$B$9,6),2)))",
+      "v": "7876.37",
+      "type": "auto"
+     }
+    ],
+    [],
+    [
+     "CÓMO SE PREPARA Y CALCULA"
+    ],
+    [
+     "Pasivo en el reconocimiento: sumar (apertura_inicial, #0); 2 decimales. Activo en el reconocimiento: sumar (pasivo_inicial, directos); 2 decimales. Interés total del plazo: sumar (interes_total, #0); 2 decimales."
+    ]
+   ],
+   [
+    [
+     "Controles y conciliaciones"
+    ],
+    [
+     "Cliente pendiente · Corte Pendiente · Audit Consulting Group · Ref. CUSTOM · v1 · Preparó: Pendiente · Revisó: Pendiente"
+    ],
+    [
+     "BORRADOR — PENDIENTE DE REVISIÓN — FUENTES NO VERIFICADAS"
+    ],
+    [
+     "Control",
+     "Resultado",
+     "Criterio / evidencia"
+    ],
+    [
+     "Registros",
+     {
+      "n": "1"
+     },
+     "Población conservada"
+    ],
+    [
+     "Saldo contable",
+     {
+      "f": "'03_Parametros'!B7",
+      "v": "0",
+      "type": "auto"
+     },
+     "Saldo del mayor"
+    ],
+    [
+     "Población",
+     {
+      "f": "ROUND(SUM('06_Data_Procesada'!B5:B5),2)",
+      "v": "10000.00",
+      "type": "auto"
+     },
+     "Suma del campo de conciliación"
+    ],
+    [
+     "Diferencia",
+     {
+      "f": "B7-B6",
+      "v": "0",
+      "type": "auto"
+     },
+     "Población menos saldo contable"
+    ],
+    [
+     "Resultado",
+     {
+      "f": "IF(ABS(B8)<='03_Parametros'!B6,\"CONFORME\",\"REVISAR\")",
+      "v": "CONFORME",
+      "type": "auto"
+     },
+     "Revisar diferencias fuera de tolerancia"
+    ],
+    [
+     "Aceptación documentada",
+     "No aplica",
+     "No sustituye corrección de errores"
+    ],
+    [
+     "Validación",
+     "Pendiente",
+     "0 errores; 0 advertencias"
+    ],
+    [],
+    [
+     "CÓMO SE PREPARA Y CALCULA"
+    ],
+    [
+     "La diferencia es población menos saldo contable. La tolerancia debe estar sustentada; una aceptación documentada no elimina la diferencia."
+    ]
+   ],
+   [
+    [
+     "Excepciones"
+    ],
+    [
+     "Cliente pendiente · Corte Pendiente · Audit Consulting Group · Ref. CUSTOM · v1 · Preparó: Pendiente · Revisó: Pendiente"
+    ],
+    [
+     "BORRADOR — PENDIENTE DE REVISIÓN — FUENTES NO VERIFICADAS"
+    ],
+    [
+     "Fila",
+     "Identificador",
+     "Código",
+     "Observación",
+     "Importe"
+    ],
+    [
+     {
+      "n": "2"
+     },
+     "L-001",
+     "RESULT",
+     "Pasivo en el reconocimiento: requiere evaluación.",
+     {
+      "n": "42123.64"
+     }
+    ],
+    [],
+    [
+     "CÓMO SE PREPARA Y CALCULA"
+    ],
+    [
+     "Las excepciones identifican partidas que requieren evaluación. La ausencia de alertas automáticas no constituye una conclusión de auditoría."
+    ]
+   ],
+   [
+    [
+     "Sumaria"
+    ],
+    [
+     "Cliente pendiente · Corte Pendiente · Audit Consulting Group · Ref. CUSTOM · v1 · Preparó: Pendiente · Revisó: Pendiente"
+    ],
+    [
+     "BORRADOR — PENDIENTE DE REVISIÓN — FUENTES NO VERIFICADAS"
+    ],
+    [
+     "Resultado",
+     "Importe"
+    ],
+    [
+     "Pasivo en el reconocimiento",
+     {
+      "f": "SUM('07_Calculos'!B5:B5)",
+      "v": "42123.64",
+      "type": "auto"
+     }
+    ],
+    [
+     "Activo en el reconocimiento",
+     {
+      "f": "SUM('07_Calculos'!C5:C5)",
+      "v": "43323.64",
+      "type": "auto"
+     }
+    ],
+    [
+     "Interés total del plazo",
+     {
+      "f": "SUM('07_Calculos'!D5:D5)",
+      "v": "7876.37",
+      "type": "auto"
+     }
+    ],
+    [],
+    [
+     "CÓMO SE PREPARA Y CALCULA"
+    ],
+    [
+     "La sumaria suma los resultados por partida desde la cédula de cálculos; no vuelve a aplicar una tasa global a la población."
+    ]
+   ],
+   [
+    [
+     "Conclusión"
+    ],
+    [
+     "Cliente pendiente · Corte Pendiente · Audit Consulting Group · Ref. CUSTOM · v1 · Preparó: Pendiente · Revisó: Pendiente"
+    ],
+    [
+     "BORRADOR — PENDIENTE DE REVISIÓN — FUENTES NO VERIFICADAS"
+    ],
+    [
+     "Sección",
+     "Contenido"
+    ],
+    [
+     "Análisis",
+     "PENDIENTE"
+    ],
+    [
+     "Evaluación de excepciones",
+     "No aplica"
+    ],
+    [
+     "Conclusión del auditor",
+     "PENDIENTE"
+    ],
+    [
+     "Revisada",
+     "No"
+    ],
+    [],
+    [
+     "CÓMO SE PREPARA Y CALCULA"
+    ],
+    [
+     "El auditor documenta su análisis, la evaluación de excepciones y la conclusión. Los textos no se regeneran automáticamente al editar el Excel descargado."
+    ]
+   ],
+   [
+    [
+     "Control de revisión"
+    ],
+    [
+     "Cliente pendiente · Corte Pendiente · Audit Consulting Group · Ref. CUSTOM · v1 · Preparó: Pendiente · Revisó: Pendiente"
+    ],
+    [
+     "BORRADOR — PENDIENTE DE REVISIÓN — FUENTES NO VERIFICADAS"
+    ],
+    [
+     "Tipo",
+     "Usuario",
+     "Fecha",
+     "Estado anterior",
+     "Estado nuevo",
+     "Comentario / respuesta",
+     "Versión"
+    ],
+    [],
+    [
+     "CÓMO SE PREPARA Y CALCULA"
+    ],
+    [
+     "Los puntos de revisión exigen respuesta y resolución antes de aprobar. La descarga conserva una copia; las modificaciones posteriores requieren otra revisión."
+    ]
+   ],
+   [
+    [
+     "Cuadro de períodos"
+    ],
+    [
+     "Cliente pendiente · Corte Pendiente · Audit Consulting Group · Ref. CUSTOM · v1 · Preparó: Pendiente · Revisó: Pendiente"
+    ],
+    [
+     "BORRADOR — PENDIENTE DE REVISIÓN — FUENTES NO VERIFICADAS"
+    ],
+    [
+     "Identificador",
+     "Período",
+     "Períodos",
+     "Saldo más pago",
+     "Uno más la tasa",
+     "Pasivo al inicio del período",
+     "Interés del período",
+     "Pasivo más interés",
+     "Pasivo al cierre",
+     "Activo por derecho de uso inicial",
+     "Depreciación del período",
+     "Depreciación acumulada",
+     "Activo al cierre"
+    ],
+    [
+     "L-001",
+     {
+      "n": "1"
+     },
+     {
+      "n": "5"
+     },
+     {
+      "n": "44651.056126"
+     },
+     {
+      "n": "1.060000"
+     },
+     {
+      "n": "42123.637855"
+     },
+     {
+      "n": "2527.42"
+     },
+     {
+      "n": "44651.057855"
+     },
+     {
+      "n": "34651.06"
+     },
+     {
+      "n": "43323.64"
+     },
+     {
+      "n": "8664.73"
+     },
+     {
+      "n": "8664.73"
+     },
+     {
+      "n": "34658.91"
+     }
+    ],
+    [
+     "L-001",
+     {
+      "n": "2"
+     },
+     {
+      "n": "5"
+     },
+     {
+      "n": "36730.119494"
+     },
+     {
+      "n": "1.060000"
+     },
+     {
+      "n": "34651.056126"
+     },
+     {
+      "n": "2079.06"
+     },
+     {
+      "n": "36730.116126"
+     },
+     {
+      "n": "26730.12"
+     },
+     {
+      "n": "43323.64"
+     },
+     {
+      "n": "8664.73"
+     },
+     {
+      "n": "17329.46"
+     },
+     {
+      "n": "25994.18"
+     }
+    ],
+    [
+     "L-001",
+     {
+      "n": "3"
+     },
+     {
+      "n": "5"
+     },
+     {
+      "n": "28333.926664"
+     },
+     {
+      "n": "1.060000"
+     },
+     {
+      "n": "26730.119494"
+     },
+     {
+      "n": "1603.81"
+     },
+     {
+      "n": "28333.929494"
+     },
+     {
+      "n": "18333.93"
+     },
+     {
+      "n": "43323.64"
+     },
+     {
+      "n": "8664.73"
+     },
+     {
+      "n": "25994.19"
+     },
+     {
+      "n": "17329.45"
+     }
+    ],
+    [
+     "L-001",
+     {
+      "n": "4"
+     },
+     {
+      "n": "5"
+     },
+     {
+      "n": "19433.962264"
+     },
+     {
+      "n": "1.060000"
+     },
+     {
+      "n": "18333.926664"
+     },
+     {
+      "n": "1100.04"
+     },
+     {
+      "n": "19433.966664"
+     },
+     {
+      "n": "9433.97"
+     },
+     {
+      "n": "43323.64"
+     },
+     {
+      "n": "8664.73"
+     },
+     {
+      "n": "34658.92"
+     },
+     {
+      "n": "8664.72"
+     }
+    ],
+    [
+     "L-001",
+     {
+      "n": "5"
+     },
+     {
+      "n": "5"
+     },
+     {
+      "n": "10000.000000"
+     },
+     {
+      "n": "1.060000"
+     },
+     {
+      "n": "9433.962264"
+     },
+     {
+      "n": "566.04"
+     },
+     {
+      "n": "10000.002264"
+     },
+     {
+      "n": "0.00"
+     },
+     {
+      "n": "43323.64"
+     },
+     {
+      "n": "8664.73"
+     },
+     {
+      "n": "43323.65"
+     },
+     {
+      "n": "-0.01"
+     }
+    ],
+    [],
+    [
+     "CÓMO SE PREPARA Y CALCULA"
+    ],
+    [
+     "El cuadro expande cada contrato en sus períodos: una fila por período y una columna por concepto, en el orden en que la serie los calcula. Los contratos se separan con una fila en blanco y el identificador se repite en cada fila. Los agregados por contrato (primer período, último y suma) se leen en la cédula de cálculos; aquí no se totaliza el detalle."
+    ]
+   ]
+  ]
+ }
+}

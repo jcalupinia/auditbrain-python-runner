@@ -14,6 +14,7 @@ import importlib
 _MODULOS = [
     "perdidas_incurridas_s11",
     "pce_simplificada_niif9",
+    "pce_cohortes_niif9",
     "efectivo_equivalentes",
     "cxc_cartera",
     "inversiones_instrumentos",
@@ -32,6 +33,7 @@ _MODULOS = [
     "provisiones_contingencias",
     "impuesto_corriente_diferido",
     "patrimonio",
+    "planificacion_nia",
 ]
 
 PROCESADORES = {

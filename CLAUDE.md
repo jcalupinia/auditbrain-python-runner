@@ -40,6 +40,16 @@ que lo que afirmas está correcto.** Esto significa:
 ## Idioma
 - **SIEMPRE responder en español.** Toda comunicación con el usuario (explicaciones,
   resúmenes, preguntas, mensajes de estado) debe ser en español. Nunca en inglés.
+- **REGLA OBLIGATORIA (decisión del dueño, 2026-09-26: «escribe en español y ponlo como
+  regla»):** la regla no tiene excepciones. Se escribe en español también:
+  - los mensajes automáticos y breves: revisiones programadas del PR (check-ins),
+    avisos de CI, «sin cambios», confirmaciones de una sola línea;
+  - los informes de agentes o subagentes que se entregan al usuario y los encargos que
+    se les dan;
+  - las descripciones de PR, los comentarios en GitHub y los mensajes de commit.
+  Si un texto llega en inglés (herramienta, notificación, agente), se traduce antes de
+  mostrarlo. Solo quedan en su idioma original el código, los nombres técnicos y las
+  citas textuales.
 - El código, nombres de variables y comentarios técnicos pueden seguir las
   convenciones existentes del repositorio, pero la conversación con el usuario es
   siempre en español.
@@ -103,15 +113,13 @@ Se hace una vez al año, típicamente entre noviembre y febrero. Pasos:
    - F-104: "FORMULARIO IVA.xlsx" (Excel oficial, hoja "1 Disenio",
      cols 9/11/13 = Valor Bruto / Valor Neto / Impuesto Generado)
 
-2. **Ejecutar los extractores.** OJO: los scripts `extract_f101_oficial.py`,
-   `extract_f103_oficial.py`, `extract_f104_oficial.py` fueron one-shot y **no
-   están versionados** (ver "Deuda técnica → Action Item 5"). Si hace falta
-   re-extraer, **recrearlos** desde la guía oficial del SRI y dejarlos en
-   `scripts/extractors/` con docstring. Cada uno regenera su catálogo:
+2. **Ejecutar los extractores** (cuando se muevan a `scripts/extractors/`,
+   ejecutarlos desde ahí; mientras tanto viven en la raíz del repo como
+   `extract_f101_*.py`, `extract_f103_*.py`, `extract_f104_*.py`):
    ```bash
-   python scripts/extractors/extract_f101_oficial.py    # genera catalogo_f101.py
-   python scripts/extractors/extract_f103_oficial.py    # genera catalogo_f103.py
-   python scripts/extractors/extract_f104_oficial.py    # genera catalogo_f104.py
+   python extract_f101_oficial.py    # genera catalogo_f101.py
+   python extract_f103_oficial.py    # genera catalogo_f103.py
+   python extract_f104_oficial.py    # genera catalogo_f104.py
    ```
 
 3. **Aplicar correcciones manuales conocidas** (parche `CORRECCIONES`
@@ -146,40 +154,65 @@ Se hace una vez al año, típicamente entre noviembre y febrero. Pasos:
    (sección "Historial de cambios SRI").
 
 ### Deuda técnica conocida (a ejecutar cuando haya tiempo)
-- **Action Item 5 (CERRADO/obsoleto 2026-09-24)**: los extractores
-  `extract_f101_oficial.py`, `extract_f103_oficial.py`, `extract_f104_oficial.py`
-  eran herramientas **one-shot que nunca se versionaron** (no están en git ni en
-  la raíz del repo). Ya cumplieron su función: generaron los catálogos canónicos
-  `backend/app/ict/catalogo_f10{1,3,4}.py`, que SÍ están versionados y son la
-  fuente de verdad. No hay nada que mover. Si en la actualización anual (ver
-  arriba) hace falta re-extraer, hay que **recrear** el extractor desde la guía
-  oficial del SRI y dejarlo en `scripts/extractors/` con docstring; el paso 2 de
-  ese procedimiento lo aclara.
-- **Tests legacy (estado 2026-09-24, re-verificado con la suite completa:
-  `2 failed, 2187 passed, 38 skipped`).** La lista de 6 fallos del 2026-08-05
-  quedó **desactualizada**: los 5 de aislamiento
-  (`test_chat::test_conversation_with_cross_org_project_rejected`,
-  `test_context::{test_operator_can_create_clients,
-  test_admin_creates_client_and_project_and_user_is_scoped,
-  test_operator_can_set_same_org_but_not_cross_org_project_active,
-  test_cross_org_isolation}`) y `test_sandbox::test_make_rlimit_preexec_optin`
-  **ya PASAN** (se resolvieron en el interín; el `conftest` fuerza esquema por
-  sesión y las fixtures usan slugs únicos).
-  Los 2 fallos reales que quedaban eran **drift del rediseño del libro**, ambos
-  pre-existentes y arreglados el 2026-09-24 (solo se actualizaron aserciones de
-  test; sin tocar código de runtime):
-  - `test_aud_ciclo_procesador_pi::test_perdidas_incurridas_de_punta_a_punta`:
-    el papel ejecutivo antepone la hoja `00_Inicio` a `00_Caratula` y anexa una
-    sección "Notas de fórmulas" tras la fila `TOTAL`; se actualizó la aserción de
-    orden de hojas y la de la fila TOTAL (se busca donde esté, no en `max_row`).
-  - `test_aud_ejercicio_modelo::test_endpoint_ejercicio_modelo_no_escribe`: la
-    ficha del setup era inválida (`client="C"`, `firm="f"`) y el `origen`
-    `proc:perdidas_incurridas_s11` no resuelve (PI no tiene RUBRO: se instala en
-    ficha); se corrigió a una ficha válida, `proc:cxc_cartera` y el status 201.
-- **API keys pendientes de rotar**: revocar Render API key
-  `rnd_CXjUFxFmYQNZ2l2lAy8Ho2ebthhw` y configurar Resend email API key.
+- **Action Item 5**: Mover `extract_f101_oficial.py`, `extract_f103_oficial.py`,
+  `extract_f104_oficial.py` a `scripts/extractors/` con docstring explicando cuándo correrlos. **Verificado el
+  2026-09-27: esos archivos NO están en el repositorio** (viven en el equipo del dueño). Cuando se suban, van
+  directamente a `scripts/extractors/`, no a la raíz.
+- **Tests legacy: RESUELTOS (verificado el 2026-09-27).** Los 6 que figuraban como fallos pre-existentes
+  (`test_chat.py::test_conversation_with_cross_org_project_rejected`, los 4 de `test_context.py` y
+  `test_sandbox.py::test_make_rlimit_preexec_optin`) pasan solos y en la suite completa: `python -m pytest tests/`
+  → 2400 pasan, 38 omitidas, 0 fallos (local y en GitHub). El aislamiento lo resolvió la base de pruebas propia
+  (sección «La suite NUNCA corre contra la base de desarrollo») y el de sandbox era propio de Windows (tiene su
+  `skipif`). La suite completa ya no necesita `--deselect`.
+- **API keys pendientes de rotar**: revocar en el panel de Render la API key que
+  estuvo escrita en este archivo (retirada del texto el 2026-09-24; sigue en el
+  historial de git, por eso hay que revocarla) y configurar Resend email API key.
+  Nunca escribir claves ni tokens en archivos del repo: van en variables de
+  entorno de Render.
 - **QA pendiente**: re-habilitar checks estrictos de device/session una vez
   terminada la fase de QA con clientes piloto.
+
+## La suite NUNCA corre contra la base de desarrollo
+
+**REGLA OBLIGATORIA (2026-08-06):** `tests/conftest.py` fija `DATABASE_URL` a
+`auditbrain_tests.db` (borrada al arrancar la sesión) **ANTES** de importar la
+app. Motivo: `session.py` resuelve `DATABASE_URL` en tiempo de import con
+default `sqlite:///./auditbrain.db`, que es la misma base del `uvicorn` local.
+Sin el override, `pytest` ensucia la base de trabajo del programador y la
+suite deja de ser reproducible a partir de la segunda corrida.
+
+- El override va en `os.environ`, no sólo en el módulo ya importado, para que
+  cualquier módulo que relea la variable vea la misma base.
+- `TEST_DATABASE_URL` permite apuntar la suite a otro motor (p. ej. un
+  Postgres de pruebas) sin tocar código.
+- Tests que mantienen viva la regla: `tests/test_suite_hermetica.py` (2).
+
+## Fórmulas referenciales del libro DM (Obligaciones Fiscales)
+
+**REGLA OBLIGATORIA (2026-08-06, PR #108):** toda dirección que una hoja del
+libro DM publique para que OTRA hoja la referencie por fórmula debe ir
+**calificada con el nombre de hoja entre comillas simples**
+(`'Mayores homologados'!D30`, `'DATOS F-104'!C18`).
+
+`cedulas/bloques.py::fila_referencias` escribe literalmente `f"={addr}"`, así
+que una dirección desnuda la resuelve Excel contra la PROPIA hoja de la
+cédula. Ese fue el bug que produjo 1.420 fórmulas rotas y 6 referencias
+circulares reales en DM5 y DM7: el saldo de libros no llegaba, se perdía la
+trazabilidad a DATOS F-104 / F-103, y Excel abría el archivo con aviso de
+referencia circular.
+
+**Ojo con el ICT:** `ict/fillers/source_data_sheets.py` (`build_f103_sheet`,
+`build_f104_sheet`) devuelve direcciones SIN prefijo **a propósito** — el ICT
+lo añade del lado consumidor en `ict/fillers/referential_helpers.py`.
+Calificar ahí produciría doble prefijo y rompería A1..A9. El lado OF califica
+en `libro/fuentes.py::construir_hojas_de_casilleros`.
+
+**Test que mantiene viva la regla:**
+`tests/test_of_libro_direcciones_calificadas.py`. Discriminador: una fórmula
+es "publicación de direcciones" si está compuesta exclusivamente por
+referencias unidas por `+`; en ellas cada token debe llevar `!`. Las
+legítimamente intra-hoja son `=SUM(...)` y `=ROUND(...)`, más la aritmética de
+la matriz de DM6 (`=B13*G13`, arrastres `=L13`/`=W13` del mes anterior).
 
 ## Separación SRI vs Papel de trabajo del auditor
 
@@ -325,8 +358,48 @@ Anthropic por defecto. Actual: `claude-sonnet-4-5-20250929`.
 
 | Variable | Requerida | Default | Notas |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | Sí (para IA real) | — | `sk-ant-api03-...` del Anthropic Console. Sin esto → fallback graceful en todos los anexos. |
+| `ANTHROPIC_API_KEY` | Sí (para IA real del ICT) | — | `sk-ant-api03-...` del Anthropic Console. Sin esto → fallback graceful en todos los anexos del ICT. |
 | `ICT_LLM_MODEL` | No (tiene default) | `claude-sonnet-4-5-20250929` | Sobreescribir solo cuando Anthropic publique un modelo nuevo verificado. |
+| `NIIF_EXTRACCION_ENABLED` | No (tiene default) | `true` | `false` apaga la extracción por IA de la planificación: el botón «Extraer con IA» avisa y el auditor sube la tabla en Excel/CSV. |
+
+### Extracción por IA de la carta de control interno y el informe (planificación)
+
+`backend/app/aud/niif/ciclo/extraccion_ia.py` lee el PDF/Word firmado (RQ-004 carta,
+RQ-005 informe del año anterior) y le pide al modelo de IA que devuelva las mismas
+filas que la transcripción en Excel, como **JSON estricto** (esquema derivado de los
+`CAMPOS` del procesador).
+
+**Proveedor de IA = el servidor LOCAL primero.** No llama a Anthropic directamente:
+usa el cliente compartido `backend/app/chat/providers.py` (`chat_complete`), cuyo
+orden de preferencia es `local > gemini > groq > openrouter > anthropic > openai`
+(configurable con `AUDITBRAIN_LLM_PROVIDER`). Así la extracción corre en el gateway
+local (`LOCAL_LLM_BASE_URL`, privacidad + costo cero) y cae a la nube solo como
+respaldo, igual que el resto de la plataforma. (El ICT sí sigue usando Anthropic
+directo con `ANTHROPIC_API_KEY`; son dos caminos distintos.)
+
+Aplica a **tres** documentos narrativos: la **carta** (RQ-004), el **informe** (RQ-005)
+y las **notas** del año anterior (RQ-006) — la tupla `EXTRACCION_DATASETS`. Los balances
+siguen siendo `xlsx` puro.
+
+**La IA solo transcribe lo explícito** (sin dato → celda vacía, regla M22). Acciones del
+ciclo: `extraer_ia` (extrae) y `guardar_extraccion` (confirma lo editado); las filas
+quedan en `reg["extraccion"][fileId]` y `map_validate` las suma al dataset.
+
+**Auto-extracción al Procesar (decisión del dueño):** al Procesar (`map_validate`),
+`servicio._auto_extraer_ia` lee por IA cualquier PDF/Word de un requerimiento extraíble
+que **aún no tenga extracción** y lo usa; queda marcado `auto=True, revisado=False` y
+`reg["validation"]["warnings"]` lleva el aviso «extraídas por IA … revíselas». Si el
+auditor ya extrajo/confirmó con el botón, se respeta esa versión. Es automático (la IA
+llena la matriz sola al Procesar), con aviso de revisión posterior; el botón «Extraer con
+IA» sigue disponible para revisar antes. El botón/tabla aparece en la vista de proceso y
+en el flujo del piloto (`ConsolaChat`, sección «Documentos para extracción por IA»).
+
+Sin ningún proveedor LLM configurado (ni el local ni uno de nube) o con
+`NIIF_EXTRACCION_ENABLED=false` cae al respaldo Excel/CSV con un mensaje claro (nunca
+crashea; la auto-extracción solo avisa y sigue, porque estos requerimientos son
+opcionales). Tests: `tests/test_aud_extraccion_ia.py` y
+`tests/test_aud_planificacion_extraccion.py` (HTTP: extracción manual y auto-extracción
+al Procesar, con una función de chat simulada).
 
 ## A1 sin "saldos de línea" — TODOS los cas del balance del catálogo OFICIAL
 
@@ -484,4 +557,296 @@ fórmula con el valor que calculó Python (diferencia 0). Referencia:
 `scripts/verificar_formulas_pi.py` (pérdidas incurridas). Implementación de referencia:
 `backend/app/aud/niif/procesadores/libro.py` (celdas `{"f": fórmula, "v": valor}`).
 
-Pendiente: las pruebas declarativas (exportador del sitio) aún no traen Word ni PowerPoint.
+**Sin cifras calculadas pegadas (decisión del dueño, 2026-09-24):** ninguna cifra que resulte
+de un cálculo puede ir como valor fijo en el Excel. Los datos que entrega el cliente y los
+parámetros del auditor sí son valores (entradas); todo lo demás es fórmula:
+- Indicadores de la portada `00_Inicio` («consola»): los mismos 5 del panel del HTML (resultado
+  principal, población, recalculado, registrado, problemas), cada uno fórmula a su cédula
+  (`libro._kpis_panel`: fila del Resumen, `SUMIFS` sobre la columna del `PANEL` o `COUNTA` de
+  Problemas). La tarjeta sin celda de origen no se muestra. Prueba: `test_portada_tarjetas_son_formulas`.
+- **La portada del Excel ES el panel del HTML** (decisión del dueño, 2026-09-25:
+  «los mismos gráficos del HTML, no otros; mismos colores de fondo y botones»):
+  `procesadores/panel_excel.py` usa los colores de `html_ejecutivo.TEMAS["ejecutivo"]`
+  (fondo #071B2F, tarjetas #0A2342, botones #0E2C50), las 5 tarjetas con sus colores y los 4
+  gráficos del HTML como gráficos nativos: dona de composición, registrado vs recalculado,
+  distribución y problemas por severidad (barras + línea dorada). Sus datos son fórmulas
+  (SUMIFS/COUNTIFS) con la misma agrupación que el HTML (`graficos.serie_spec`,
+  `graficos.severidad`). **Nunca** volcar todas las filas del Resumen en un gráfico: mezcla
+  escalas y se ve como un código de barras. Si cambia el panel del HTML, cambia el Excel.
+- Importe de cada problema: fórmula a la celda de la cédula donde se origina. Cada procesador
+  declara `REF_PROBLEMAS = {código: (hoja, columna) | (hoja, columna, "total") | función}`
+  (`procesadores/problemas.py`). Solo se enlaza si la celda tiene ese mismo importe; si no, queda
+  como valor y lo reporta `python scripts/verificar_problemas_enlazados.py` (debe dar «PENDIENTES: 0»).
+- Un código de problema nuevo exige su entrada en `REF_PROBLEMAS`; lo vigila
+  `tests/test_aud_sin_datos_fijos.py`.
+- **Datos del cliente dentro del libro (todas las herramientas desde 2026-09-25).** Cada documento que
+  entrega el cliente va en su hoja `D1_…`, `D2_…` con la columna «Origen del dato» (archivo · hoja · fila)
+  y la guía «¿De dónde saco este dato?» (también visible en el HTML y el Word).
+  - Piloto hecho a mano: pérdidas incurridas (`D1_…`–`D5_…`; sus cédulas calculan desde ahí con fórmulas:
+    evidencia histórica, reversión, bajas, provisión inicial, mora, tasa ponderada; claves de cruce `F…`,
+    `A…`, `C…` en columnas agrupadas y ocultas).
+  - Las otras 19: `procesadores/datos_cliente.py` (`con_datos`, llamado al procesar la prueba y en el
+    ejercicio modelo) arma una hoja por requerimiento entregado y cambia cada dato del cliente que una
+    cédula traía pegado (importes, fechas y textos) por una fórmula a su celda. Por cada columna elige UNA
+    columna de datos con encabezado parecido (misma raíz o sigla: «Amort. acum.» = «Amortización acumulada»,
+    «MOD» = «Mano de obra directa») y el mismo valor en la fila de la misma partida; si alguna partida la
+    contradice, la columna es un cálculo y queda como estaba. Si el cliente dejó el dato en blanco, la fórmula
+    es `IF(dato="",otro dato de la fila|valor por defecto,dato)`; un número entregado como texto (año) va con
+    `VALUE(...)`. Un enlace nunca cambia una cifra. Lo que no es dato del cliente se escribe como fórmula en el
+    procesador (p. ej. «Período» y «Vencimiento» de las tablas de amortización: `COUNTIF` y `EDATE`).
+    **Ninguna cifra ni fecha queda pegada en las cédulas** (decisión del dueño, 2026-09-25, «hazlo de todo»):
+    solo son valores `02_Parametros` y la carátula/documentación `00_…`; lo vigila
+    `test_ninguna_cifra_ni_fecha_queda_pegada`. Verificación: `python scripts/verificar_datos_cliente.py`
+    (LibreOffice, «DIFERENCIAS: 0»); prueba `tests/test_aud_datos_cliente.py`.
+
+**Planificación de la auditoría (NIA 300, 315, 320, 330, 510; 2026-09-26):** herramienta del catálogo en la tarjeta
+«Planificación» (`procesadores/planificacion_nia.py` v2, `RUBRO = "PLANIFICACION"`), con el mismo papel (Excel con
+fórmulas, HTML, Word, PowerPoint, PDF) y el mismo ciclo que las pruebas NIIF. **Los documentos de entrada son los del
+cronograma del artefacto de análisis** (decisión del dueño): balance de comprobación del cierre anterior y del corte
+que se audita (código, nombre y saldo de TODAS las cuentas y niveles), estado de resultados del año anterior al mismo
+corte (revisión preliminar; sin él se prorratea ÷ 12 × meses), carta de control interno (hallazgos con probabilidad,
+impacto y control de 1 a 5), informe de auditoría y notas a los estados financieros del año anterior, RUC. Replica el
+artefacto: mapa de cuentas por prefijo del código (el más largo gana, hoja `03_Mapa`), nivel y cuentas de detalle por
+la jerarquía de los códigos, signo automático por sección, análisis horizontal de todas las cuentas, estados
+resumidos, **sumarias por rubro** (`08S_Sumarias`: un bloque por cuenta de nivel 3 con sus subcuentas en jerarquía,
+saldo anterior y al corte, ajustes del auditor que suben por fórmula de las cuentas de detalle, saldo ajustado,
+variación, nota del año anterior, marca Nueva/Baja/Supera el umbral, total de las cuentas de detalle y cuadre = 0;
+estilos por fila `estilos` de `base.hoja()`), **estados detallados** (`08A_ESF_Detalle`, `08B_ERI_Detalle`: todas las
+cuentas por nivel, fecha de cada período, filas agrupadas por nivel en Excel con `estilos[i]["grupo"]` y cuadre contra la
+hoja 07 y del balance), índices con semáforo (días sobre los días del período; con patrimonio ≤ 0 los índices sobre el
+patrimonio salen «Rojo · No significativo»), lectura de cada índice **con su cifra** (FIXED, que usa los separadores del
+equipo: el verificador compara las cifras en texto intercambiándolos), tendencia Mejora/Empeora y **días ajustados al
+período** en la preliminar (hoja 10, columnas I y J; la hoja 13 compara esas cifras), materialidad (desempeño 50 % y
+trivial 5 % por defecto; en la preliminar la base es el año anterior; rango de práctica habitual con aviso «Fuera del
+rango» y justificación automática con cifras), matriz de la carta de CI (inherente = P × I; residual =
+inherente × (6 − C) ÷ 5; **riesgo significativo** NIA 315/330 cuando el INHERENTE iguala o supera `umbralSignificativo`
+(20 por defecto): nivel al menos Alto y «Significativo» en el programa), posibles riesgos (NIA 240, NIA 570, días de cartera e inventario, variaciones, informe
+anterior, entendimiento de la entidad), **perfil del encargo NIA 315** (`14_Perfil`: identificación mínima con
+«[PENDIENTE]» cuando no hay soporte —no se completa por inferencia—, entendimiento de la entidad y contexto, tipos
+Entendimiento y Contexto del RQ-005; cada hallazgo del entendimiento genera su riesgo y su procedimiento), notas contra el balance anterior (NIA 510) con **desglose por nota** (`15D_Notas_Detalle`: cuentas y subcuentas de cada
+nota, anterior y corte, total según el balance y conciliación con la nota auditada; al final, los rubros del balance
+sin nota) y **composición auditada** (`15C_Composicion`, dato opcional RQ-009 `notas_detalle`: líneas de Saldo,
+Movimiento y Total de cada nota, con su cuadre contra el saldo auditado), anomalías, control de calidad, cuentas a revisar, programa
+(NIA 330: toda cuenta a revisar tiene su procedimiento, con aseveraciones, evidencia, responsable y los procedimientos
+de todo el encargo), narrativa (alertas por nombre, variación % del activo y del resultado, lectura de variaciones con
+montos, origen y destino del efectivo) y estrategia (NIA 300). Reglas del prompt FIN-AP aplicadas (2026-09-26, con los agentes del plugin NIIF: Automatización construye y el
+Revisor Técnico revisa): **R1** saldo propio de cada cuenta (si falta, suma de sus subcuentas) y totales con la
+cuenta más alta de cada sección/clasificación/rubro, con control «cuenta superior que no suma sus subcuentas» (no se
+fuerza nada); **R2** signo por la convención del balance entero (con signo o por naturaleza), para que un patrimonio
+en déficit siga negativo; **R4** días sobre 365 (en la preliminar los umbrales de días se evalúan × meses ÷ 12);
+**R5/R6** margen operativo sobre ventas, DuPont del ROI y del ROE que reconcilian, proveedores y cartera solo
+comerciales; base de materialidad ≤ 0 → sin materialidad (nada se marca material); lectura causa-efecto y puente de
+orígenes y aplicaciones que cuadra con la variación del efectivo (`22_Origenes`); audit trail NIA 230
+(`23_Audit_trail`). Niveles, severidades, semáforos y estados van **coloreados** (`colores` de `base.hoja()`: formato
+condicional en Excel, etiqueta en HTML, celda sombreada en Word y PowerPoint). **Los datos del cliente LANSEY del artefacto original NO van al repo**: el
+ejemplo es ficticio («Comercial Andina de Ejemplo S.A.»). Los porcentajes y umbrales son **política de la firma** y los
+párrafos citados sin cotejar llevan «†» y se listan en `00_Nota_metodologica` (M20, ver abajo). Su panel usa `PANEL["textos"]` (umbrales en lugar de «registrado vs
+recalculado»; ver `graficos.TEXTOS`) y `PANEL["tableros"]` con los gráficos del artefacto (índices por grupo:
+liquidez, actividad, endeudamiento, rentabilidad; analítico: estructura del balance y estado de resultados; anterior
+frente a actual) en HTML, Excel (nativos 3D, datos por fórmula), Word y PowerPoint, en su propia lámina, con diseño
+premium: relieve 3D, paleta ejecutiva sin celeste ni verde (un color propio por tablero, sin repetir colores en la
+misma lámina), variación ▲▼ coloreada según el sentido favorable del índice y semáforo; ver `docs/niif/CONTRATO_PROCESADOR.md`). Prueba: `tests/test_proc_planificacion_nia.py`; verificación LibreOffice de
+los 5 escenarios (final, preliminar con ERI, preliminar con prorrateo, pérdida PYMES, patrimonio en déficit): 0 diferencias.
+
+**Control de calidad NIA de la planificación (2026-09-26, defectos D1–D11 de la revisión de control de calidad):**
+- **Ciclo (todas las pruebas, NIA 230 y 220):** una versión **APROBADA no se reinicia ni se elimina** (`encerar`/`eliminar`
+  responden 400 `APROBADA_NO_SE_TOCA`; se corrige con una nueva versión) y la vista no ofrece esos botones. Aprobar lo que uno
+  mismo envió a revisión **se permite con advertencia** (decisión del dueño): el registro guarda `submittedBy` y
+  `segregation`, el comentario de la bitácora lleva `SIN_SEGREGACION` y la carátula muestra «Envió a revisión» y
+  «Segregación de funciones (NIA 220)» (`libro._segregacion`).
+- **D3:** el control de la carta solo rebaja el riesgo si se probará su eficacia (columna «¿Se probará el control?», campo
+  opcional `probar_control`); si no, el «Riesgo valorado» es el inherente.
+- **D4:** cada cuenta material (saldo o variación) tiene su propio procedimiento sustantivo en el programa, con la respuesta de
+  su sección (`RESPUESTA_SECCION`), aunque haya un riesgo de su área. **D5:** sin materialidad, «¿Aplica?» dice
+  `NO_APLICA_SIN_MAT`. **D6:** socio y gerente vacíos quedan `[PENDIENTE]` (programa y estrategia) y el control «Datos de
+  gobierno del encargo completos (NIA 300)» dice «Revisar». **D7:** un riesgo pendiente de calificación se trata como alto
+  (socio, visita preliminar). **D8:** un riesgo significativo exige pruebas de detalle (`EVIDENCIA_SIGNIFICATIVO`).
+- **D9:** en la preliminar con la base al «Corte actual», las bases de resultados (`BASES_FLUJO`) se anualizan × 12 ÷ meses y
+  la hoja 11 lo dice; el activo y el patrimonio no se anualizan.
+- **D10:** la fila «Opinión» del informe anterior con salvedades, desfavorable o abstención (`_opinion_modificada`) genera un
+  riesgo alto (NIA 705 y 710); se aceptan los tipos «Desfavorable» y «Abstención» (y los alias «Adversa», «Denegación»).
+- **D11:** en la narrativa, la variación de resultados acumulados (traspaso del resultado anterior) se suma al resultado del
+  período (`RESULTADO_NETO_TRASPASOS`) y en la hoja 22 su tipo es «Traspaso de resultados»; en la preliminar el importe de los
+  días es el ajustado al período. Pruebas: `tests/test_proc_planificacion_nia.py` (`test_defectos_d4_a_d8_del_programa`,
+  `test_defecto_d10_…`, `test_defecto_d11_…`) y `tests/test_aud_ciclo_revision.py`. Los faltantes A1–A19 se resolvieron en
+  el bloque siguiente (todo automático) y los pendientes M1–M21 en el bloque «Pendientes M1–M21».
+
+**Documentación del encargo en la planificación: TODA automática (2026-09-26, faltantes A1–A19; decisión del dueño:
+«todos los documentos tienen que ser automáticos»).** `procesadores/planificacion_encargo.py` (complemento de
+`planificacion_nia`, no es herramienta del catálogo). **No hay plantillas que llene el equipo** (se retiraron RQ-010 a
+RQ-013): la planificación pide solo los documentos del cliente (RQ-001 a RQ-009) y todo lo demás sale de ellos o de un
+**clic en la plataforma**. **La firma no audita grupos** («No tenemos grupos»): no hay hoja de grupo ni NIA 600.
+- **Registros con un clic** (tabla `aud_registros_encargo`, `ciclo/models.py::RegistroEncargo`; rutas
+  `/aud/ciclo/proyectos/{id}/registros`): independencia de cada integrante (rol, amenazas, salvaguardas, año desde),
+  asistencia a la discusión del equipo, aceptación del socio (solo quien confirmó su independencia como «Socio»), carta de
+  encargo firmada (fecha y limitaciones) y comunicación al gobierno (fecha y medio). Nada se borra: el registro nuevo anula
+  al anterior y la anulación queda en la historia (NIA 230). **Años con el cliente** = encargos del mismo cliente con
+  independencia confirmada o, si es mayor, los años desde el año declarado. Al ejecutar la planificación, `servicio.py`
+  inyecta `parametros["_encargo"]` (`registros_encargo`) porque el procesador declara `USA_REGISTROS_ENCARGO = True`; la
+  hoja `00_Registros` los congela en el papel y las hojas 24, 25, 26 y 32 los leen por fórmula. Socio y gerente vacíos en la
+  hoja 02 toman el integrante registrado con ese rol.
+- **Documentos que genera la plataforma** (`ciclo/documentos_encargo.py`, ruta `/aud/ciclo/proyectos/{id}/documentos/{tipo}`,
+  Word con los logos): carta de encargo (NIA 210, de la ficha y los registros), acta de la discusión del equipo (NIA 315 y
+  240: asistentes, riesgos de la hoja 13 e indicios de la hoja 26 de la última planificación ejecutada) y carta de
+  planificación (NIA 260: asuntos de la hoja 32, sin listar su propio envío). Son modelos para firmar: lo que no consta
+  queda «[PENDIENTE]» y las citas sin cotejar llevan «†». El frontend los ofrece en el panel «Registro del encargo»
+  (`RegistroEncargo.jsx`, lógica en `registroLogic.js`) entre la ficha y las pruebas.
+- **Derivado de los documentos:** evaluaciones de las hojas 24 (aceptación, condiciones previas, materialidad específica
+  si el balance tiene partes relacionadas, accionistas o remuneraciones), 26 (discusión y **fraude solo con indicios
+  automáticos**: presunción en ingresos, elusión de controles, patrimonio negativo, endeudamiento, variaciones y hallazgos
+  de la carta con «fraude»; las indagaciones quedan «No evaluado» por decisión de la firma) y 27 (los cinco componentes del
+  control interno y los controles generales de TI clasificados por palabras clave de cada hallazgo de la carta: columnas
+  «Componente del control interno» y «Control general de TI» de la hoja 12). Cada alerta es un riesgo de la hoja 13 y un
+  procedimiento del programa. **Diferencias (NIA 450, hoja 30):** diferencias de las notas contra el balance (fórmula a la
+  hoja 15) y salvedades con importe del informe anterior (fórmula a la hoja 14), acumuladas contra la materialidad.
+  **Estados del año anterior (A17):** el parámetro o, si está vacío, se deduce (encargo recurrente → auditados por
+  nosotros; inicial con informe → otro auditor; inicial sin informe → pendiente, no se supone).
+- **Regla de cero invención:** lo que falta queda «Pendiente» y lo cuentan los controles 15–22 de la hoja 16. Hojas:
+  `00_Registros`, `24_Aceptacion`, `25_Equipo`, `26_Discusion_Fraude`, `27_Control_Interno`, `28_Afirmaciones`,
+  `29_Muestreo` (unidad monetaria; confianza por el nivel más alto de la hoja 28), `30_Diferencias`, `32_Comunicacion`
+  (NIA 260 y asuntos clave candidatos NIA 701 en entidades de interés público) y `48_Problemas`. Programa: «Extensión
+  (NIA 330 y 530)», aseveraciones por área y confirmaciones/observación del inventario solo para cuentas de balance
+  materiales. **A4:** la definición declara `firmas` y el libro agrega `00_Firmas` desde la bitácora.
+- **Marco contable del cliente (NIIF completas o NIIF para las PYMES):** sale de la ficha del encargo (`_marco`,
+  `_edicion`). Las citas de riesgos, recomendaciones, lectura causa-efecto y evidencia están escritas en NIIF completas y
+  `segun_marco()` las pasa a la sección de PYMES (NIC 36 → Sección 27, NIIF 9 → Sección 11, NIC 2 → Secciones 13 y 27;
+  «pérdida crediticia esperada» → pérdida incurrida). La herramienta de deterioro de la cartera también depende del marco
+  (`DETERIORO_CARTERA`: pérdida crediticia esperada NIIF 9 o pérdidas incurridas Sección 11). La hoja 02 lleva «Edición del
+  marco» (PYMES 2015 o 2025; NIIF completas «Vigentes al corte»), que se ve en el perfil y en la estrategia; la carta de
+  encargo y la carta de planificación citan el marco con su edición. Prueba: `test_normas_segun_el_marco_del_cliente`.
+- Pruebas: `tests/test_proc_planificacion_nia.py` (`test_a…`, `test_sin_plantillas_manuales_ni_grupo`,
+  `test_registros_de_la_plataforma_en_00_registros_y_formulas`), `tests/test_aud_registros_encargo.py` (reglas,
+  anulación, años con el cliente, inyección y documentos) y `registroLogic.test.js`. Verificación LibreOffice de los 6
+  escenarios (incluido `eip`: socio con 7 años y revisor de calidad): 0 diferencias.
+
+**Pendientes M1–M21 de la planificación (2026-09-26, prioridad media de la revisión de control de calidad; todo
+automático):** `procesadores/planificacion_calidad.py` (complemento, no es herramienta del catálogo). Hojas nuevas:
+`34_Factores_Riesgo` (M5: complejidad, subjetividad, cambio, incertidumbre y sesgo por riesgo; «¿Bastan los
+procedimientos sustantivos?» = No en procesos automatizados → problema `CONTROLES_NECESARIOS` si el control no se marcó
+para probar), `35_Entendimiento` (M7: siete aspectos de la NIA 315 con el dato de los documentos y las indagaciones u
+observaciones registradas con un clic), `36_Stand_back` (M8: cuentas materiales sin riesgo y revelaciones significativas),
+`37_Analiticos` (M11: expectativa —costos con margen constante, ingresos y gastos con el saldo anterior—, diferencia y
+umbral = desempeño × `pctUmbralAnalitico`), `38_Estimaciones` (M12: por el nombre de la cuenta; incertidumbre «Alta»
+solo en las estimaciones subjetivas —actuarial, deterioro, VNR, impuesto diferido— que superan el desempeño; revisión
+retrospectiva), `39_Leyes` (M13: SRI, Superintendencia, IESS y Código del Trabajo de efecto directo; ambiental, UAFE y
+del sector de efecto indirecto según la actividad de la ficha), `40_Partes_Relacionadas` (M14: cuenta nueva o con
+variación material = fuera del curso normal → riesgo significativo), `41_Empresa_Funcionamiento` (M15: indicios financieros de
+la hoja 13 y no financieros de la carta, el informe y las notas; período de la evaluación = corte + 12 meses),
+`00_Version_anterior` y `42_Cambios` (M4: la plataforma entrega `parametros["_anterior"]` con la materialidad y la hoja
+13 de la versión madre), `43_Equipo_Horas` (M1 y M2: horas del programa por nivel y rol —política de la firma—,
+supervisión planificada y fecha de cierre del archivo = informe + `diasCierreArchivo`). Riesgos nuevos en la hoja 13
+(estimaciones, partes relacionadas, empresa en funcionamiento no financiera, uniformidad de políticas M19) con su «¿Se
+presenta?» por fórmula (`f_pres`). En hojas existentes: 11 (M9 desempeño sugerido: 75 / 60 / 50 % según encargo
+inicial, diferencias sobre el trivial y riesgos significativos; M21 aviso de signo contrario), 12 (M17 clasificación
+NIA 265 y seguimiento), 19 (horas y supervisión; filas de saldos de apertura M19, imprevisibilidad M6 que rota por
+año, cierre M10, otra información M18 y leyes), 21 (respuestas globales M6, cambios, horas, cierre), 27 (M16 SO-01
+organizaciones de servicio) y 32 (deficiencias significativas). Controles 23–35 en la hoja 16; la hoja de problemas es
+`48_Problemas`. **M20:** en las hojas entregables no aparece «VERIFICAR»: `_nota_metodologica` lo cambia por «†» y
+arma `00_Nota_metodologica` con cada cita y las hojas donde aparece, más el resultado de las citas que pidió cotejar
+la revisión (NIA 315 párr. 25 corregida a párr. 19 en el entendimiento). **Plataforma:** registros `indagacion`,
+`consulta` y `diferencia` (varios vigentes; las consultas se cierran con `/registros/{id}/resolver`); una consulta
+abierta **bloquea la aprobación** de la planificación (`CONSULTAS_BLOQUEAN`, M3); `new_version` exige `motivo` (≥ 10
+caracteres) que va a la bitácora y marca `posteriorInforme` si ya pasó la fecha del informe (M1). Escenario `eip`
+ampliado (partes relacionadas nuevas, nómina tercerizada con litigio, indagaciones, consulta abierta, versión
+anterior). Pruebas: `tests/test_proc_planificacion_nia.py` (`test_m…`) y `tests/test_aud_registros_encargo.py`.
+Verificación LibreOffice de los 6 escenarios: 0 diferencias.
+
+**Enfoque por ciclo, matriz de riesgos consolidada y conocimiento del negocio (2026-09-26; decisión del dueño del
+2026-09-27: «considera todo sustantivo para que no tengamos nada pendiente»; confiar en controles «baja un nivel la
+confianza» del muestreo):**
+`procesadores/planificacion_enfoque.py`. **Hoja `45_Enfoque_Controles`**: siete ciclos (ingresos y cuentas por cobrar,
+compras y cuentas por pagar, inventarios, nómina, tesorería y financiamiento, activos fijos, impuestos-provisiones-
+patrimonio), con sus cuentas (hoja 18) y hallazgos de la carta. **Todo ciclo es «Sustantivo» por política de la firma** y nada queda pendiente
+de confirmar. La columna «Análisis de la herramienta» es solo referencia para el socio: sin carta → sustantivo; los sustantivos no
+bastan (hoja 34) y hay deficiencias → «Revisar» (posible limitación al alcance); no bastan → confiar (obligatorio, NIA 330
+párr. 8 b)); deficiencias (hallazgo significativo o inherente ≥ umbral alto, entorno de control con alerta, o TI con
+alerta en un ciclo automatizado) → sustantivo; si no → se podría confiar. Si el socio decide confiar en un ciclo, lo registra con un clic
+(registro `enfoque`: solo quien confirmó su independencia como «Socio»; motivo ≥ 10 caracteres; el nuevo anula al
+anterior del mismo ciclo) y su decisión manda (`00_Registros`, columnas E y F). Sin decisión, el ciclo queda
+«Sustantivo por política de la firma» (control 34 «Conforme»; no hay problema de enfoque pendiente). Efectos de confiar: hoja 12 «¿Se probará el control?» = Sí si el ciclo
+confía (el riesgo valorado considera el control); hoja 29, la confianza del muestreo baja un nivel (alto → media,
+medio/bajo → baja); la estrategia deduce el «Enfoque general» («Sustantivo en todos los ciclos» o, si el socio decidió confiar en alguno,
+combinado: N ciclos con confianza y M sustantivos), salvo que la hoja 02 traiga otro. Los ciclos donde los sustantivos
+solos no bastan (NIA 330 párr. 8 b)) siguen señalados por el control 32 y el problema `CONTROLES_NECESARIOS`: es un
+requisito de la norma, no una confirmación pendiente. **Hoja `46_Matriz_Riesgos`**: una fila por hallazgo de la carta y por riesgo de la hoja 13, con
+ciclo, afirmaciones, riesgo inherente, significativo, enfoque, riesgo de control, riesgo de incorrección material
+(significativo; si no, el inherente, un nivel menos con control bajo) y el PT del programa (INDEX/MATCH). **Hoja
+`47_Conocimiento_Negocio`** (por fórmula a las hojas 14, 35, 09–11, 45 y 46) y el **memorando en Word**
+(`documentos_encargo.conocimiento_negocio`, documento `conocimiento_negocio`). Panel: sección «Enfoque por ciclo» en
+«Registro del encargo». Pruebas: `test_enfoque_por_ciclo_…`, `test_matriz_de_riesgos_consolidada_…` y
+`test_enfoque_del_ciclo_lo_confirma_el_socio`. Verificación LibreOffice de los 6 escenarios: 0 diferencias.
+
+**Prioridad baja de la revisión de control de calidad de la planificación (2026-09-27, todo automático):**
+- **NIA 610:** evaluación `AI-01` en la hoja 27 (informativa: «Documentado») según la carta de control interno; si la
+  menciona, el programa aplica el procedimiento «Auditoría interna» (objetividad, competencia y uso de su trabajo).
+- **NIA 500 y 620:** la hoja 38 trae «Experto» (actuario o perito valuador de la dirección, o «No se prevé») y «Evaluación del
+  experto» por fórmula (con incertidumbre «Alta», considerar además un experto del auditor).
+- **NIA 315 párr. 16:** la hoja 35 trae «¿Sigue vigente?»: lo que sale del informe o de las notas del año anterior se confirma
+  en la visita; con una indagación registrada sobre el tema queda confirmado.
+- **NIA 580:** hoja `44_Manifestaciones` (generales, las que exigen otras NIA y una específica por cada riesgo significativo de
+  las hojas 12 y 13, con «¿Aplica?» por fórmula); el procedimiento de manifestaciones del programa remite a ella.
+- **Anomalías:** la hoja 17 muestra las `MAX_ANOMALIAS` (20) más severas; si hay más, el problema `ANOMALIAS_CORTADAS` lo avisa.
+- **Un solo término (NIA 570): «empresa en funcionamiento»** en las hojas, textos y temas (hoja `41_Empresa_Funcionamiento`).
+  El tipo «Empresa en marcha» del informe anterior y el tema de las indagaciones ya registradas se siguen aceptando (alias). En
+  las páginas de políticas NIIF se mantiene el término de las NIIF («negocio en marcha»).
+- **Audit trail (NIA 230, hoja 23):** huella SHA-256 de los datos leídos de cada documento (`_huella`) y, al ejecutar en la
+  plataforma, nombre, SHA-256, quién y cuándo subió cada archivo del cliente vigente (`servicio.archivos_de_entrada` →
+  `parametros["_archivos"]`).
+- **Hojas de cierre de todas las herramientas:** `99_Conclusion` y `99_Control_Revision` (`libro.HOJA_CONCLUSION`,
+  `libro.HOJA_CONTROL`); la sección de la pestaña se decide por esos nombres exactos, así que una cédula `13_…` o `14_…` de un
+  procesador queda en «Cómo se calculó».
+- Pruebas: `test_prioridad_baja_…` (`tests/test_proc_planificacion_nia.py`) y
+  `test_archivos_de_entrada_con_su_huella_para_el_audit_trail`. Verificación LibreOffice de los 6 escenarios y de uno con
+  auditoría interna y archivos de la plataforma: 0 diferencias.
+
+**Diseño del libro (todas las herramientas, 2026-09-25):** portada con botones por sección
+(Resultado · Cómo se calculó · Datos del cliente · Documentación) y pestañas del color de su
+sección; en cada hoja la botonera Inicio/Anterior/Siguiente arriba a la izquierda; Calibri;
+gráficos con título sin superponer (`overlay=False`), rótulos como texto (`strRef`) y datos en la
+hoja oculta `00_Datos_graficos`; «Cómo se calcula» en lenguaje sencillo (columna, cómo se calcula,
+de dónde viene) y la fórmula de Excel con su ejemplo en la hoja `00_Anexo_tecnico`.
+
+**Word y PowerPoint = el HTML (decisión del dueño, 2026-09-25):** `procesadores/papel_office.py`.
+El PowerPoint es el HTML en pantalla (tema «Ejecutivo»: fondo #071B2F, portada con logos y chips,
+las 5 tarjetas y los 4 gráficos del panel, cédulas en tablas oscuras). El Word es el HTML impreso
+(tema «Claro», el mismo del PDF: un Word no imprime el color de página). Los gráficos son los
+MISMOS SVG del HTML dibujados como imagen con matplotlib (`procesadores/svg_png.py`) y las
+tarjetas salen de `html_ejecutivo.kpis_datos`: si cambia el HTML, cambian el Word y el PowerPoint.
+Sin gráficos nativos distintos en el PowerPoint. Prueba: `tests/test_aud_office_como_html.py`
+(incluye el orden del XML de Word, que si falla dispara «contenido ilegible»).
+
+**Agentes que construyen o revisan herramientas NIIF (2026-09-25):** el contrato vigente está en
+`docs/niif/CONTRATO_PROCESADOR.md` y el encargo en `docs/niif/ENCARGO_AGENTE_HERRAMIENTA.md`. Cubren `PANEL`,
+`REF_PROBLEMAS`, `explica`/`guia`/`ocultas` en `base.hoja()`, las hojas de datos del cliente y los verificadores.
+Si cambia una regla de esta sección, actualizar también:
+- esos dos documentos;
+- las skills `skills/niif-multiagente/` (orquestador, automatización, revisor);
+- el encargo «Generar código para Claude» (`frontend/src/aud/niif/fichaLogic.js::textoEncargo`, sección 7);
+- la línea «PAPELES DEL COMMAND CENTER» de `docs/gpt/instructions_niif_*.md`.
+
+**Logotipos (2026-09-25):** todo papel lleva el logo de AuditConsulting y el de AUDIT-IA
+(`procesadores/marca.py`, archivos en `backend/app/aud/niif/assets/`): banda navy de `00_Inicio`,
+encabezado del Word, portada y pie del PowerPoint, barra del HTML y membrete de impresión/PDF.
+En el HTML van incrustados en base64 (nunca una URL externa). Prueba: `tests/test_aud_marca_logos.py`.
+
+**Pruebas declarativas (catálogo y fichas sin procesador) = el mismo diseño (decisión del dueño,
+2026-09-25: «haz las pruebas declarativas con el diseño nuevo»).** El navegador solo aporta las
+cédulas con fórmulas del exportador del sitio (`workbookSheets`, vía `cargaPapel` en
+`frontend/src/aud/niif/papelDeclarativo.js`); el servidor arma Excel, HTML, Word, PowerPoint y PDF
+con `libro` a través de `procesadores/declarativo.py` (endpoints `POST /aud/ciclo/papel-declarativo`
+y, al aprobar, `POST /aud/ciclo/pruebas/{id}/papel-declarativo`, que guarda los cuatro con su huella).
+El adaptador no mueve ninguna celda (la fila k del sitio es la fila k del Excel), reemplaza la portada
+del sitio por `00_Inicio`, deriva el `PANEL` de la definición (población = columna de conciliación;
+registrado vs recalculado = saldo del mayor vs población; composición = resultado principal por
+partida), enlaza el importe de cada excepción a su celda, pasa a fórmula el conteo de registros y el
+«Cuadro de períodos» de una serie, y hace que las reglas con agregados (`clave_inicial/_final/_total`)
+lean el cuadro (el sitio las dejaba apuntando a la columna A: #¡VALOR!). Verificación:
+`python scripts/verificar_papel_declarativo.py` (LibreOffice, debe dar «DIFERENCIAS: 0»); pruebas
+`tests/test_aud_papel_declarativo.py` y `papelDeclarativo.test.js` (esta falla si los ejemplos de
+`tests/fixtures/papel_declarativo` se desactualizan: regenerarlos con
+`node frontend/scripts/fixture_papel_declarativo.mjs`). La copia `sitio/` no se edita.
+**Calculadora reutilizable (2026-09-25):** el HTML de una prueba declarativa trae la pestaña
+«Calculadora» con el MISMO motor portable del sitio (`sitio/tools/portable-engine.mjs`, leído por
+`declarativo.motor_portable()`; el `.dockerignore` lo deja entrar a la imagen) y la población de la
+versión: editar, agregar/quitar filas, recalcular, restablecer. Es una simulación: no cambia el papel,
+no se imprime ni va al PDF. Prueba en el navegador: `node scripts/probar_calculadora.mjs <papel.html> <total>`.

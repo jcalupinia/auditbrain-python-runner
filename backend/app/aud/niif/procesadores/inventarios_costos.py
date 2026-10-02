@@ -40,6 +40,8 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     validar_campos, validar_definicion_generica,
 )
 
+from backend.app.aud.niif.procesadores import problemas
+
 VERSION = "inventarios_costos 1.0"
 RUBRO = "INVENTARIOS"
 
@@ -107,8 +109,17 @@ CAMPOS = {
         campo("fecha_registro", "Fecha de registro contable", "date", alias=("fecha contable", "fecha asiento"), ejemplo="2025-12-30"),
         campo("importe", "Importe", "number", alias=("valor", "costo", "monto"), ejemplo=1500),
     ],
+    # Libro Mayor de las cuentas de inventario (puede traer un asiento por fila; el saldo
+    # contable por cuenta se deriva como Σ Debe − Σ Haber y alimenta la conciliación kardex–mayor).
+    "mayor": [
+        campo("cuenta", "Código de la cuenta contable", alias=("codigo", "cuenta", "cuenta contable", "cod", "codigo cuenta"), ejemplo="1.1.08.001.001"),
+        campo("nombre", "Nombre de la cuenta", requerido=False, alias=("detalle", "descripcion", "nombre cuenta", "concepto"), ejemplo="INVENTARIO PRODUCTOS"),
+        campo("debe", "Debe", "number", requerido=False, alias=("debito", "débito", "cargo", "cargos"), ejemplo=10363.22),
+        campo("haber", "Haber", "number", requerido=False, alias=("credito", "crédito", "abono", "abonos"), ejemplo=0),
+        campo("saldo", "Saldo", "number", requerido=False, alias=("saldo final", "saldo cuenta", "saldo contable"), ejemplo=10363.22),
+    ],
 }
-TIPOS = {"inventario": "inventario", "produccion": "produccion", "movimiento": "movimiento", "corte": "corte"}
+TIPOS = {"inventario": "inventario", "produccion": "produccion", "movimiento": "movimiento", "corte": "corte", "mayor": "mayor"}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "inventario"
 CONTROL = "valor_kardex"
@@ -126,13 +137,44 @@ ETIQUETAS_PARAM = {
 }
 TOTAL_EJEMPLO = "ajuste"
 
+# Tramos FIJOS de obsolescencia (parámetros del auditor): categorías estables e independientes de los
+# datos, con el criterio de días sin movimiento que replica _pct_obs. La cédula-resumen 16 emite SIEMPRE
+# estas cuatro filas (0 por SUMIFS si un tramo no tiene ítems) y el tablero premium cuelga de ellas.
+TRAMOS_OBS = [
+    {"n": "Sin obsolescencia", "crit": "sin"},   # días ≤ obsDias1 (0 % de provisión por antigüedad)
+    {"n": "Tramo 1", "crit": "t1"},              # obsDias1 < días ≤ obsDias2 (obsPct1)
+    {"n": "Tramo 2", "crit": "t2"},              # obsDias2 < días ≤ obsDias3 (obsPct2)
+    {"n": "Tramo 3", "crit": "t3"},              # días > obsDias3 (obsPct3)
+]
+
+# Dashboard (formato en graficos.py): la población es el inventario según el kardex del cliente; la
+# cifra que el auditor recalcula frente a la registrada es la provisión (rebaja a VNR / obsolescencia).
+PANEL = {
+    "poblacion":    {"rotulo": "Inventario según kardex", "hoja": "03_Inventario", "col": "Valor kardex"},
+    "recalculado":  {"rotulo": "Provisión estimada", "total": "provisionEstimada"},
+    "registrado":   {"rotulo": "Provisión registrada", "total": "provisionRegistrada"},
+    "composicion":  {"rotulo": "Provisión estimada por ítem", "hoja": "10_Obsolescencia", "etiqueta": "Descripción",
+                     "valor": "Provisión estimada (neta de la excepción NIC 2.32)"},
+    "distribucion": {"rotulo": "Inventario por bodega", "hoja": "03_Inventario", "etiqueta": "Bodega", "valor": "Valor kardex"},
+    # Tablero premium (columnas agrupadas por tramo de obsolescencia; ver graficos.tableros_spec).
+    # Categorías fijas: los tramos de la constante TRAMOS_OBS, que la cédula-resumen 16 siempre emite.
+    "tableros": [
+        {"rotulo": "Inventario y provisión por tramo de obsolescencia",
+         "sub": "USD por tramo de días sin movimiento · inventario al costo frente a la provisión estimada.",
+         "unidad": "USD", "hoja": "16_Resumen_obsol", "etiqueta": "Tramo de obsolescencia",
+         "seccion": "Inventario y provisión por tramo",
+         "filas": [{"fila": tr["n"], "mejor": "bajo"} for tr in TRAMOS_OBS],
+         "series": [["Inventario al costo", "Inventario al costo"], ["Provisión estimada", "Provisión estimada"]]},
+    ],
+}
+
 
 def kind(dataset: str) -> str:
     return TIPOS[dataset]
 
 
 def validar_filas(tipo: str, filas: list) -> dict:
-    return validar_campos(CAMPOS[tipo], filas, unico=None if tipo == "inventario" else "id")
+    return validar_campos(CAMPOS[tipo], filas, unico=None if tipo in ("inventario", "mayor") else "id")
 
 
 # --- cálculo -------------------------------------------------------------------
@@ -187,6 +229,20 @@ def _pct_obs(dv, p):
     if dv > p["obsDias1"]:
         return p["obsPct1"] / 100
     return 0
+
+
+def _tramo_obs(dv, p):
+    """Tramo fijo de obsolescencia del ítem por sus días sin movimiento (mismos umbrales que _pct_obs).
+    None si no hay fecha de movimiento: el ítem no se clasifica y queda fuera de la cédula-resumen 16."""
+    if dv is None:
+        return None
+    if dv > p["obsDias3"]:
+        return "t3"
+    if dv > p["obsDias2"]:
+        return "t2"
+    if dv > p["obsDias1"]:
+        return "t1"
+    return "sin"
 
 
 def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
@@ -284,6 +340,21 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                        "err": err, "mal": imp if err else 0,
                        "efecto": "" if not err else ("Registrado en el ejercicio sin haber ocurrido" if pd_ == "Posterior"
                                                      else "Ocurrido en el ejercicio y registrado después")})
+
+    # Libro Mayor (opcional): un asiento por fila. El saldo contable por cuenta se deriva como
+    # Σ Debe − Σ Haber (incluye el saldo inicial si viene como fila). Si se cargó el mayor y el
+    # auditor NO fijó el parámetro, el total del mayor alimenta la conciliación kardex–mayor.
+    mayor_cuentas = []
+    for f in datasets.get("mayor") or []:
+        cta = _txt(f.get("cuenta"))
+        d, h = _opt(f.get("debe")) or 0.0, _opt(f.get("haber")) or 0.0
+        if not cta and d == 0.0 and h == 0.0:
+            continue
+        mayor_cuentas.append({"cuenta": cta or "(sin cuenta)", "nombre": _txt(f.get("nombre")), "neto": d - h})
+    mayor_total = round(sum(c["neto"] for c in mayor_cuentas), 2) if mayor_cuentas else None
+    mayor_del_libro = bool(mayor_cuentas)
+    if mayor_del_libro and p["saldoMayor"] is None:
+        p["saldoMayor"] = mayor_total
 
     # Totales (mismo orden de suma que Excel).
     S = lambda xs: sum(x for x in xs if x is not None)
@@ -434,7 +505,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             "exceptions": pr, "schedule": [],
             "detalle": {"corte": corte_a.isoformat(), "pymes": pymes, "edicion": edicion_pymes(p), "parametros": p, "tot": t, "conc": conc,
                         "items": [{k: iso(v) for k, v in i.items()} for i in items], "prod": prod, "mov": mov,
-                        "cortes": [{k: iso(v) for k, v in c.items()} for c in cortes]}}
+                        "cortes": [{k: iso(v) for k, v in c.items()} for c in cortes],
+                        "mayorDelLibro": mayor_del_libro, "mayorTotal": mayor_total, "mayorCuentas": mayor_cuentas}}
 
 
 # --- cédulas con fórmulas ----------------------------------------------------------
@@ -445,6 +517,8 @@ CEDULAS = [
     ("07_Costo_produccion", "Costo de producción"), ("08_Costo_ventas", "Costo de ventas"), ("09_VNR", "Valor realizable neto"),
     ("10_Obsolescencia", "Obsolescencia y lenta rotación"), ("11_Excepcion_MP", "Materias primas: excepción de NIC 2.32"),
     ("12_Corte", "Prueba de corte"), ("13_Problemas", "Problemas encontrados"),
+    ("14_Conclusion", "Indicadores y conclusión"), ("15_Lectura", "Lectura de resultados"),
+    ("16_Resumen_obsol", "Inventario y provisión por tramo"),
 ]
 PARK = ["corte", "marco", "obsDias1", "obsPct1", "obsDias2", "obsPct2", "obsDias3", "obsPct3", "saldoMayor", "provisionRegistrada"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -465,9 +539,151 @@ def _tot(col: str, n: int, v):
     return fx(f"SUM({col}{FILA0}:{col}{FILA0 + max(n, 1) - 1})", v)
 
 
+def _sumifs_obs(col: str, crit: str, ni: int) -> str:
+    """SUMIFS de la columna `col` de 10_Obsolescencia (C = costo auditado, J = provisión estimada) sobre
+    el rango de «Días sin movimiento» (col E) filtrado por el tramo fijo, con los umbrales de 02_Parametros.
+    Copia el patrón de SUMIFS de la distribución del PANEL; las celdas vacías (sin fecha) no cumplen ningún
+    criterio numérico y quedan fuera, igual que en _tramo_obs (días None)."""
+    e, val = _rg(OBS, "E", ni), _rg(OBS, col, ni)
+    if crit == "sin":
+        return f'SUMIFS({val},{e},"<="&{_pa("obsDias1")})'
+    if crit == "t1":
+        return f'SUMIFS({val},{e},">"&{_pa("obsDias1")},{e},"<="&{_pa("obsDias2")})'
+    if crit == "t2":
+        return f'SUMIFS({val},{e},">"&{_pa("obsDias2")},{e},"<="&{_pa("obsDias3")})'
+    return f'SUMIFS({val},{e},">"&{_pa("obsDias3")})'
+
+
 def _si(celda: str) -> str:
     """Referencia a un dato opcional: vacío sigue vacío (una referencia simple daría 0)."""
     return f'IF({celda}="","",{celda})'
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) ----------------------------------------------
+# Los problemas por ítem suman un importe de los ítems que cumplen la condición. La condición se evalúa sobre las
+# celdas de las cédulas (03, 04, 05, 09, 10 y 11 tienen una fila por ítem, en el mismo orden) y el importe remite a
+# la suma de las celdas de esos ítems en la cédula donde se calcula.
+
+def _h(hojas, nombre):
+    return next(x for x in hojas if x["name"] == nombre)
+
+
+def _dato(hojas, i):
+    """Lector de la fila i de las cédulas por ítem: v(hoja, columna) → número o texto de la celda."""
+    def v(hoja_, columna):
+        h = _h(hojas, hoja_)
+        c = h["rows"][i][[k[0] for k in h["cols"]].index(columna)]
+        n = problemas._num(c)
+        return n if n is not None else problemas._texto(c)
+    return v
+
+
+def _n(x) -> float:
+    return x if isinstance(x, (int, float)) else 0.0
+
+
+def _vacio(x) -> bool:
+    return not isinstance(x, (int, float)) and x == ""
+
+
+def _suma_items(hoja_, columna, cond, termino=None):
+    """Suma de la columna (o del término armado con celdas de la fila) de los ítems que cumplen cond(v)."""
+    def f(hojas, e):
+        h = _h(hojas, hoja_)
+        idx = [i for i in range(len(h["rows"])) if cond(_dato(hojas, i))]
+        if not idx:
+            return None
+        if termino is None:
+            partes = [problemas.celda(hojas, hoja_, columna, i) for i in idx]
+            valor = sum(_n(_dato(hojas, i)(hoja_, columna)) for i in idx)
+        else:
+            pares = [termino(lambda col, i=i: problemas.celda(hojas, hoja_, col, i), _dato(hojas, i)) for i in idx]
+            partes, valor = [p[0] for p in pares], sum(p[1] for p in pares)
+        return (partes[0] if len(partes) == 1 else "+".join(f"({p})" if termino else p for p in partes)), valor
+    return f
+
+
+def _concepto(hoja_, concepto, menos=None):
+    """Fila con ese concepto (y, si se indica, menos la fila del concepto «menos») en una cédula Concepto / Importe."""
+    def f(hojas, e):
+        h = _h(hojas, hoja_)
+        fila = lambda c: next((k for k, r in enumerate(h["rows"]) if problemas._texto(r[0]) == c), None)
+        i = fila(concepto)
+        if i is None:
+            return None
+        ref, val = problemas.celda(hojas, hoja_, "Importe", i), problemas._num(h["rows"][i][1])
+        if menos is None:
+            return ref, val
+        j = fila(menos)
+        if j is None or val is None:
+            return None
+        return f"{ref}-{problemas.celda(hojas, hoja_, 'Importe', j)}", val - (problemas._num(h["rows"][j][1]) or 0)
+    return f
+
+
+def _apertura(hojas, e):
+    """Diferencia de apertura de la línea de 08_Costo_ventas que abre el mensaje («Línea: …»)."""
+    h, msg = _h(hojas, "08_Costo_ventas"), e.get("message") or ""
+    j = [c[0] for c in h["cols"]].index("Diferencia de apertura")
+    i = next((k for k, r in enumerate(h["rows"]) if problemas._texto(r[0]) and msg.startswith(problemas._texto(r[0]) + ":")), None)
+    return None if i is None else (problemas.celda(hojas, h["name"], "Diferencia de apertura", i), problemas._num(h["rows"][i][j]))
+
+
+def _exceso_vnr(v) -> float:
+    """Rebaja calculada (costo − VNR) × cantidad menos la rebaja limitada al costo, de un ítem de 09_VNR."""
+    return (max(0, _n(v("09_VNR", "Costo unitario auditado")) - _n(v("09_VNR", "VNR unitario"))) * _n(v("09_VNR", "Cantidad auditada"))
+            - _n(v("09_VNR", "Rebaja a VNR")))
+
+
+_EXCESO_VNR = lambda c, v: (f"MAX(0,{c('Costo unitario auditado')}-{c('VNR unitario')})*{c('Cantidad auditada')}-{c('Rebaja a VNR')}",
+                            _exceso_vnr(v))
+
+REF_PROBLEMAS = {
+    # Diferencias entre conteo y kardex valorizadas (TOTAL de 04_Conteo).
+    "DIFERENCIA_FISICA": ("04_Conteo", "Diferencia valorizada", "total"),
+    # Costo auditado de los ítems sin cantidad contada (03_Inventario).
+    "SIN_CONTEO": _suma_items("03_Inventario", "Costo auditado", lambda v: _vacio(v("03_Inventario", "Cantidad contada"))),
+    # Valor kardex de los ítems con cantidad o costo negativos (03_Inventario).
+    "KARDEX_NEGATIVO": _suma_items("03_Inventario", "Valor kardex",
+                                   lambda v: _n(v("03_Inventario", "Cantidad kardex")) < 0 or _n(v("03_Inventario", "Costo unitario")) < 0),
+    # Recalculado − kardex y efecto del costo unitario soportado (TOTALES de 05_Prueba_costo).
+    "DIF_EXTENSION": ("05_Prueba_costo", "Diferencia de extensión", "total"),
+    "DIF_COSTO_UNITARIO": ("05_Prueba_costo", "Efecto en el costo auditado", "total"),
+    # Kardex − mayor y manufactura registrada − producción recalculada (06_Conciliacion).
+    "KARDEX_MAYOR": _concepto("06_Conciliacion", "Diferencia kardex − mayor"),
+    "PRODUCCION_NO_CONCILIADA": _concepto("06_Conciliacion", "Producción no conciliada (registrado − recalculado)"),
+    # Inventario inicial − cierre auditado anterior de la línea (08_Costo_ventas).
+    "APERTURA": _apertura,
+    # CIF fijo no absorbido capitalizado por la entidad y CIF no absorbido a gasto (TOTALES de 07_Costo_produccion).
+    "CIF_NO_ABSORBIDO_CAPITALIZADO": ("07_Costo_produccion", "No absorbido capitalizado", "total"),
+    "CIF_NO_ABSORBIDO": ("07_Costo_produccion", "CIF fijo no absorbido (gasto)", "total"),
+    # Costo de ventas recalculado − contable (TOTAL de 08_Costo_ventas).
+    "COSTO_VENTAS": ("08_Costo_ventas", "Diferencia", "total"),
+    # Rebaja a VNR (TOTAL de 09_VNR).
+    "VNR_BAJO_COSTO": ("09_VNR", "Rebaja a VNR", "total"),
+    # Rebaja calculada − rebaja limitada al costo, en los ítems con VNR negativo (09_VNR).
+    "REBAJA_MAYOR_QUE_COSTO": _suma_items("09_VNR", None, lambda v: not _vacio(v("09_VNR", "VNR unitario")) and _exceso_vnr(v) > 0.005, _EXCESO_VNR),
+    # Provisión no reconocida por la excepción de NIC 2.32 (TOTAL de 11_Excepcion_MP).
+    "EXCEPCION_NIC232": ("11_Excepcion_MP", "Efecto: provisión no reconocida", "total"),
+    # Provisión antes de la excepción de las materias primas: todas (PYMES), sin demostración o con margen negativo (11).
+    "EXCEPCION_NIC232_NO_EN_PYMES": _suma_items("11_Excepcion_MP", "Provisión antes de la excepción",
+                                                lambda v: v("11_Excepcion_MP", "¿Materia prima?") == "Sí"),
+    "MP_SIN_DEMOSTRACION_PT": _suma_items("11_Excepcion_MP", "Provisión antes de la excepción",
+                                          lambda v: v("11_Excepcion_MP", "¿Materia prima?") == "Sí" and _vacio(v("11_Excepcion_MP", "Margen esperado"))),
+    "MP_MARGEN_NEGATIVO": _suma_items("11_Excepcion_MP", "Provisión antes de la excepción",
+                                      lambda v: v("11_Excepcion_MP", "¿Materia prima?") == "Sí" and _n(v("11_Excepcion_MP", "Margen esperado")) < 0),
+    # Provisión por tramos de antigüedad de los ítems sin precio de venta (10_Obsolescencia).
+    "VNR_ESTIMADO_ANTIGUEDAD": _suma_items("10_Obsolescencia", "Provisión por obsolescencia",
+                                           lambda v: _vacio(v("09_VNR", "Precio estimado de venta"))
+                                           and _n(v("10_Obsolescencia", "Provisión por obsolescencia")) != 0),
+    # Provisión estimada − provisión registrada (01_Resumen).
+    "LENTA_ROTACION_SIN_PROVISION": _concepto("01_Resumen", "Provisión estimada (rebaja a VNR; tramo solo sin precio; neta de la excepción NIC 2.32)",
+                                              "Provisión registrada"),
+    # Importe mal cortado (TOTAL de 12_Corte).
+    "CORTE": ("12_Corte", "Importe mal cortado", "total"),
+    # Inventario neto auditado − neto en libros (01_Resumen).
+    "AJUSTE": _concepto("01_Resumen", "Ajuste propuesto (neto)"),
+}
 
 
 def hojas(res: dict) -> list[dict]:
@@ -490,7 +706,9 @@ def hojas(res: dict) -> list[dict]:
         ["Tramo 1: % de provisión", p["obsPct1"], "Juicio del auditor con sustento"],
         ["Tramo 2: días sin movimiento (más de)", p["obsDias2"], "Ídem tramo 1"], ["Tramo 2: % de provisión", p["obsPct2"], "Ídem tramo 1"],
         ["Tramo 3: días sin movimiento (más de)", p["obsDias3"], "Ídem tramo 1"], ["Tramo 3: % de provisión", p["obsPct3"], "Ídem tramo 1"],
-        ["Saldo del inventario según el mayor", p["saldoMayor"], "Mayor contable (en blanco: se toma el kardex)"],
+        ["Saldo del inventario según el mayor", p["saldoMayor"],
+         (f"Derivado del Libro Mayor cargado (Σ Debe − Σ Haber de {len(d.get('mayorCuentas') or [])} cuenta(s); ver hoja de datos del Libro Mayor)"
+          if d.get("mayorDelLibro") else "Mayor contable (en blanco: se toma el kardex)")],
         ["Provisión registrada (VNR / obsolescencia)", p["provisionRegistrada"], "Mayor contable (en blanco: 0)"],
     ]
 
@@ -528,7 +746,9 @@ def hojas(res: dict) -> list[dict]:
                f'IF(E{r}>{_pa("obsDias1")},{_pa("obsPct1")}/100,0))))')
         obs.append([i["id"], i["desc"], fx(f"{INV}O{r}", i["costo"]), i["fum"], fx(f'IF(D{r}="","",{_pa("corte")}-D{r})', i["dias"]),
                     fx(pct, i["pct"]), fx(f'IF(F{r}="","",C{r}*F{r})', i["obs"]), fx(_si(f"{VNR}I{r}"), i["rebaja"]),
-                    fx(f'IF(H{r}<>"",H{r},G{r})', i["provBase"]), fx(f'IF({MP}H{r}="Sí",0,IF(I{r}="","",I{r}))', i["prov"])])
+                    fx(f'IF(H{r}<>"",H{r},G{r})', i["provBase"]), fx(f'IF({MP}H{r}="Sí",0,IF(I{r}="","",I{r}))', i["prov"]),
+                    fx(f'IF(J{r}="","",IF(J{r}>0.005,"Alerta","Conforme"))',
+                       "" if i["prov"] is None else ("Alerta" if i["prov"] > 0.005 else "Conforme"))])
 
     # 07 · Costo de producción.
     produccion = []
@@ -575,6 +795,23 @@ def hojas(res: dict) -> list[dict]:
         ["Costos de manufactura registrados (08)", fx(f"SUM({_rg(VEN, 'G', nm)})", c["manuf"])],
         ["Producción no conciliada (registrado − recalculado)", fx(f"{b(10)}-{b(9)}", c["prodDif"])],
     ]
+    # Estilos de cédula sumaria (una entrada por fila de 06_Conciliacion): los ajustes que suman al puente
+    # sangrados, los subtotales (diferencia kardex−mayor, costo auditado, producción no conciliada) con
+    # filete y las líneas de control («debe ser 0») en cursiva de cuadre.
+    estilos_conc = [
+        None,                                 # 0 · Valor según kardex
+        None,                                 # 1 · Saldo según el mayor
+        {"tipo": "total"},                    # 2 · Diferencia kardex − mayor
+        {"sangria": 1, "col": "Concepto"},   # 3 · (+) Diferencia de extensión
+        {"sangria": 1, "col": "Concepto"},   # 4 · (+) Diferencias físicas
+        {"sangria": 1, "col": "Concepto"},   # 5 · (+) Diferencias de costo unitario
+        {"tipo": "total"},                    # 6 · Inventario al costo auditado (puente)
+        None,                                 # 7 · Control: costo auditado según el detalle
+        {"tipo": "control"},                  # 8 · Diferencia de control (debe ser 0)
+        None,                                 # 9 · Costo de producción capitalizable recalculado
+        None,                                 # 10 · Costos de manufactura registrados
+        {"tipo": "total"},                    # 11 · Producción no conciliada
+    ]
 
     # 01 · Resumen.
     fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
@@ -591,10 +828,219 @@ def hojas(res: dict) -> list[dict]:
     }
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
+    # 14 · Indicadores y conclusión (con semáforo coloreable en «Estado»).
+    RES = ref("01_Resumen")
+    rc = lambda k: f"{RES}B{fr[k]}"
+    PROB = ref("13_Problemas")
+    nprob = len(res["exceptions"])
+    aj_c = rc("ajuste")
+    pct_v = None if t["libroNeto"] == 0 else abs(t["ajuste"]) / abs(t["libroNeto"])
+    r3f, r5f, r6f = FILA0 + 3, FILA0 + 5, FILA0 + 6
+    est = lambda cond, alto, ok="Conforme": (alto if cond else ok)
+    conclusion = [
+        [res["labels"]["costoAuditado"], fx(rc("costoAuditado"), t["costoAuditado"]), None, None, ""],
+        [res["labels"]["inventarioNeto"] + " (resultado principal)", fx(rc("inventarioNeto"), t["inventarioNeto"]), None, None,
+         fx(f'IF(ABS(B{r3f})>0.005,"Revisar","Conforme")', est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        [res["labels"]["libroNeto"], fx(rc("libroNeto"), t["libroNeto"]), None, None, ""],
+        [res["labels"]["ajuste"], fx(rc("ajuste"), t["ajuste"]), None, None,
+         fx(f'IF(ABS(B{r3f})>0.005,"Alerta","Conforme")', est(abs(t["ajuste"]) > 0.005, "Alerta"))],
+        ["% de ajuste sobre el inventario neto en libros", None,
+         fx(f'IF({rc("libroNeto")}=0,"",ABS({aj_c})/ABS({rc("libroNeto")}))', pct_v), None,
+         fx(f'IF(C{FILA0 + 4}="","",IF(ABS({aj_c})>0.005,"Revisar","Conforme"))',
+            "" if pct_v is None else est(abs(t["ajuste"]) > 0.005, "Revisar"))],
+        [res["labels"]["provisionEstimada"], fx(rc("provisionEstimada"), t["provisionEstimada"]), None, None,
+         fx(f'IF(B{r5f}>0.005,"Revisar","Conforme")', est(t["provisionEstimada"] > 0.005, "Revisar"))],
+        ["Problemas encontrados", None, None, fx(f"COUNTA({_rg(PROB, 'A', nprob)})", nprob),
+         fx(f'IF(D{r6f}>0,"Revisar","Conforme")', est(nprob > 0, "Revisar"))],
+    ]
+    ex_conclusion = {
+        "Importe": ("Cada indicador trae su cifra de la hoja 01 (Resumen y ajuste propuesto): el costo auditado, el inventario "
+                    "neto auditado, el inventario neto en libros, el ajuste propuesto y la provisión estimada."),
+        "Porcentaje": ("Divide el ajuste propuesto en valor absoluto entre el inventario neto en libros para medir su peso "
+                       "relativo; queda en blanco si el inventario neto en libros es cero."),
+        "Cantidad": ("Cuenta cuántos problemas se detectaron leyendo la columna de códigos de la hoja 13 (Problemas "
+                     "encontrados)."),
+        "Estado": ("Semáforo del indicador: «Alerta» cuando el ajuste propuesto deja de ser cero, «Revisar» cuando hay "
+                   "provisión estimada pendiente o problemas que atender y «Conforme» cuando el indicador no presenta "
+                   "desviaciones."),
+    }
+
+    # 15 · Lectura de resultados (causa-efecto con las cifras embebidas por FIXED).
+    _fix = lambda cell: f"FIXED({cell},2)"
+    aj_dir = "aumenta" if t["ajuste"] > 0.005 else ("disminuye" if t["ajuste"] < -0.005 else "no modifica")
+    aj_dir_f = f'IF({rc("ajuste")}>0.005,"aumenta",IF({rc("ajuste")}<-0.005,"disminuye","no modifica"))'
+    cita_vnr = "Sección 13 y 27" if pymes else "NIC 2.9 y 2.28"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"El inventario neto auditado asciende a US$ "&{_fix(rc("inventarioNeto"))}&", frente a US$ "&{_fix(rc("libroNeto"))}&" de inventario neto en libros (hoja 01)."',
+            f"El inventario neto auditado asciende a US$ {m(t['inventarioNeto'])}, frente a US$ {m(t['libroNeto'])} de inventario neto en libros (hoja 01).")],
+        ["Ajuste propuesto",
+         fx(f'"El ajuste propuesto es de US$ "&{_fix(rc("ajuste"))}&", que "&{aj_dir_f}&" el inventario neto presentado y exige su registro."',
+            f"El ajuste propuesto es de US$ {m(t['ajuste'])}, que {aj_dir} el inventario neto presentado y exige su registro.")],
+        ["Deterioro y obsolescencia",
+         fx(f'"Las rebajas por el menor valor de mercado suman US$ "&{_fix(rc("rebajaVnr"))}&" y la provisión por obsolescencia US$ "&{_fix(rc("provObsolescencia"))}&", que reducen el valor del inventario ({cita_vnr})."',
+            f"Las rebajas por el menor valor de mercado suman US$ {m(t['rebajaVnr'])} y la provisión por obsolescencia US$ {m(t['provObsolescencia'])}, que reducen el valor del inventario ({cita_vnr}).")],
+        ["Existencia y valuación",
+         fx(f'"Las diferencias físicas valorizadas suman US$ "&{_fix(rc("difFisicas"))}&" y las de costo unitario US$ "&{_fix(rc("difCosto"))}&", que ajustan la existencia y la valuación del inventario (NIA 501 y 500)."',
+            f"Las diferencias físicas valorizadas suman US$ {m(t['difFisicas'])} y las de costo unitario US$ {m(t['difCosto'])}, que ajustan la existencia y la valuación del inventario (NIA 501 y 500).")],
+        ["Cierre",
+         fx(f'"En conjunto, sobre un costo auditado de US$ "&{_fix(rc("costoAuditado"))}&", los hallazgos exigen registrar el ajuste y revelar la política de costeo y de deterioro del inventario."',
+            f"En conjunto, sobre un costo auditado de US$ {m(t['costoAuditado'])}, los hallazgos exigen registrar el ajuste y revelar la política de costeo y de deterioro del inventario.")],
+    ]
+    ex_lectura = {"Detalle": ("Redacta en lenguaje del auditor la lectura causa-efecto de los resultados e inserta cada cifra "
+                              "con FIXED desde la hoja 01 (Resumen y ajuste propuesto): el inventario neto auditado frente al de "
+                              "libros y el ajuste, las rebajas a valor de mercado y la obsolescencia, y las diferencias físicas "
+                              "y de costo unitario.")}
+
+    # --- «Cómo se calcula esta hoja»: explicación humana por columna calculada -------------
+    h09 = "la hoja 09 (Precio de venta menos costos)" if pymes else "la hoja 09 (Valor realizable neto)"
+    ex_resumen = {"Importe": "Trae cada concepto de su hoja de origen: el costo auditado de la hoja 03, la provisión estimada y la "
+                             "de obsolescencia de la hoja 10, el mayor y la provisión registrada de la hoja 02 (Parámetros), y las "
+                             "diferencias de las hojas 04, 05, 07, 08, 09, 11 y 12; los netos y el ajuste se calculan con esas filas."}
+    ex_inv = {
+        "Cantidad auditada": "Usa la cantidad contada por el auditor; si el ítem no se contó (celda vacía), toma la cantidad del kardex.",
+        "Costo unitario auditado": "Usa el costo unitario soportado por el auditor (factura o costeo); si no hay soporte, toma el "
+                                   "costo unitario registrado en el kardex.",
+        "Costo auditado": "Multiplica la cantidad auditada por el costo unitario auditado: es el valor del ítem que el auditor acepta.",
+        "Margen esperado del producto terminado": "Precio esperado menos costo esperado del producto terminado al que se incorpora la "
+                                                  "materia prima; queda en blanco si falta alguno de los dos datos.",
+    }
+    ex_conteo = {
+        "Cantidad kardex": "Trae la cantidad registrada en el kardex para este ítem desde la hoja 03 (Inventario valorado por ítem).",
+        "Cantidad contada": "Trae la cantidad contada en la toma física desde la hoja 03 (Inventario valorado por ítem); si el ítem "
+                            "no se contó, queda en blanco.",
+        "Diferencia (unidades)": "Cantidad contada menos cantidad del kardex: positivo es sobrante y negativo faltante. En blanco "
+                                 "si el ítem no se contó.",
+        "Costo unitario": "Trae el costo unitario registrado en el kardex desde la hoja 03 (Inventario valorado por ítem).",
+        "Diferencia valorizada": "Multiplica la diferencia en unidades por el costo unitario del kardex: es el efecto en dólares "
+                                 "del sobrante o faltante. En blanco si el ítem no se contó.",
+    }
+    ex_costo = {
+        "Cantidad kardex": "Trae la cantidad del kardex del ítem desde la hoja 03 (Inventario valorado por ítem).",
+        "Costo unitario": "Trae el costo unitario que registró el cliente en el kardex, desde la hoja 03 (Inventario valorado por ítem).",
+        "Valor recalculado": "Multiplica la cantidad del kardex por su costo unitario, para comprobar la extensión del valor.",
+        "Valor kardex": "Trae el valor total que el kardex del cliente muestra para el ítem, desde la hoja 03 (Inventario valorado por ítem).",
+        "Diferencia de extensión": "Valor recalculado menos valor del kardex: si no es cero, el kardex tiene un error de multiplicación.",
+        "Costo unitario soportado": "Trae el costo unitario que el auditor verificó con factura o costeo, desde la hoja 03; si no "
+                                    "hay soporte, queda en blanco.",
+        "Diferencia unitaria": "Costo unitario soportado menos costo unitario del kardex; en blanco si no hay costo soportado.",
+        "Efecto en el costo auditado": "Multiplica la diferencia unitaria por la cantidad auditada de la hoja 03: es cuánto cambia "
+                                       "el valor del ítem por el costo soportado. En blanco si no hay soporte.",
+    }
+    ex_conc = {"Importe": "Parte del valor del kardex (suma de la hoja 03) y del mayor (hoja 02; si está vacío, el kardex), suma las "
+                          "diferencias de extensión y de costo de la hoja 05 y las físicas de la hoja 04 para llegar al costo auditado, "
+                          "lo controla contra la hoja 03 y compara la producción de las hojas 07 y 08."}
+    ex_prod = {
+        "Tasa CIF fijo": "Divide el CIF fijo del período para la capacidad normal: es el CIF fijo que corresponde a cada unidad. En "
+                         "blanco si no hay capacidad normal.",
+        "CIF fijo absorbido": "Multiplica la tasa de CIF fijo por las unidades producidas, sin pasar del CIF fijo total: es la parte "
+                              "que puede ir al costo del inventario.",
+        "CIF fijo no absorbido (gasto)": "CIF fijo total menos el absorbido: es el costo de la capacidad ociosa, que va a gasto del "
+                                         "período y no al inventario.",
+        "Costo capitalizable": "Suma materia prima, mano de obra directa, CIF variable y CIF fijo absorbido, y resta el desperdicio "
+                               "anormal: es el costo que puede quedar en el inventario (en blanco si no hay tasa de CIF fijo).",
+        "Costo unitario": "Divide el costo capitalizable para las unidades producidas; en blanco si no hubo producción.",
+        "No absorbido capitalizado": "Compara el CIF fijo que la entidad capitalizó con el absorbido recalculado: el exceso (nunca "
+                                     "negativo) es CIF que debió ir a gasto. En blanco si falta el dato de la entidad.",
+    }
+    ex_ventas = {
+        "Diferencia de apertura": "Inventario inicial menos el cierre auditado del año anterior: debe ser cero. En blanco si no se "
+                                  "informó el cierre anterior.",
+        "Costo de producción terminada (COGM)": "WIP inicial más costos de manufactura menos WIP final: es el costo de lo que se "
+                                                "terminó de producir. En blanco si no hay costos de manufactura.",
+        "Costo de ventas recalculado": "Inventario inicial más compras netas más el costo de producción terminada (cero si no hay) "
+                                       "menos inventario final.",
+        "Diferencia": "Costo de ventas recalculado menos el costo de ventas contable del cliente para la misma línea.",
+    }
+    ex_vnr = {
+        "Cantidad auditada": "Trae la cantidad auditada del ítem (contada o, si no se contó, la del kardex) desde la hoja 03.",
+        "Costo unitario auditado": "Trae el costo unitario auditado (soportado o, sin soporte, el del kardex) desde la hoja 03.",
+        "Precio estimado de venta": "Trae el precio de venta unitario informado en la hoja 03 (Inventario valorado por ítem); si no "
+                                    "se informó, queda en blanco.",
+        "Costos de terminación": "Trae los costos unitarios que faltan para terminar el producto, desde la hoja 03 (Inventario "
+                                 "valorado por ítem).",
+        "Costos de venta": "Trae los costos unitarios necesarios para vender el producto, desde la hoja 03 (Inventario valorado "
+                           "por ítem).",
+        "VNR unitario": "Precio estimado de venta menos costos de terminación y de venta; en blanco si no hay precio de venta.",
+        "Rebaja a VNR": "Si el VNR unitario es menor que el costo unitario auditado, multiplica la diferencia por la cantidad "
+                        "auditada, sin pasar del costo total del ítem; si no, es cero. En blanco si no hay precio.",
+        "Medición": "Indica con qué valor queda el ítem: «VNR» si el VNR es menor que el costo, «Costo» si no lo es y «Sin "
+                    "precio» si no se informó precio de venta.",
+    }
+    ex_obs = {
+        "Costo auditado": "Trae el costo auditado del ítem (cantidad × costo unitario auditados) desde la hoja 03.",
+        "Días sin movimiento": "Resta la fecha del último movimiento de la fecha de corte de la hoja 02 (Parámetros); en blanco si "
+                               "no hay fecha de movimiento.",
+        "% de provisión": "Busca en la hoja 02 (Parámetros) el tramo de días sin movimiento que supera el ítem y toma su porcentaje "
+                          "(el tramo más alto que alcanza); si no pasa del primer tramo, es 0 %.",
+        "Provisión por obsolescencia": "Multiplica el costo auditado por el % de provisión del tramo; en blanco si no hay fecha de "
+                                       "movimiento.",
+        "Rebaja a VNR": f"Trae la rebaja a VNR del ítem desde {h09}; en blanco si el ítem no tiene precio de venta.",
+        "Provisión antes de la excepción (VNR; el tramo solo si no hay precio)":
+            "Si el ítem tiene precio de venta usa la rebaja a VNR; solo cuando no hay precio usa la provisión por obsolescencia "
+            "del tramo como estimación.",
+        "Provisión estimada (neta de la excepción NIC 2.32)":
+            "Toma la provisión antes de la excepción, salvo que la hoja 11 (Materias primas) diga que aplica la excepción de "
+            "NIC 2.32: en ese caso pone cero.",
+        "Semáforo": ("Estado del ítem: «Alerta» si la provisión estimada es mayor que cero (hay rebaja a VNR u obsolescencia que "
+                     "reconocer), «Conforme» si es cero. Queda en blanco si no se pudo estimar la provisión."),
+    }
+    ex_mp = {
+        "¿Materia prima?": "Responde «Sí» si en la hoja 03 (Inventario valorado por ítem) el ítem está marcado como materia prima "
+                           "y «No» en cualquier otro caso.",
+        "Producto terminado asociado": "Trae de la hoja 03 el producto terminado al que se incorpora la materia prima; en blanco "
+                                       "si no se informó.",
+        "Costo esperado del producto terminado": "Trae de la hoja 03 el costo esperado del producto terminado asociado; en blanco "
+                                                 "si no se informó.",
+        "Precio esperado del producto terminado": "Trae de la hoja 03 el precio de venta esperado del producto terminado asociado; "
+                                                  "en blanco si no se informó.",
+        "Margen esperado": "Trae de la hoja 03 el margen esperado (precio menos costo) del producto terminado; en blanco si falta "
+                           "el costo o el precio.",
+        "¿Aplica la excepción de NIC 2.32?": "«Sí» solo cuando el ítem es materia prima, el marco de la hoja 02 no es PYMES y el "
+                                             "margen esperado está informado y es cero o positivo; en cualquier otro caso «No».",
+        "Motivo": "Explica la decisión anterior: no es materia prima, el marco es PYMES (no tiene la excepción), faltan datos del "
+                  "producto terminado, o el margen esperado es positivo o negativo.",
+        "Provisión antes de la excepción": "Trae la provisión del ítem antes de la excepción desde la hoja 10 (Obsolescencia y "
+                                           "lenta rotación); en blanco si no se pudo calcular.",
+        "Efecto: provisión no reconocida": "Si la excepción aplica, es la provisión antes de la excepción que se deja de reconocer; "
+                                           "si no aplica, es cero.",
+    }
+    ex_corte = {
+        "Período del hecho": "Compara la fecha de recepción o despacho con la fecha de corte de la hoja 02 (Parámetros): «Ejercicio» "
+                             "si es igual o anterior y «Posterior» si es después.",
+        "Período del registro": "Compara la fecha del registro contable con la fecha de corte de la hoja 02 (Parámetros): "
+                                "«Ejercicio» si es igual o anterior y «Posterior» si es después.",
+        "Error de corte": "«Sí» cuando el hecho y su registro caen en períodos distintos (uno en el ejercicio y otro después); "
+                          "«No» si coinciden.",
+        "Importe mal cortado": "Si hay error de corte, toma el importe del documento; si no lo hay, pone cero.",
+        "Efecto": "Describe el error: si el hecho es posterior, se registró en el ejercicio sin haber ocurrido; si no, ocurrió en el "
+                  "ejercicio y se registró después. Sin error, queda en blanco.",
+    }
+
     S = lambda xs: sum(x for x in xs if x is not None)
+
+    # 16 · Resumen por tramo fijo de obsolescencia (categorías del auditor): una fila por tramo, con el
+    # inventario al costo y la provisión estimada agregados por SUMIFS sobre la hoja 10 (Obsolescencia).
+    resumen_obs = []
+    for tr in TRAMOS_OBS:
+        en = lambda i, c=tr["crit"]: _tramo_obs(i["dias"], p) == c
+        costo_tr = S(i["costo"] for i in its if en(i))
+        prov_tr = S(i["prov"] for i in its if en(i) and i["prov"] is not None)
+        resumen_obs.append([tr["n"], fx(_sumifs_obs("C", tr["crit"], ni), costo_tr),
+                            fx(_sumifs_obs("J", tr["crit"], ni), prov_tr)])
+    tot_costo_obs = S(i["costo"] for i in its if _tramo_obs(i["dias"], p) is not None)
+    tot_prov_obs = S(i["prov"] for i in its if _tramo_obs(i["dias"], p) is not None and i["prov"] is not None)
+    n_tr = len(TRAMOS_OBS)
+    ex_resumen_obs = {
+        "Inventario al costo": "Suma con SUMIFS el costo auditado de la hoja 10 (Obsolescencia y lenta rotación) de los "
+                               "ítems cuyos días sin movimiento caen en el tramo, según los umbrales de la hoja 02 (Parámetros).",
+        "Provisión estimada": "Suma con SUMIFS la provisión estimada neta de la excepción NIC 2.32 de la hoja 10 de los "
+                              "ítems del tramo, con los mismos umbrales de días sin movimiento de la hoja 02 (Parámetros).",
+    }
+
     n_ = "n"
     return [
-        hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen),
+        hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen, explica=ex_resumen),
         hoja("02_Parametros", CEDULAS[1][1], [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Inventario", CEDULAS[2][1],
              [["Código", "t"], ["Descripción", "t"], ["Bodega", "t"], ["Cantidad kardex", n_], ["Cantidad contada", n_], ["Costo unitario", n_],
@@ -603,17 +1049,18 @@ def hojas(res: dict) -> list[dict]:
               ["¿Materia prima?", "t"], ["Producto terminado asociado", "t"], ["Costo esperado del producto terminado", n_],
               ["Precio esperado del producto terminado", n_], ["Margen esperado del producto terminado", n_]],
              inventario, ["TOTAL", "", "", None, None, None, _tot("G", ni, c["vk"]), None, None, None, None, None, None, None,
-                          _tot("O", ni, t["costoAuditado"]), "", "", None, None, None]),
+                          _tot("O", ni, t["costoAuditado"]), "", "", None, None, None], explica=ex_inv),
         hoja("04_Conteo", CEDULAS[3][1],
              [["Código", "t"], ["Descripción", "t"], ["Bodega", "t"], ["Cantidad kardex", n_], ["Cantidad contada", n_], ["Diferencia (unidades)", n_],
               ["Costo unitario", n_], ["Diferencia valorizada", n_]],
-             conteo, ["TOTAL", "", "", None, None, None, None, _tot("H", ni, t["difFisicas"])]),
+             conteo, ["TOTAL", "", "", None, None, None, None, _tot("H", ni, t["difFisicas"])], explica=ex_conteo),
         hoja("05_Prueba_costo", CEDULAS[4][1],
              [["Código", "t"], ["Descripción", "t"], ["Cantidad kardex", n_], ["Costo unitario", n_], ["Valor recalculado", n_], ["Valor kardex", n_],
               ["Diferencia de extensión", n_], ["Costo unitario soportado", n_], ["Diferencia unitaria", n_], ["Efecto en el costo auditado", n_]],
              costo, ["TOTAL", "", None, None, _tot("E", ni, S(i["recalc"] for i in its)), _tot("F", ni, c["vk"]), _tot("G", ni, t["difExtension"]),
-                     None, None, _tot("J", ni, t["difCosto"])]),
-        hoja("06_Conciliacion", CEDULAS[5][1], [["Concepto", "t"], ["Importe", n_]], conciliacion),
+                     None, None, _tot("J", ni, t["difCosto"])], explica=ex_costo),
+        hoja("06_Conciliacion", CEDULAS[5][1], [["Concepto", "t"], ["Importe", n_]], conciliacion, explica=ex_conc,
+             estilos=estilos_conc),
         hoja("07_Costo_produccion", CEDULAS[6][1],
              [["Período / orden", "t"], ["Materia prima", n_], ["MOD", n_], ["CIF variable", n_], ["CIF fijo", n_], ["Unidades producidas", n_],
               ["Capacidad normal", n_], ["Desperdicio anormal", n_], ["Tasa CIF fijo", "x"], ["CIF fijo absorbido", n_], ["CIF fijo no absorbido (gasto)", n_],
@@ -621,36 +1068,44 @@ def hojas(res: dict) -> list[dict]:
              produccion, ["TOTAL", _tot("B", npd, S(x["mp"] for x in prod)), _tot("C", npd, S(x["mod"] for x in prod)),
                           _tot("D", npd, S(x["cvar"] for x in prod)), _tot("E", npd, S(x["cf"] for x in prod)), None, None, None, None,
                           _tot("J", npd, S(x["abs"] for x in prod)), _tot("K", npd, t["cifNoAbsorbido"]), _tot("L", npd, c["prodCap"]), None, None,
-                          _tot("O", npd, t["cifExcesoCapitalizado"])] if npd else None),
+                          _tot("O", npd, t["cifExcesoCapitalizado"])] if npd else None, explica=ex_prod),
         hoja("08_Costo_ventas", CEDULAS[7][1],
              [["Línea", "t"], ["Inventario inicial", n_], ["Cierre auditado anterior", n_], ["Diferencia de apertura", n_], ["Compras netas", n_],
               ["WIP inicial", n_], ["Costos de manufactura", n_], ["WIP final", n_], ["Costo de producción terminada (COGM)", n_],
               ["Inventario final", n_], ["Costo de ventas recalculado", n_], ["Costo de ventas contable", n_], ["Diferencia", n_]],
              ventas, ["TOTAL", None, None, None, None, None, None, None, None, None, _tot("K", nm, S(x["cogs"] for x in mov)),
-                      _tot("L", nm, S(x["cvc"] for x in mov)), _tot("M", nm, t["difCostoVentas"])] if nm else None),
+                      _tot("L", nm, S(x["cvc"] for x in mov)), _tot("M", nm, t["difCostoVentas"])] if nm else None, explica=ex_ventas),
         hoja("09_VNR", CEDULAS[8][1] if not pymes else "Precio de venta menos costos de terminación y venta (27.2)",
              [["Código", "t"], ["Descripción", "t"], ["Cantidad auditada", n_], ["Costo unitario auditado", n_], ["Precio estimado de venta", n_],
               ["Costos de terminación", n_], ["Costos de venta", n_], ["VNR unitario", n_], ["Rebaja a VNR", n_], ["Medición", "t"]],
-             vnr, ["TOTAL", "", None, None, None, None, None, None, _tot("I", ni, t["rebajaVnr"]), ""]),
+             vnr, ["TOTAL", "", None, None, None, None, None, None, _tot("I", ni, t["rebajaVnr"]), ""], explica=ex_vnr),
         hoja("10_Obsolescencia", CEDULAS[9][1],
              [["Código", "t"], ["Descripción", "t"], ["Costo auditado", n_], ["Último movimiento", "d"], ["Días sin movimiento", "i"],
               ["% de provisión", "p"], ["Provisión por obsolescencia", n_], ["Rebaja a VNR", n_],
               ["Provisión antes de la excepción (VNR; el tramo solo si no hay precio)", n_],
-              ["Provisión estimada (neta de la excepción NIC 2.32)", n_]],
+              ["Provisión estimada (neta de la excepción NIC 2.32)", n_], ["Semáforo", "t"]],
              obs, ["TOTAL", "", _tot("C", ni, t["costoAuditado"]), None, None, None, _tot("G", ni, t["provObsolescencia"]),
-                   _tot("H", ni, t["rebajaVnr"]), _tot("I", ni, c["provBase"]), _tot("J", ni, t["provisionEstimada"])]),
+                   _tot("H", ni, t["rebajaVnr"]), _tot("I", ni, c["provBase"]), _tot("J", ni, t["provisionEstimada"]), ""],
+             explica=ex_obs, colores=["Semáforo"]),
         hoja("11_Excepcion_MP", CEDULAS[10][1],
              [["Código", "t"], ["Descripción", "t"], ["¿Materia prima?", "t"], ["Producto terminado asociado", "t"],
               ["Costo esperado del producto terminado", n_], ["Precio esperado del producto terminado", n_], ["Margen esperado", n_],
               ["¿Aplica la excepción de NIC 2.32?", "t"], ["Motivo", "t"], ["Provisión antes de la excepción", n_],
               ["Efecto: provisión no reconocida", n_]],
-             mp, ["TOTAL", "", "", "", None, None, None, "", "", _tot("J", ni, c["provBase"]), _tot("K", ni, t["excepcionNic232"])]),
+             mp, ["TOTAL", "", "", "", None, None, None, "", "", _tot("J", ni, c["provBase"]), _tot("K", ni, t["excepcionNic232"])], explica=ex_mp),
         hoja("12_Corte", CEDULAS[11][1],
              [["Documento", "t"], ["Tipo", "t"], ["Recepción / despacho", "d"], ["Registro contable", "d"], ["Importe", n_], ["Período del hecho", "t"],
               ["Período del registro", "t"], ["Error de corte", "t"], ["Importe mal cortado", n_], ["Efecto", "t"]],
-             corte, ["TOTAL", "", None, None, _tot("E", nc, S(x["imp"] for x in cor)), "", "", "", _tot("I", nc, t["corte"]), ""] if nc else None),
+             corte, ["TOTAL", "", None, None, _tot("E", nc, S(x["imp"] for x in cor)), "", "", "", _tot("I", nc, t["corte"]), ""] if nc else None, explica=ex_corte),
         hoja("13_Problemas", CEDULAS[12][1], [["Código", "t"], ["Descripción", "t"], ["Importe", n_]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("14_Conclusion", CEDULAS[13][1],
+             [["Indicador", "t"], ["Importe", n_], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=ex_conclusion, colores=["Estado"]),
+        hoja("15_Lectura", CEDULAS[14][1], [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
+        hoja("16_Resumen_obsol", CEDULAS[15][1],
+             [["Tramo de obsolescencia", "t"], ["Inventario al costo", n_], ["Provisión estimada", n_]],
+             resumen_obs, ["TOTAL", _tot("B", n_tr, tot_costo_obs), _tot("C", n_tr, tot_prov_obs)], explica=ex_resumen_obs),
     ]
 
 
@@ -742,17 +1197,21 @@ def definicion() -> dict:
             req("RQ-001", "Inventario valorado por ítem (kardex) con resultado del conteo", "inventario", "INV-01", "Población, conteo, costo, VNR y obsolescencia", content=inventario),
             req("RQ-002", "Costeo de producción por período u orden", "produccion", "INV-04", "Absorción del CIF fijo y costo de producción", required=False,
                 content="Una fila por período u orden: MP, MOD, CIF variable, CIF fijo, unidades producidas, capacidad normal, desperdicio anormal y CIF fijo cargado al inventario."),
-            req("RQ-003", "Movimiento del inventario por línea vendida", "movimiento", "INV-05", "Recalcular el costo de ventas",
+            req("RQ-003", "Movimiento del inventario por línea vendida", "movimiento", "INV-05", "Recalcular el costo de ventas", required=False,
                 content="Una fila por línea (mercadería, productos terminados): inventario inicial, cierre anterior, compras netas, WIP inicial, costos de manufactura, WIP final, inventario final y costo de ventas contable."),
             req("RQ-004", "Documentos de compras y ventas alrededor del corte", "corte", "INV-08", "Prueba de corte", required=False,
                 content="Una fila por documento: número, tipo (Compra/Venta), fecha de recepción o despacho, fecha de registro e importe."),
-            req("RQ-005", "Actas e instrucciones del recuento físico", None, "INV-01", "Soporte de la existencia", formats=("pdf", "docx"), use="soporte"),
-            req("RQ-006", "Ventas y precios posteriores al cierre; costos de terminación y venta", None, "INV-06", "Soporte del VNR", formats=("xlsx", "pdf"), use="soporte"),
+            req("RQ-005", "Actas e instrucciones del recuento físico", None, "INV-01", "Soporte de la existencia", formats=("pdf", "docx"), use="soporte", required=False),
+            req("RQ-006", "Ventas y precios posteriores al cierre; costos de terminación y venta", None, "INV-06", "Soporte del VNR", formats=("xlsx", "pdf"), use="soporte", required=False),
             req("RQ-007", "Sustento de la capacidad normal de planta", None, "INV-04", "Soporte de la tasa de CIF fijo", formats=("pdf", "xlsx"), use="soporte", required=False),
-            req("RQ-008", "Política de obsolescencia y lenta rotación", None, "INV-07", "Soporte de los tramos y porcentajes", formats=("pdf", "docx"), use="soporte"),
+            req("RQ-008", "Política de obsolescencia y lenta rotación", None, "INV-07", "Soporte de los tramos y porcentajes", formats=("pdf", "docx"), use="soporte", required=False),
             req("RQ-009", "Inventario de terceros o en consignación", None, "INV-01", "Excluir lo que no es de la entidad", formats=("xlsx", "pdf"), use="soporte", required=False),
             req("RQ-010", "Costeo estándar y lista de precios de los productos terminados que consumen las materias primas", None, "INV-09",
                 "Demostrar si el producto terminado se venderá al costo o por encima (excepción de NIC 2.32)", formats=("xlsx", "pdf"), use="soporte", required=False),
+            req("RQ-011", "Libro Mayor de las cuentas de inventario", "mayor", "INV-02", "Saldo contable para la conciliación kardex–mayor", required=False,
+                content="Un asiento por fila de las cuentas de inventario: código de la cuenta, nombre, debe y haber (y saldo si lo trae). "
+                        "El saldo contable por cuenta se deriva como Σ Debe − Σ Haber e incluye el saldo inicial si viene como fila; "
+                        "su total alimenta la conciliación kardex–mayor cuando no se fija el parámetro «saldo del mayor»."),
         ],
     }
 

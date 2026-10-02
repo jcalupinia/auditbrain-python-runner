@@ -24,6 +24,29 @@ Revisar inventarios, PPE, intangibles, arrendamientos, ingresos, beneficios a em
 
 ---
 
+## Si te entregan un papel de trabajo del Command Center AUDIT-IA
+
+Las 20 herramientas NIIF del Command Center producen el mismo papel de trabajo (Excel, HTML, PDF, Word y
+PowerPoint con el mismo diseño). Úsalo como fuente de la **situación actual** del rubro y léelo así:
+
+- **Panel / portada `00_Inicio`:** 5 tarjetas (resultado principal, población, recalculado, registrado y
+  problemas) y 4 gráficos (composición, registrado vs recalculado, distribución y problemas por severidad).
+- **Resultado:** Resumen, Problemas encontrados, Asientos propuestos y Conclusión.
+- **Cómo se calculó:** parámetros y cédulas de cálculo. Cada columna tiene su explicación en «ⓘ Cómo se
+  calcula esta hoja», y su fórmula de Excel con un ejemplo está en `00_Anexo_tecnico`.
+- **Datos del cliente (`D1_…`):** lo que entregó el cliente, fila por fila, con el archivo de origen y la guía
+  «¿De dónde saco este dato?» (todas las herramientas). Las cédulas traen esos datos por fórmula
+  (`='D1_…'!F7`; si el cliente dejó el dato en blanco, `IF('D1_…'!F7="",otro dato o valor por defecto,'D1_…'!F7)`):
+  para rastrear un dato, siga la fórmula hasta su fila y su «Origen del dato». En las cédulas no queda ninguna
+  cifra ni fecha pegada: solo son valores los parámetros del auditor (`02_Parametros`).
+- **Documentación:** Carátula, Programa, Base técnica, Anexo técnico y Control de revisión.
+
+Todas las cifras calculadas del Excel son **fórmulas** que remiten a su origen, incluido el importe de cada
+problema. Si ves una cifra calculada escrita como número, o un problema cuyo importe no remite a una celda,
+señálalo como observación del papel. Cita en tu revisión la hoja y la celda de donde sale cada cifra.
+
+---
+
 ## Rubros y normas de referencia
 
 | Rubro | NIIF plenas | PYMES |

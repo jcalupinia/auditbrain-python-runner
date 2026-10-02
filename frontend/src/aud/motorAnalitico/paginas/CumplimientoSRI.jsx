@@ -1,200 +1,939 @@
+import { useEffect, useRef, useState } from "react";
 import { PAGINAS } from "../paginas.js";
+import {
+  sriPermiso,
+  sriDescargar,
+  sriEstado,
+  sriEnviarCaptcha,
+  sriDescargarZip,
+  sriConsolidar,
+  sriHistorial,
+  sriReconstruir,
+  sriCruceRetenciones,
+  sriValorNeto,
+  sriDeclaracionesDescargar,
+  sriDescargarArchivo,
+  sriVivoUrl,
+} from "../../../api.js";
 import "./CumplimientoSRI.css";
 
 const META = PAGINAS.find((p) => p.id === "sri");
 
-// Contenido transcrito de CumplimientoSRI.dc.html (bloques `fuentes`, `cruces`,
-// `declaraciones`, `anexos` del script). Estado: "listo" = En el motor,
-// "existe" = En Command Center, "nuevo" = Por construir.
-const NOMBRE_ESTADO = { listo: "En el motor", existe: "En Command Center", nuevo: "Por construir" };
+// Subpáginas = las pestañas del robot del SRI (aplicacion.py de copia-robot-audit).
+const SUBS = [
+  { id: "descarga", titulo: "Descarga de comprobantes" },
+  { id: "reportes", titulo: "Reportes e historial" },
+  { id: "consolidacion", titulo: "Consolidación de documentos" },
+  { id: "reconstruccion", titulo: "Reconstruir XML" },
+  { id: "cruce", titulo: "Retención ↔ Factura" },
+  { id: "valorneto", titulo: "Valor neto (NC)" },
+  { id: "declaraciones", titulo: "Declaraciones" },
+  { id: "ayuda", titulo: "Ayuda" },
+];
 
+// Obligaciones cuya navegación del portal está mapeada (consulta de declaraciones).
+const OBLIGACIONES_DECL = [
+  { id: "iva_104", nombre: "IVA (F-104)", mensual: true },
+  { id: "retenciones_103", nombre: "Retenciones en la fuente (F-103)", mensual: true },
+  { id: "renta_sociedades_101", nombre: "Renta Sociedades (F-101)", mensual: false },
+];
+const DOCS_DECL = ["Declaración completa", "Declaración perfilada", "Comprobante de declaración"];
+
+const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const ANIO_ACTUAL = new Date().getFullYear();
+const ANIOS = Array.from({ length: 10 }, (_, i) => ANIO_ACTUAL - i);
+const TIPOS = ["Todos", "Facturas", "Notas de crédito", "Notas de débito", "Retenciones", "Liquidaciones"];
+const MODOS_FECHA = ["Mes", "Rango de meses", "Año completo"];
+const ESTADOS_EMITIDOS = ["Todos", "Autorizado", "No autorizado"];
+// Vista en vivo del robot (solo lectura). Va por el motor de la firma como
+// MJPEG (endpoint /motor/sri/vivo), publicado por Tailscale Funnel: se ve por
+// el mismo canal que el resto del motor, SIN exigir que el auditor esté en la
+// red Tailscale. El permiso firmado viaja en el query string porque un <img>
+// no puede mandar cabecera Authorization. Reconecta con token fresco al fallar.
+function VistaEnVivo({ encargo = "SRI vista en vivo" }) {
+  const [src, setSrc] = useState("");
+  const [error, setError] = useState("");
+  const ultimo = useRef(0);
+  const vivo = useRef(true);
+
+  async function conectar() {
+    try {
+      const p = await sriPermiso(encargo);
+      if (!vivo.current) return;
+      ultimo.current = Date.now();
+      // El sufijo &t= fuerza al navegador a reabrir el stream con el token nuevo.
+      setSrc(`${sriVivoUrl(p.url, p.token)}&t=${ultimo.current}`);
+      setError("");
+    } catch {
+      if (vivo.current) setError("No se pudo autorizar la vista en vivo. Reintenta en unos segundos.");
+    }
+  }
+
+  useEffect(() => {
+    vivo.current = true;
+    conectar();
+    return () => { vivo.current = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [encargo]);
+
+  // Un stream MJPEG queda autorizado al conectarse; solo hay que reconectar si
+  // la conexión se cae o el token venció. Se limita a un reintento cada 4 s.
+  function alFallar() {
+    if (Date.now() - ultimo.current < 4000) return;
+    conectar();
+  }
+
+  return (
+    <div className="ma-sri-vivo">
+      <div className="ma-sri-vivo-cab">
+        <span>🔴 Robot en vivo — solo lectura</span>
+        <span className="ma-sri-vivo-nota">Se transmite por el motor de la firma. Verás el navegador del robot cuando esté descargando del SRI.</span>
+      </div>
+      {error ? (
+        <div className="ma-sri-vivo-aviso">{error}</div>
+      ) : src ? (
+        <img title="Robot SRI en vivo" alt="Robot SRI en vivo" src={src} className="ma-sri-vivo-frame" onError={alFallar} />
+      ) : (
+        <div className="ma-sri-vivo-aviso">Conectando con la vista en vivo…</div>
+      )}
+    </div>
+  );
+}
+
+// Resumen legible del resultado del robot (en vez del JSON crudo).
+function ResumenResultado({ r, titulo }) {
+  if (!r || typeof r !== "object") {
+    return <div className="ma-sri-resumen"><div className="ma-sri-resumen-titulo">{titulo}</div></div>;
+  }
+  const n = (k) => (typeof r[k] === "number" ? r[k] : null);
+  const total = n("n_registros") ?? n("registros_esperados") ?? n("total");
+  const pdfOk = n("descargados_pdf_verificados") ?? n("n_pdf");
+  const pdfEsp = n("esperados_pdf");
+  const xmlOk = n("descargados_xml_verificados") ?? n("n_xml");
+  const xmlEsp = n("esperados_xml");
+  const ctx = [r.tipo_visible, r.estado_autorizacion, r.fecha_filtro].filter(Boolean).join(" · ");
+  const conteos = [];
+  if (pdfEsp != null) conteos.push(`PDF ${pdfOk ?? 0}/${pdfEsp}`);
+  if (xmlEsp != null) conteos.push(`XML ${xmlOk ?? 0}/${xmlEsp}`);
+  return (
+    <div className="ma-sri-resumen">
+      <div className="ma-sri-resumen-titulo">{titulo}</div>
+      {ctx && <div>{ctx}</div>}
+      {total != null && <div><strong>{total}</strong> comprobantes</div>}
+      {conteos.length > 0 && <div className="ma-sri-resumen-conteos">{conteos.join("  ·  ")}</div>}
+      {r.mensaje && <div className="ma-sri-resumen-msg">{r.mensaje}</div>}
+      <details className="ma-sri-detalle"><summary>Ver detalle técnico</summary><pre>{JSON.stringify(r, null, 2)}</pre></details>
+    </div>
+  );
+}
+
+// Resumen de un reporte offline (reconstrucción / cruces): conteos + por mes.
+const _ETIQUETAS_OFFLINE = {
+  generados: "XML generados", total_filas: "Filas leídas", repetidos: "Repetidas",
+  fallidos: "Sin generar", invalidos: "No validan XSD",
+  total_retenciones: "Retenciones", total_documentos: "Documentos sustento",
+  con_factura: "Con factura", sin_factura: "Sin factura",
+  total_facturas: "Facturas", con_retencion: "Con retención", sin_retencion: "Sin retención",
+  total_nc: "Notas de crédito", encontradas_local: "Facturas halladas", no_encontradas: "No encontradas",
+};
+function ResumenOffline({ r, titulo, onDescargar, bajando, textoDescarga }) {
+  if (!r || typeof r !== "object") return null;
+  const chips = Object.entries(_ETIQUETAS_OFFLINE)
+    .filter(([k]) => typeof r[k] === "number")
+    .map(([k, et]) => ({ et, v: r[k] }));
+  const porMes = r.por_mes && typeof r.por_mes === "object" ? Object.entries(r.por_mes).sort() : [];
+  return (
+    <div className="ma-sri-resumen">
+      <div className="ma-sri-resumen-titulo">{titulo}</div>
+      {r.message && <div className="ma-sri-resumen-msg">{r.message}</div>}
+      {chips.length > 0 && (
+        <div className="ma-sri-resumen-conteos">
+          {chips.map((c) => <span key={c.et}>{c.et}: <strong>{c.v}</strong></span>)}
+        </div>
+      )}
+      {porMes.length > 0 && (
+        <div className="ma-sri-resumen-conteos">
+          {porMes.map(([m, n]) => <span key={m}>{m}: <strong>{n}</strong></span>)}
+        </div>
+      )}
+      {onDescargar && (
+        <div className="ma-sri-descarga-acciones">
+          <button type="button" className="ma-boton" onClick={onDescargar} disabled={bajando}>
+            {bajando ? "Preparando…" : (textoDescarga || "Descargar reporte")}
+          </button>
+        </div>
+      )}
+      <details className="ma-sri-detalle"><summary>Ver detalle técnico</summary><pre>{JSON.stringify(r, null, 2)}</pre></details>
+    </div>
+  );
+}
+
+// ---------- Subpágina 1: Descarga (login + filtros + captcha relay) ----------
+function SubDescarga() {
+  const [form, setForm] = useState({
+    ruc: "", clave: "", origen: "Recibidos", tipo: "Todos",
+    modo_fecha: "Mes", anio: ANIO_ACTUAL, mes: 1, mes_fin: 12, dia: 0,
+    estado_emitidos: "Todos", formatoXML: true, formatoPDF: true, modo_rapido: false,
+  });
+  const [fase, setFase] = useState("idle"); // idle|procesando|captcha|listo|error
+  const [progreso, setProgreso] = useState([]);
+  const [captchaImg, setCaptchaImg] = useState(null);
+  const [captchaCodigo, setCaptchaCodigo] = useState("");
+  const [resultado, setResultado] = useState(null);
+  const [error, setError] = useState("");
+  const [bajando, setBajando] = useState(false);
+  const [segundos, setSegundos] = useState(0);
+  const [verVivo, setVerVivo] = useState(false);
+  const ctx = useRef({ url: "", token: "", id: "", vivo: false });
+  useEffect(() => () => { ctx.current.vivo = false; }, []);
+  useEffect(() => {
+    if (!(fase === "procesando" || fase === "captcha")) return undefined;
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [fase]);
+
+  const set = (k) => (e) => {
+    const v = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+    setForm((f) => ({ ...f, [k]: v }));
+  };
+  const trabajando = fase === "procesando" || fase === "captcha";
+
+  async function poll() {
+    if (!ctx.current.vivo) return;
+    try {
+      const est = await sriEstado(ctx.current.url, ctx.current.token, ctx.current.id);
+      setProgreso(est.progreso || []);
+      if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
+      else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase("listo"); return; }
+      else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "La descarga falló."); setFase("error"); return; }
+      else { setFase("procesando"); setCaptchaImg(null); }
+    } catch { /* red transitoria: seguimos */ }
+    setTimeout(poll, 1500);
+  }
+
+  async function lanzar() {
+    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0);
+    if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
+    if (!form.clave) { setError("Falta la clave del SRI del cliente."); return; }
+    const formatos = [form.formatoXML && "XML", form.formatoPDF && "PDF"].filter(Boolean);
+    setFase("procesando");
+    try {
+      const permiso = await sriPermiso(`SRI ${form.ruc.trim()}`);
+      const { id } = await sriDescargar(permiso.url, permiso.token, {
+        ruc: form.ruc.trim(), clave: form.clave, origen: form.origen, tipo: form.tipo,
+        modo_fecha: form.modo_fecha, anio: Number(form.anio), mes: Number(form.mes),
+        mes_fin: Number(form.mes_fin), dia: Number(form.dia),
+        estado_emitidos: form.origen === "Emitidos" ? form.estado_emitidos : null,
+        formatos, modo_rapido: form.modo_rapido,
+      });
+      ctx.current = { url: permiso.url, token: permiso.token, id, vivo: true };
+      setForm((f) => ({ ...f, clave: "" }));
+      poll();
+    } catch (e) { setError(e?.message || "No se pudo iniciar la descarga."); setFase("error"); }
+  }
+
+  async function enviarCaptcha() {
+    if (!captchaCodigo.trim()) return;
+    try {
+      await sriEnviarCaptcha(ctx.current.url, ctx.current.token, ctx.current.id, captchaCodigo.trim());
+      setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando");
+    } catch (e) { setError(e?.message || "No se pudo enviar el captcha."); }
+  }
+
+  async function bajarZip() {
+    setBajando(true); setError("");
+    try { await sriDescargarZip(ctx.current.url, ctx.current.token, ctx.current.id); }
+    catch (e) { setError(e?.message || "No se pudo descargar el ZIP."); }
+    finally { setBajando(false); }
+  }
+
+  return (
+    <section className="ma-tarjeta ma-sri-descarga">
+      <div className="ma-sri-descarga-cab">
+        <h3>Descarga de comprobantes</h3>
+        <span>El robot inicia sesión en el portal del SRI y descarga los comprobantes del período.</span>
+      </div>
+      <div className="ma-sri-form">
+        <label>RUC del cliente
+          <input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" disabled={trabajando} />
+        </label>
+        <label>Clave del SRI
+          <input type="password" value={form.clave} onChange={set("clave")} placeholder="•••••••" autoComplete="off" disabled={trabajando} />
+        </label>
+        <label>Origen
+          <select value={form.origen} onChange={set("origen")} disabled={trabajando}><option>Recibidos</option><option>Emitidos</option></select>
+        </label>
+        <label>Tipo de comprobante
+          <select value={form.tipo} onChange={set("tipo")} disabled={trabajando}>{TIPOS.map((t) => <option key={t}>{t}</option>)}</select>
+        </label>
+        <label>Modo de fecha
+          <select value={form.modo_fecha} onChange={set("modo_fecha")} disabled={trabajando}>{MODOS_FECHA.map((m) => <option key={m}>{m}</option>)}</select>
+        </label>
+        <label>Año
+          <select value={form.anio} onChange={set("anio")} disabled={trabajando}>{ANIOS.map((a) => <option key={a} value={a}>{a}</option>)}</select>
+        </label>
+        {form.modo_fecha !== "Año completo" && (
+          <label>{form.modo_fecha === "Rango de meses" ? "Mes inicio" : "Mes"}
+            <select value={form.mes} onChange={set("mes")} disabled={trabajando}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select>
+          </label>
+        )}
+        {form.modo_fecha === "Rango de meses" && (
+          <label>Mes fin
+            <select value={form.mes_fin} onChange={set("mes_fin")} disabled={trabajando}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select>
+          </label>
+        )}
+        {form.modo_fecha === "Mes" && (
+          <label>Día (0 = todo el mes)
+            <input type="number" min={0} max={31} value={form.dia} onChange={set("dia")} disabled={trabajando} />
+          </label>
+        )}
+        {form.origen === "Emitidos" && (
+          <label>Estado (emitidos)
+            <select value={form.estado_emitidos} onChange={set("estado_emitidos")} disabled={trabajando}>{ESTADOS_EMITIDOS.map((e) => <option key={e}>{e}</option>)}</select>
+          </label>
+        )}
+        <label className="ma-sri-check">Formatos
+          <span className="ma-sri-check-fila">
+            <label><input type="checkbox" checked={form.formatoXML} onChange={set("formatoXML")} disabled={trabajando} /> XML</label>
+            <label><input type="checkbox" checked={form.formatoPDF} onChange={set("formatoPDF")} disabled={trabajando} /> PDF</label>
+          </span>
+        </label>
+        <label className="ma-sri-check">Modo rápido
+          <span className="ma-sri-check-fila"><label><input type="checkbox" checked={form.modo_rapido} onChange={set("modo_rapido")} disabled={trabajando} /> Solo reporte, sin archivos</label></span>
+        </label>
+      </div>
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={lanzar} disabled={trabajando}>
+          {trabajando ? "Descargando…" : "Descargar"}
+        </button>
+        {fase === "listo" && (
+          <button type="button" className="ma-boton" onClick={bajarZip} disabled={bajando}>
+            {bajando ? "Preparando ZIP…" : "Descargar archivos (ZIP)"}
+          </button>
+        )}
+        <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>
+          {verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}
+        </button>
+        <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>
+      </div>
+
+      {verVivo && <VistaEnVivo encargo="SRI vista en vivo (descarga)" />}
+
+      {captchaImg && (
+        <div className="ma-sri-captcha" role="dialog" aria-label="Resolver captcha">
+          <p><strong>El SRI pide un captcha.</strong> Escribe lo que ves:</p>
+          <img alt="captcha del SRI" src={`data:image/png;base64,${captchaImg}`} className="ma-sri-captcha-img" />
+          <div className="ma-sri-captcha-fila">
+            <input value={captchaCodigo} onChange={(e) => setCaptchaCodigo(e.target.value)} placeholder="Código" autoFocus onKeyDown={(e) => e.key === "Enter" && enviarCaptcha()} />
+            <button type="button" className="ma-sri-boton-ejecutar" onClick={enviarCaptcha}>Enviar</button>
+          </div>
+        </div>
+      )}
+      {(fase === "procesando" || fase === "captcha") && (
+        <div className="ma-sri-trabajando">
+          <span className="ma-sri-spinner" aria-hidden="true" />
+          <span>
+            El robot está trabajando en el servidor… <strong>{segundos}s</strong>
+            {fase === "captcha" ? " · esperando que resuelvas el captcha" : " · entrando al SRI y navegando (puede tardar 1-3 min)"}
+          </span>
+        </div>
+      )}
+      {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}
+      {fase === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenResultado r={resultado} titulo="✅ Descarga completada" /></div>}
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+    </section>
+  );
+}
+
+// ---------- Subpágina 2: Reportes e historial ----------
+function SubReportes() {
+  const [historial, setHistorial] = useState(null);
+  const [error, setError] = useState("");
+  const [cargando, setCargando] = useState(false);
+
+  async function cargar() {
+    setCargando(true); setError("");
+    try {
+      const permiso = await sriPermiso("SRI historial");
+      const r = await sriHistorial(permiso.url, permiso.token);
+      setHistorial(r.historial || []);
+    } catch (e) { setError(e?.message || "No se pudo cargar el historial."); }
+    finally { setCargando(false); }
+  }
+  useEffect(() => { cargar(); }, []);
+
+  const filas = Array.isArray(historial) ? historial : [];
+  return (
+    <section className="ma-tarjeta ma-sri-tabla-bloque">
+      <div className="ma-sri-descarga-cab">
+        <h3>Reportes e historial</h3>
+        <span>Descargas registradas en el servidor. Los archivos de cada descarga se bajan desde la pestaña «Descarga» (botón ZIP) al terminar.</span>
+      </div>
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-boton" onClick={cargar} disabled={cargando}>{cargando ? "Cargando…" : "Actualizar historial"}</button>
+      </div>
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+      {filas.length === 0 && !cargando && !error && <p className="ma-sri-tabla-nota">Sin descargas registradas todavía.</p>}
+      {filas.length > 0 && (
+        <div className="ma-tabla-wrap">
+          <table className="ma-tabla ma-sri-tabla">
+            <thead><tr><th>Fecha</th><th>RUC</th><th>Origen</th><th>Período</th><th>Tipo</th><th>Resultado</th></tr></thead>
+            <tbody>
+              {filas.map((h, i) => (
+                <tr key={i}>
+                  <td>{h.fecha || h.timestamp || "—"}</td>
+                  <td className="ma-sri-tabla-form">{h.ruc || "—"}</td>
+                  <td>{h.origen || "—"}</td>
+                  <td>{[h.anio, h.mes, h.dia].filter((x) => x || x === 0).join("/") || "—"}</td>
+                  <td>{h.tipo || "—"}</td>
+                  <td>{typeof h.resultado === "object" ? (h.resultado?.estado || "ok") : (h.resultado ?? "—")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------- Subpágina 3: Consolidación de documentos ----------
+function SubConsolidacion() {
+  const [form, setForm] = useState({ ruc: "", origen: "Recibidos", tipo: "Todos", modo_fecha: "Rango de meses", anio: ANIO_ACTUAL, mes_inicio: 1, mes_fin: 12, incluir_xml: true, incluir_pdf: true });
+  const [estado, setEstado] = useState("idle");
+  const [resultado, setResultado] = useState(null);
+  const [error, setError] = useState("");
+  const set = (k) => (e) => { const v = e.target.type === "checkbox" ? e.target.checked : e.target.value; setForm((f) => ({ ...f, [k]: v })); };
+
+  async function consolidar() {
+    setError(""); setResultado(null);
+    if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
+    setEstado("procesando");
+    try {
+      const permiso = await sriPermiso(`SRI consolidar ${form.ruc.trim()}`);
+      const r = await sriConsolidar(permiso.url, permiso.token, {
+        carpeta_base: `descargas/${form.ruc.trim()}`, origen: form.origen, ruc: form.ruc.trim(),
+        tipo: form.tipo, modo_fecha: form.modo_fecha, anio: Number(form.anio),
+        mes_inicio: Number(form.mes_inicio), mes_fin: Number(form.mes_fin),
+        incluir_xml: form.incluir_xml, incluir_pdf: form.incluir_pdf,
+      });
+      setResultado(r); setEstado("listo");
+    } catch (e) { setError(e?.message || "No se pudo consolidar."); setEstado("error"); }
+  }
+
+  return (
+    <section className="ma-tarjeta ma-sri-descarga">
+      <div className="ma-sri-descarga-cab">
+        <h3>Consolidación de documentos</h3>
+        <span>Une los reportes y documentos ya descargados de un RUC por período (sin volver a entrar al SRI).</span>
+      </div>
+      <div className="ma-sri-form">
+        <label>RUC<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" /></label>
+        <label>Origen<select value={form.origen} onChange={set("origen")}><option>Recibidos</option><option>Emitidos</option></select></label>
+        <label>Tipo<select value={form.tipo} onChange={set("tipo")}>{TIPOS.map((t) => <option key={t}>{t}</option>)}</select></label>
+        <label>Año<select value={form.anio} onChange={set("anio")}>{ANIOS.map((a) => <option key={a} value={a}>{a}</option>)}</select></label>
+        <label>Mes inicio<select value={form.mes_inicio} onChange={set("mes_inicio")}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
+        <label>Mes fin<select value={form.mes_fin} onChange={set("mes_fin")}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
+        <label className="ma-sri-check">Incluir<span className="ma-sri-check-fila">
+          <label><input type="checkbox" checked={form.incluir_xml} onChange={set("incluir_xml")} /> XML</label>
+          <label><input type="checkbox" checked={form.incluir_pdf} onChange={set("incluir_pdf")} /> PDF</label>
+        </span></label>
+      </div>
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={consolidar} disabled={estado === "procesando"}>{estado === "procesando" ? "Consolidando…" : "Consolidar"}</button>
+      </div>
+      {estado === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenResultado r={resultado} titulo="✅ Consolidación lista" /></div>}
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+    </section>
+  );
+}
+
+// ---------- Subpágina: Reconstruir XML (PDF→XML de Emitidos, por mes) ----------
+function SubReconstruccion() {
+  const [ruc, setRuc] = useState("");
+  const [estado, setEstado] = useState("idle");
+  const [resultado, setResultado] = useState(null);
+  const [permiso, setPermiso] = useState(null);
+  const [error, setError] = useState("");
+  const [bajando, setBajando] = useState(false);
+
+  async function ejecutar() {
+    setError(""); setResultado(null);
+    if (!/^\d{13}$/.test(ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
+    setEstado("procesando");
+    try {
+      const p = await sriPermiso(`SRI reconstruir ${ruc.trim()}`);
+      const r = await sriReconstruir(p.url, p.token, { carpeta: `descargas/${ruc.trim()}` });
+      setPermiso(p); setResultado(r); setEstado(r.ok === false ? "error" : "listo");
+      if (r.ok === false) setError(r.message || "No se pudo reconstruir.");
+    } catch (e) { setError(e?.message || "No se pudo reconstruir."); setEstado("error"); }
+  }
+  async function bajar() {
+    if (!permiso || !resultado?.destino) return;
+    setBajando(true); setError("");
+    try { await sriDescargarArchivo(permiso.url, permiso.token, resultado.destino, `xml_reconstruidos_${ruc.trim()}.zip`); }
+    catch (e) { setError(e?.message || "No se pudo descargar."); }
+    finally { setBajando(false); }
+  }
+
+  return (
+    <section className="ma-tarjeta ma-sri-descarga">
+      <div className="ma-sri-descarga-cab">
+        <h3>Reconstruir XML (Emitidos)</h3>
+        <span>Arma los XML de los comprobantes emitidos desde los PDF/reportes ya descargados, agrupados por mes. Útil cuando el SRI ya no entrega el XML (más de ~1 mes). Los XML salen SIN firma: sirven para contabilidad y auditoría, no sustituyen al comprobante autorizado.</span>
+      </div>
+      <div className="ma-sri-form">
+        <label>RUC del cliente<input value={ruc} onChange={(e) => setRuc(e.target.value)} inputMode="numeric" maxLength={13} placeholder="1791859596001" /></label>
+      </div>
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={estado === "procesando"}>{estado === "procesando" ? "Reconstruyendo…" : "Reconstruir XML"}</button>
+      </div>
+      {estado === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenOffline r={resultado} titulo="✅ Reconstrucción lista" onDescargar={bajar} bajando={bajando} textoDescarga="Descargar XML (ZIP)" /></div>}
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+    </section>
+  );
+}
+
+// ---------- Subpágina: Cruce Retención ↔ Factura ----------
+function SubCruceRetenciones() {
+  const [form, setForm] = useState({ ruc: "", sentido: "emitidas", direccion: "facturas", con_portal: false, clave: "" });
+  const [fase, setFase] = useState("idle"); // idle|procesando|captcha|listo|error
+  const [resultado, setResultado] = useState(null);
+  const [permiso, setPermiso] = useState(null);
+  const [progreso, setProgreso] = useState([]);
+  const [captchaImg, setCaptchaImg] = useState(null);
+  const [captchaCodigo, setCaptchaCodigo] = useState("");
+  const [segundos, setSegundos] = useState(0);
+  const [verVivo, setVerVivo] = useState(false);
+  const [error, setError] = useState("");
+  const [bajando, setBajando] = useState(false);
+  const ctx = useRef({ url: "", token: "", id: "", vivo: false });
+  const set = (k) => (e) => { const v = e.target.type === "checkbox" ? e.target.checked : e.target.value; setForm((f) => ({ ...f, [k]: v })); };
+  useEffect(() => () => { ctx.current.vivo = false; }, []);
+  useEffect(() => {
+    if (!(fase === "procesando" || fase === "captcha")) return undefined;
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [fase]);
+  const trabajando = fase === "procesando" || fase === "captcha";
+
+  async function poll() {
+    if (!ctx.current.vivo) return;
+    try {
+      const est = await sriEstado(ctx.current.url, ctx.current.token, ctx.current.id);
+      setProgreso(est.progreso || []);
+      if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
+      else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase(est.resultado?.ok === false ? "error" : "listo"); if (est.resultado?.ok === false) setError(est.resultado.message || "Sin resultados."); return; }
+      else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "El cruce falló."); setFase("error"); return; }
+      else { setFase("procesando"); setCaptchaImg(null); }
+    } catch { /* red transitoria */ }
+    setTimeout(poll, 1500);
+  }
+
+  async function ejecutar() {
+    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0);
+    if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
+    if (form.con_portal && !form.clave) { setError("Falta la clave del SRI para buscar en el portal."); return; }
+    const carpeta = `descargas/${form.ruc.trim()}`;
+    setFase("procesando");
+    try {
+      const p = await sriPermiso(`SRI cruce ${form.ruc.trim()}`);
+      const params = { carpeta_retenciones: carpeta, base_ruc: carpeta, sentido: form.sentido, direccion: form.direccion };
+      if (form.con_portal) { params.ruc = form.ruc.trim(); params.clave = form.clave; }
+      const r = await sriCruceRetenciones(p.url, p.token, params);
+      if (form.con_portal && r && r.id) {
+        ctx.current = { url: p.url, token: p.token, id: r.id, vivo: true };
+        setPermiso(p); setForm((f) => ({ ...f, clave: "" }));
+        poll();
+      } else {
+        setPermiso(p); setResultado(r); setFase(r.ok === false ? "error" : "listo");
+        if (r.ok === false) setError(r.message || "No se pudo generar el cruce.");
+      }
+    } catch (e) { setError(e?.message || "No se pudo generar el cruce."); setFase("error"); }
+  }
+
+  async function enviarCaptcha() {
+    if (!captchaCodigo.trim()) return;
+    try { await sriEnviarCaptcha(ctx.current.url, ctx.current.token, ctx.current.id, captchaCodigo.trim()); setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando"); }
+    catch (e) { setError(e?.message || "No se pudo enviar el captcha."); }
+  }
+
+  async function bajar() {
+    if (!permiso || !resultado?.excel_path) return;
+    setBajando(true); setError("");
+    try { await sriDescargarArchivo(permiso.url, permiso.token, resultado.excel_path); }
+    catch (e) { setError(e?.message || "No se pudo descargar."); }
+    finally { setBajando(false); }
+  }
+
+  return (
+    <section className="ma-tarjeta ma-sri-descarga">
+      <div className="ma-sri-descarga-cab">
+        <h3>Retención ↔ Factura</h3>
+        <span>Cruza los comprobantes de retención contra sus facturas de sustento. Ideal para verificar la retención que le hicimos al proveedor contra su factura de compra. Por defecto usa solo lo ya descargado; puedes pedir que el robot baje del SRI lo que falte.</span>
+      </div>
+      <div className="ma-sri-form">
+        <label>RUC del cliente<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" disabled={trabajando} /></label>
+        <label>Sentido
+          <select value={form.sentido} onChange={set("sentido")} disabled={trabajando}>
+            <option value="emitidas">Retención emitida ↔ factura de compra (Recibidos)</option>
+            <option value="recibidas">Retención recibida ↔ factura de venta (Emitidos)</option>
+          </select>
+        </label>
+        <label>Dirección
+          <select value={form.direccion} onChange={set("direccion")} disabled={trabajando}>
+            <option value="facturas">Una fila por factura (busca su retención)</option>
+            <option value="retenciones">Una fila por retención (busca su factura)</option>
+          </select>
+        </label>
+        <label className="ma-sri-check">Portal
+          <span className="ma-sri-check-fila"><label><input type="checkbox" checked={form.con_portal} onChange={set("con_portal")} disabled={trabajando} /> Bajar del SRI lo que falte (login + captcha)</label></span>
+        </label>
+        {form.con_portal && (
+          <label>Clave del SRI
+            <input type="password" value={form.clave} onChange={set("clave")} placeholder="•••••••" autoComplete="off" disabled={trabajando} />
+          </label>
+        )}
+      </div>
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Cruzando…" : "Generar cruce"}</button>
+        {form.con_portal && (
+          <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>{verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}</button>
+        )}
+        {form.con_portal && <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>}
+      </div>
+
+      {verVivo && form.con_portal && <VistaEnVivo encargo="SRI vista en vivo (cruce)" />}
+
+      {captchaImg && (
+        <div className="ma-sri-captcha" role="dialog" aria-label="Resolver captcha">
+          <p><strong>El SRI pide un captcha.</strong> Escribe lo que ves:</p>
+          <img alt="captcha del SRI" src={`data:image/png;base64,${captchaImg}`} className="ma-sri-captcha-img" />
+          <div className="ma-sri-captcha-fila">
+            <input value={captchaCodigo} onChange={(e) => setCaptchaCodigo(e.target.value)} placeholder="Código" autoFocus onKeyDown={(e) => e.key === "Enter" && enviarCaptcha()} />
+            <button type="button" className="ma-sri-boton-ejecutar" onClick={enviarCaptcha}>Enviar</button>
+          </div>
+        </div>
+      )}
+      {trabajando && (
+        <div className="ma-sri-trabajando">
+          <span className="ma-sri-spinner" aria-hidden="true" />
+          <span>El robot está trabajando en el servidor… <strong>{segundos}s</strong>{fase === "captcha" ? " · esperando que resuelvas el captcha" : (form.con_portal ? " · bajando del SRI lo que falte y cruzando" : " · cruzando")}</span>
+        </div>
+      )}
+      {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}
+      {fase === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenOffline r={resultado} titulo="✅ Cruce listo" onDescargar={resultado?.excel_path ? bajar : null} bajando={bajando} textoDescarga="Descargar Excel" /></div>}
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+    </section>
+  );
+}
+
+// ---------- Subpágina: Valor neto (factura − notas de crédito) ----------
+function SubValorNeto() {
+  const [form, setForm] = useState({ ruc: "", con_portal: false, clave: "" });
+  const [fase, setFase] = useState("idle"); // idle|procesando|captcha|listo|error
+  const [resultado, setResultado] = useState(null);
+  const [permiso, setPermiso] = useState(null);
+  const [progreso, setProgreso] = useState([]);
+  const [captchaImg, setCaptchaImg] = useState(null);
+  const [captchaCodigo, setCaptchaCodigo] = useState("");
+  const [segundos, setSegundos] = useState(0);
+  const [verVivo, setVerVivo] = useState(false);
+  const [error, setError] = useState("");
+  const [bajando, setBajando] = useState(false);
+  const ctx = useRef({ url: "", token: "", id: "", vivo: false });
+  const set = (k) => (e) => { const v = e.target.type === "checkbox" ? e.target.checked : e.target.value; setForm((f) => ({ ...f, [k]: v })); };
+  useEffect(() => () => { ctx.current.vivo = false; }, []);
+  useEffect(() => {
+    if (!(fase === "procesando" || fase === "captcha")) return undefined;
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [fase]);
+  const trabajando = fase === "procesando" || fase === "captcha";
+
+  async function poll() {
+    if (!ctx.current.vivo) return;
+    try {
+      const est = await sriEstado(ctx.current.url, ctx.current.token, ctx.current.id);
+      setProgreso(est.progreso || []);
+      if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
+      else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase(est.resultado?.ok === false ? "error" : "listo"); if (est.resultado?.ok === false) setError(est.resultado.message || "Sin resultados."); return; }
+      else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "El reporte falló."); setFase("error"); return; }
+      else { setFase("procesando"); setCaptchaImg(null); }
+    } catch { /* red transitoria */ }
+    setTimeout(poll, 1500);
+  }
+
+  async function ejecutar() {
+    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0);
+    if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
+    if (form.con_portal && !form.clave) { setError("Falta la clave del SRI para buscar en el portal."); return; }
+    const carpeta = `descargas/${form.ruc.trim()}`;
+    setFase("procesando");
+    try {
+      const p = await sriPermiso(`SRI valor neto ${form.ruc.trim()}`);
+      const params = { carpeta_nc: carpeta, ruc: form.ruc.trim() };
+      if (form.con_portal) params.clave = form.clave;
+      const r = await sriValorNeto(p.url, p.token, params);
+      if (form.con_portal && r && r.id) {
+        ctx.current = { url: p.url, token: p.token, id: r.id, vivo: true };
+        setPermiso(p); setForm((f) => ({ ...f, clave: "" }));
+        poll();
+      } else {
+        setPermiso(p); setResultado(r); setFase(r.ok === false ? "error" : "listo");
+        if (r.ok === false) setError(r.message || "No se pudo generar el reporte.");
+      }
+    } catch (e) { setError(e?.message || "No se pudo generar el reporte."); setFase("error"); }
+  }
+
+  async function enviarCaptcha() {
+    if (!captchaCodigo.trim()) return;
+    try { await sriEnviarCaptcha(ctx.current.url, ctx.current.token, ctx.current.id, captchaCodigo.trim()); setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando"); }
+    catch (e) { setError(e?.message || "No se pudo enviar el captcha."); }
+  }
+
+  async function bajar() {
+    if (!permiso || !resultado?.excel_path) return;
+    setBajando(true); setError("");
+    try { await sriDescargarArchivo(permiso.url, permiso.token, resultado.excel_path); }
+    catch (e) { setError(e?.message || "No se pudo descargar."); }
+    finally { setBajando(false); }
+  }
+
+  return (
+    <section className="ma-tarjeta ma-sri-descarga">
+      <div className="ma-sri-descarga-cab">
+        <h3>Valor neto (factura − notas de crédito)</h3>
+        <span>Cruza cada nota de crédito contra su factura para obtener el valor neto de compra. Por defecto usa lo ya descargado; puedes pedir que el robot baje del SRI las facturas modificadas que falten.</span>
+      </div>
+      <div className="ma-sri-form">
+        <label>RUC del cliente<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" disabled={trabajando} /></label>
+        <label className="ma-sri-check">Portal
+          <span className="ma-sri-check-fila"><label><input type="checkbox" checked={form.con_portal} onChange={set("con_portal")} disabled={trabajando} /> Bajar del SRI las facturas que falten (login + captcha)</label></span>
+        </label>
+        {form.con_portal && (
+          <label>Clave del SRI
+            <input type="password" value={form.clave} onChange={set("clave")} placeholder="•••••••" autoComplete="off" disabled={trabajando} />
+          </label>
+        )}
+      </div>
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Calculando…" : "Generar valor neto"}</button>
+        {form.con_portal && (
+          <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>{verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}</button>
+        )}
+        {form.con_portal && <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>}
+      </div>
+
+      {verVivo && form.con_portal && <VistaEnVivo encargo="SRI vista en vivo (valor neto)" />}
+
+      {captchaImg && (
+        <div className="ma-sri-captcha" role="dialog" aria-label="Resolver captcha">
+          <p><strong>El SRI pide un captcha.</strong> Escribe lo que ves:</p>
+          <img alt="captcha del SRI" src={`data:image/png;base64,${captchaImg}`} className="ma-sri-captcha-img" />
+          <div className="ma-sri-captcha-fila">
+            <input value={captchaCodigo} onChange={(e) => setCaptchaCodigo(e.target.value)} placeholder="Código" autoFocus onKeyDown={(e) => e.key === "Enter" && enviarCaptcha()} />
+            <button type="button" className="ma-sri-boton-ejecutar" onClick={enviarCaptcha}>Enviar</button>
+          </div>
+        </div>
+      )}
+      {trabajando && (
+        <div className="ma-sri-trabajando">
+          <span className="ma-sri-spinner" aria-hidden="true" />
+          <span>El robot está trabajando en el servidor… <strong>{segundos}s</strong>{fase === "captcha" ? " · esperando que resuelvas el captcha" : (form.con_portal ? " · bajando del SRI las facturas que falten" : " · calculando")}</span>
+        </div>
+      )}
+      {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}
+      {fase === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenOffline r={resultado} titulo="✅ Reporte listo" onDescargar={resultado?.excel_path ? bajar : null} bajando={bajando} textoDescarga="Descargar Excel" /></div>}
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+    </section>
+  );
+}
+
+// ---------- Subpágina: Declaraciones presentadas (login + captcha) ----------
+function SubDeclaraciones() {
+  const anioActual = ANIO_ACTUAL;
+  const [form, setForm] = useState({ ruc: "", clave: "", obligacion: "iva_104", anio: anioActual, mes: 1, documento: DOCS_DECL[0] });
+  const [fase, setFase] = useState("idle"); // idle|procesando|captcha|listo|error
+  const [resultado, setResultado] = useState(null);
+  const [permiso, setPermiso] = useState(null);
+  const [progreso, setProgreso] = useState([]);
+  const [captchaImg, setCaptchaImg] = useState(null);
+  const [captchaCodigo, setCaptchaCodigo] = useState("");
+  const [segundos, setSegundos] = useState(0);
+  const [verVivo, setVerVivo] = useState(false);
+  const [error, setError] = useState("");
+  const [bajando, setBajando] = useState(false);
+  const ctx = useRef({ url: "", token: "", id: "", vivo: false });
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  useEffect(() => () => { ctx.current.vivo = false; }, []);
+  useEffect(() => {
+    if (!(fase === "procesando" || fase === "captcha")) return undefined;
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [fase]);
+  const trabajando = fase === "procesando" || fase === "captcha";
+  const esMensual = OBLIGACIONES_DECL.find((o) => o.id === form.obligacion)?.mensual;
+
+  async function poll() {
+    if (!ctx.current.vivo) return;
+    try {
+      const est = await sriEstado(ctx.current.url, ctx.current.token, ctx.current.id);
+      setProgreso(est.progreso || []);
+      if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
+      else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase(est.resultado?.ok === false ? "error" : "listo"); if (est.resultado?.ok === false) setError(est.resultado.message || "Sin resultados."); return; }
+      else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "La descarga falló."); setFase("error"); return; }
+      else { setFase("procesando"); setCaptchaImg(null); }
+    } catch { /* red transitoria */ }
+    setTimeout(poll, 1500);
+  }
+
+  async function ejecutar() {
+    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0);
+    if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
+    if (!form.clave) { setError("Falta la clave del SRI del cliente."); return; }
+    setFase("procesando");
+    try {
+      const p = await sriPermiso(`SRI declaración ${form.ruc.trim()}`);
+      const params = { ruc: form.ruc.trim(), clave: form.clave, obligacion: form.obligacion, anio: Number(form.anio), documento: form.documento };
+      if (esMensual) params.mes = Number(form.mes);
+      const r = await sriDeclaracionesDescargar(p.url, p.token, params);
+      setPermiso(p); setForm((f) => ({ ...f, clave: "" }));
+      if (r && r.id) { ctx.current = { url: p.url, token: p.token, id: r.id, vivo: true }; poll(); }
+      else { setResultado(r); setFase(r?.ok === false ? "error" : "listo"); }
+    } catch (e) { setError(e?.message || "No se pudo descargar la declaración."); setFase("error"); }
+  }
+
+  async function enviarCaptcha() {
+    if (!captchaCodigo.trim()) return;
+    try { await sriEnviarCaptcha(ctx.current.url, ctx.current.token, ctx.current.id, captchaCodigo.trim()); setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando"); }
+    catch (e) { setError(e?.message || "No se pudo enviar el captcha."); }
+  }
+
+  async function bajar() {
+    if (!permiso || !resultado?.archivo) return;
+    setBajando(true); setError("");
+    try { await sriDescargarArchivo(permiso.url, permiso.token, resultado.archivo); }
+    catch (e) { setError(e?.message || "No se pudo descargar."); }
+    finally { setBajando(false); }
+  }
+
+  return (
+    <section className="ma-tarjeta ma-sri-descarga">
+      <div className="ma-sri-descarga-cab">
+        <h3>Declaraciones presentadas</h3>
+        <span>Descarga del portal del SRI el formulario de una declaración ya presentada (IVA, Retenciones, Renta). Requiere iniciar sesión en el SRI del cliente; si pide captcha, aparece aquí.</span>
+      </div>
+      <div className="ma-sri-form">
+        <label>RUC del cliente<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" disabled={trabajando} /></label>
+        <label>Clave del SRI<input type="password" value={form.clave} onChange={set("clave")} placeholder="•••••••" autoComplete="off" disabled={trabajando} /></label>
+        <label>Obligación
+          <select value={form.obligacion} onChange={set("obligacion")} disabled={trabajando}>{OBLIGACIONES_DECL.map((o) => <option key={o.id} value={o.id}>{o.nombre}</option>)}</select>
+        </label>
+        <label>Año
+          <select value={form.anio} onChange={set("anio")} disabled={trabajando}>{ANIOS.map((a) => <option key={a} value={a}>{a}</option>)}</select>
+        </label>
+        {esMensual && (
+          <label>Mes
+            <select value={form.mes} onChange={set("mes")} disabled={trabajando}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select>
+          </label>
+        )}
+        <label>Documento
+          <select value={form.documento} onChange={set("documento")} disabled={trabajando}>{DOCS_DECL.map((d) => <option key={d}>{d}</option>)}</select>
+        </label>
+      </div>
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Descargando…" : "Descargar declaración"}</button>
+        <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>{verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}</button>
+        <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>
+      </div>
+
+      {verVivo && <VistaEnVivo encargo="SRI vista en vivo (declaraciones)" />}
+
+      {captchaImg && (
+        <div className="ma-sri-captcha" role="dialog" aria-label="Resolver captcha">
+          <p><strong>El SRI pide un captcha.</strong> Escribe lo que ves:</p>
+          <img alt="captcha del SRI" src={`data:image/png;base64,${captchaImg}`} className="ma-sri-captcha-img" />
+          <div className="ma-sri-captcha-fila">
+            <input value={captchaCodigo} onChange={(e) => setCaptchaCodigo(e.target.value)} placeholder="Código" autoFocus onKeyDown={(e) => e.key === "Enter" && enviarCaptcha()} />
+            <button type="button" className="ma-sri-boton-ejecutar" onClick={enviarCaptcha}>Enviar</button>
+          </div>
+        </div>
+      )}
+      {trabajando && (
+        <div className="ma-sri-trabajando">
+          <span className="ma-sri-spinner" aria-hidden="true" />
+          <span>El robot está trabajando en el servidor… <strong>{segundos}s</strong>{fase === "captcha" ? " · esperando que resuelvas el captcha" : " · entrando al SRI y descargando"}</span>
+        </div>
+      )}
+      {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}
+      {fase === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenOffline r={resultado} titulo="✅ Declaración descargada" onDescargar={resultado?.archivo ? bajar : null} bajando={bajando} textoDescarga="Descargar archivo" /></div>}
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+    </section>
+  );
+}
+
+// ---------- Subpágina 4: Ayuda + alcance ----------
 const FUENTES = [
-  { nombre: "Robot del SRI", texto: "Descarga los comprobantes electrónicos emitidos y recibidos, incluidas las retenciones.", formatos: ["XML", "TXT"] },
+  { nombre: "Robot del SRI", texto: "Descarga los comprobantes electrónicos emitidos y recibidos, incluidas las retenciones.", formatos: ["XML", "PDF"] },
   { nombre: "Declaraciones", texto: "Formularios presentados en el período, originales y sustitutivas.", formatos: ["PDF", "XML"] },
   { nombre: "Anexos tributarios", texto: "ATS, RDEP, dividendos, accionistas, partes relacionadas y demás.", formatos: ["XML", "Excel"] },
   { nombre: "Contabilidad del cliente", texto: "Mayor o diario, auxiliares de ventas y compras, nómina y maestros.", formatos: ["Excel", "CSV"] },
 ];
-
-const CRUCES = [
-  { titulo: "Ventas SRI vs contabilidad", texto: "Cada factura emitida contra el mayor de ingresos: no registradas, registradas sin factura y suma total de ingresos (voucheo).", reglas: "VTA-008 · VTA-009", t: "listo" },
-  { titulo: "Secuencia y duplicados en ventas", texto: "Saltos de numeración por establecimiento y punto de emisión, facturación retroactiva y facturas repetidas.", reglas: "VTA-001 · VTA-002 · duplicados en ventas por construir", t: "listo" },
-  { titulo: "Retenciones que nos efectuaron", texto: "Cada comprobante de retención recibido unido a la factura que sustenta: retenciones sin factura, facturas sin retención y bases distintas.", reglas: "Regla nueva", t: "nuevo" },
-  { titulo: "Compras SRI vs contabilidad", texto: "Facturas recibidas contra el mayor: gasto sin comprobante, comprobante no registrado, diferencias de importe y de corte.", reglas: "CON-001 · 002 · 003 · 004", t: "listo" },
-  { titulo: "Retenciones que efectuamos", texto: "Retención aplicada contra la que corresponde por concepto y porcentaje, y cuadre con el F-103.", reglas: "TRB-002", t: "nuevo" },
-  { titulo: "Empresas fantasmas", texto: "Proveedores cruzados contra el catastro del SRI de empresas inexistentes o fantasmas y personas con transacciones inexistentes.", reglas: "PRV-008", t: "nuevo" },
-].map((c) => ({ ...c, estado: NOMBRE_ESTADO[c.t] }));
-
-const DECLARACIONES = [
-  { form: "F-104 IVA", prueba: "IVA de ventas y compras según XML y contabilidad, mes a mes; crédito tributario arrastrado", t: "existe" },
-  { form: "F-103 Retenciones", prueba: "Retenciones de renta e IVA contra comprobantes emitidos y contabilidad", t: "existe" },
-  { form: "F-101 Renta sociedades", prueba: "Casilleros contra estados financieros; conciliación tributaria y participación laboral", t: "nuevo" },
-  { form: "Otros formularios", prueba: "ICE, pagos varios y salida de divisas, según aplique al cliente", t: "nuevo" },
-  { form: "Todas", prueba: "Meses presentados, sustitutivas y fechas de presentación", t: "nuevo" },
-].map((d) => ({ ...d, estado: NOMBRE_ESTADO[d.t] }));
-
-const ANEXOS = [
-  { form: "ATS", prueba: "Totales contra F-104 y F-103; comprobante por comprobante contra los XML del SRI", t: "existe" },
-  { form: "RDEP", prueba: "Relación de dependencia contra nómina y retenciones en la fuente del personal", t: "nuevo" },
-  { form: "Dividendos", prueba: "Dividendos distribuidos contra actas, patrimonio y retenciones", t: "nuevo" },
-  { form: "Accionistas y beneficiarios", prueba: "Composición societaria contra registros y la Superintendencia de Compañías", t: "nuevo" },
-  { form: "Partes relacionadas", prueba: "Operaciones con relacionadas contra contabilidad y umbrales de precios de transferencia", t: "nuevo" },
-  { form: "Declaración patrimonial", prueba: "Activos y pasivos declarados contra los estados financieros", t: "nuevo" },
-].map((d) => ({ ...d, estado: NOMBRE_ESTADO[d.t] }));
-
-const SECCIONES = [
-  { id: "fuentes", titulo: "Fuentes" },
-  { id: "comprobantes", titulo: "Comprobantes SRI vs contabilidad" },
-  { id: "declaraciones", titulo: "Declaraciones" },
-  { id: "anexos", titulo: "Anexos" },
-  { id: "organismos", titulo: "Otros organismos" },
-];
-
-export default function CumplimientoSRI({ ir, EnConstruccion }) {
+function SubAyuda() {
   return (
-    <section className="ma-pagina ma-sri-pagina">
-      <div className="ma-sri-breadcrumb">
-        <button type="button" className="ma-sri-link" onClick={() => ir("portada")}>
-          Motor de Auditoría Analítica
-        </button>
-        <span className="ma-sri-sep">/</span>
-        <span>Cumplimiento tributario · SRI</span>
-      </div>
-
-      <div className="ma-sri-encabezado">
-        <h2>{META.titulo}</h2>
-        <button type="button" className="ma-boton" onClick={() => ir("portada")}>
-          ← Volver a la portada
-        </button>
-      </div>
-      <p className="ma-sri-intro">
-        Declaraciones, anexos tributarios y comprobantes electrónicos del SRI contra la contabilidad del
-        cliente. El Informe de Cumplimiento Tributario (ICT) es una herramienta aparte.
-      </p>
-      <nav aria-label="Secciones" className="ma-sri-nav">
-        {SECCIONES.map((s) => (
-          <a key={s.id} href={`#ma-sri-${s.id}`}>
-            {s.titulo}
-          </a>
-        ))}
-      </nav>
-
-      <EnConstruccion sp={META.sp} />
-
-      <section id="ma-sri-fuentes" aria-label="Fuentes" className="ma-grid ma-sri-fuentes">
+    <section className="ma-sri-ayuda">
+      <section className="ma-tarjeta">
+        <h3>Cómo usar el robot del SRI</h3>
+        <ol className="ma-sri-ayuda-lista">
+          <li><strong>Descarga:</strong> pon el RUC y la clave del SRI del cliente, elige el período y los formatos, y pulsa «Descargar». Si el SRI muestra un captcha, aparecerá aquí para que lo escribas. Al terminar, baja los archivos con «Descargar archivos (ZIP)».</li>
+          <li><strong>Reportes e historial:</strong> revisa las descargas ya realizadas.</li>
+          <li><strong>Consolidación:</strong> une los documentos ya descargados de un RUC por período en un solo reporte.</li>
+        </ol>
+        <p className="ma-sri-tabla-nota">La clave del SRI del cliente viaja del navegador directo al motor de la firma, se usa solo para esa descarga y no se guarda ni pasa por el servidor web.</p>
+      </section>
+      <section className="ma-grid ma-sri-fuentes">
         {FUENTES.map((f) => (
           <div className="ma-tarjeta ma-sri-tarjeta-fuente" key={f.nombre}>
             <span className="ma-sri-fuente-nombre">{f.nombre}</span>
             <span className="ma-sri-fuente-texto">{f.texto}</span>
-            <div className="ma-sri-formatos">
-              {f.formatos.map((x) => (
-                <span className="ma-sri-chip" key={x}>
-                  {x}
-                </span>
-              ))}
-            </div>
+            <div className="ma-sri-formatos">{f.formatos.map((x) => <span className="ma-sri-chip" key={x}>{x}</span>)}</div>
           </div>
         ))}
       </section>
+    </section>
+  );
+}
 
-      <section id="ma-sri-comprobantes" aria-label="Comprobantes del SRI contra la contabilidad" className="ma-tarjeta ma-sri-comprobantes">
-        <div className="ma-sri-comprobantes-cab">
-          <h3>Comprobantes del SRI contra la contabilidad</h3>
-          <span>Con los XML que descarga el robot del SRI</span>
-          <button type="button" className="ma-sri-boton-ejecutar" disabled title="Disponible cuando se active SP6">
-            Ejecutar cruces
+export default function CumplimientoSRI({ ir }) {
+  const [sub, setSub] = useState("descarga");
+  return (
+    <section className="ma-pagina ma-sri-pagina">
+      <div className="ma-sri-breadcrumb">
+        <button type="button" className="ma-sri-link" onClick={() => ir("portada")}>Motor de Auditoría Analítica</button>
+        <span className="ma-sri-sep">/</span><span>Cumplimiento tributario · SRI</span>
+      </div>
+      <div className="ma-sri-encabezado">
+        <h2>{META.titulo}</h2>
+        <button type="button" className="ma-boton" onClick={() => ir("portada")}>← Volver a la portada</button>
+      </div>
+
+      <nav aria-label="Pantallas del robot" className="ma-sri-subnav">
+        {SUBS.map((s) => (
+          <button key={s.id} type="button" className={`ma-sri-subnav-tab${sub === s.id ? " activo" : ""}`} onClick={() => setSub(s.id)}>
+            {s.titulo}
           </button>
-        </div>
-        <div className="ma-grid ma-sri-cruces">
-          {CRUCES.map((c) => (
-            <div className="ma-sri-tarjeta-cruce" key={c.titulo}>
-              <div className="ma-sri-cruce-cab">
-                <span className="ma-sri-cruce-titulo">{c.titulo}</span>
-                <span className={`ma-sri-estado ma-sri-estado-${c.t}`}>{c.estado}</span>
-              </div>
-              <span className="ma-sri-cruce-texto">{c.texto}</span>
-              <span className="ma-sri-cruce-reglas">{c.reglas}</span>
-            </div>
-          ))}
-        </div>
-      </section>
+        ))}
+      </nav>
 
-      <div className="ma-sri-dos-col">
-        <section id="ma-sri-declaraciones" aria-label="Declaraciones" className="ma-tarjeta ma-sri-tabla-bloque">
-          <h3>Declaraciones</h3>
-          <span className="ma-sri-tabla-nota">
-            Cada formulario contra la contabilidad, contra los demás formularios y contra los comprobantes del
-            SRI.
-          </span>
-          <div className="ma-tabla-wrap">
-            <table className="ma-tabla ma-sri-tabla">
-              <thead>
-                <tr>
-                  <th scope="col">Formulario</th>
-                  <th scope="col">Qué se prueba</th>
-                  <th scope="col">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {DECLARACIONES.map((d) => (
-                  <tr key={d.form}>
-                    <td className="ma-sri-tabla-form">{d.form}</td>
-                    <td>{d.prueba}</td>
-                    <td>
-                      <span className={`ma-sri-estado ma-sri-estado-${d.t}`}>{d.estado}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section id="ma-sri-anexos" aria-label="Anexos tributarios" className="ma-tarjeta ma-sri-tabla-bloque">
-          <h3>Anexos tributarios</h3>
-          <span className="ma-sri-tabla-nota">Cada anexo contra su fuente en la contabilidad y contra las declaraciones.</span>
-          <div className="ma-tabla-wrap">
-            <table className="ma-tabla ma-sri-tabla">
-              <thead>
-                <tr>
-                  <th scope="col">Anexo</th>
-                  <th scope="col">Qué se prueba</th>
-                  <th scope="col">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ANEXOS.map((d) => (
-                  <tr key={d.form}>
-                    <td className="ma-sri-tabla-form">{d.form}</td>
-                    <td>{d.prueba}</td>
-                    <td>
-                      <span className={`ma-sri-estado ma-sri-estado-${d.t}`}>{d.estado}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-
-      <section id="ma-sri-organismos" aria-label="Otros organismos de control" className="ma-tarjeta ma-sri-organismos">
-        <div className="ma-sri-organismos-texto">
-          <h3>Otros organismos de control</h3>
-          <span>
-            Formatos de la Superintendencia de Compañías y de la Superintendencia de Bancos (SBS): estados
-            financieros, nómina de accionistas e informes, contra la contabilidad y las declaraciones del SRI.
-          </span>
-        </div>
-        <span className="ma-sri-organismos-badge">Por definir alcance</span>
-      </section>
-
-      <div className="ma-sri-nota-pie">
-        <span className="ma-sri-nota-pie-barra" aria-hidden="true" />
-        <span>
-          Catálogo de declaraciones y anexos a validar con el área tributaria de la firma. Las credenciales del
-          SRI del cliente nunca pasan por el motor.
-        </span>
-      </div>
+      {sub === "descarga" && <SubDescarga />}
+      {sub === "reportes" && <SubReportes />}
+      {sub === "consolidacion" && <SubConsolidacion />}
+      {sub === "reconstruccion" && <SubReconstruccion />}
+      {sub === "cruce" && <SubCruceRetenciones />}
+      {sub === "valorneto" && <SubValorNeto />}
+      {sub === "declaraciones" && <SubDeclaraciones />}
+      {sub === "ayuda" && <SubAyuda />}
     </section>
   );
 }

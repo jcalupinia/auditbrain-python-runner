@@ -6,12 +6,33 @@ import ObligacionesFiscalesTool from "./ObligacionesFiscalesTool.jsx";
 import InformeCumplimientoTributarioTool from "./InformeCumplimientoTributarioTool.jsx";
 import MotorBalancesTool from "./MotorBalancesTool.jsx";
 import VnrTool from "./vnr/VnrTool.jsx";
+import ConfirmacionesTool from "./confirmaciones/ConfirmacionesTool.jsx";
 
 const PruebasEncargo = lazy(() => import("./niif/PruebasEncargo.jsx"));
 const MotorAnaliticoTool = lazy(() => import("./motorAnalitico/MotorAnaliticoTool.jsx"));
 
 // Fichas NIIF («ficha:») y herramientas del catálogo («proc:») se trabajan en Pruebas del encargo.
 export const abrePruebasEncargo = (id) => /^(ficha|proc):/.test(id || "");
+
+// Lo que prueba cada herramienta (el objetivo de cada procedimiento de su programa): depreciación, deterioro,
+// desmantelamiento… En una etapa (planificación) son las partes que incluye.
+export const rotuloPruebas = (tipo) => (tipo === "etapa" ? "Qué incluye" : "Qué se prueba");
+export const pruebasDe = (herramienta) => (Array.isArray(herramienta?.pruebas) ? herramienta.pruebas.filter(Boolean) : []);
+
+// Etiquetas de lo que prueba una herramienta: las NIIF las traen del servidor (objetivos de su programa) y las demás de
+// catalog.js.
+function QueSePrueba({ herramienta, tipo }) {
+  const lista = pruebasDe(herramienta);
+  if (!lista.length) return null;
+  return (
+    <span className="aud-tool-pruebas" aria-label={`${rotuloPruebas(tipo)}: ${lista.join(", ")}`}>
+      <span className="aud-tool-pruebas-h">{rotuloPruebas(tipo)}</span>
+      {lista.map((p) => (
+        <span key={p} className="aud-tool-prueba">{p}</span>
+      ))}
+    </span>
+  );
+}
 
 export default function ToolCatalog({ projectId }) {
   const [activeTool, setActiveTool] = useState(null);
@@ -41,6 +62,10 @@ export default function ToolCatalog({ projectId }) {
 
   if (activeTool === "AUD.INVENTARIOS.VNR") {
     return <div className="aud-tool-wrap"><button className="link aud-back" onClick={() => { if (window.confirm("Descargue sus resultados antes de salir. ¿Volver al catálogo?")) setActiveTool(null); }}>{STRINGS.back_to_catalog}</button><VnrTool key={projectId} projectId={projectId} sharedContext={sharedContext?.projectId === projectId ? sharedContext.context : null} onShareContext={context => setSharedContext({projectId, context})}/></div>;
+  }
+
+  if (activeTool === "AUD.CONFIRMACIONES.SALDOS") {
+    return <div className="aud-tool-wrap"><button className="link aud-back" onClick={() => { if (window.confirm("Descargue sus resultados antes de salir. ¿Volver al catálogo?")) setActiveTool(null); }}>{STRINGS.back_to_catalog}</button><ConfirmacionesTool key={projectId} projectId={projectId} sharedContext={sharedContext?.projectId === projectId ? sharedContext.context : null} onShareContext={context => setSharedContext({projectId, context})}/></div>;
   }
 
   if (activeTool === "AUD.MOTOR_BALANCES") {
@@ -124,6 +149,7 @@ export default function ToolCatalog({ projectId }) {
                         {(f.marcos || []).join(" · ") || "Ficha NIIF"}
                         {f.estado === "enviada" ? " · en el catálogo" : " · probada, pendiente de aprobación para el catálogo"}
                       </span>
+                      <QueSePrueba herramienta={f} tipo={cat.type} />
                     </button>
                   ))}
                   {(cat.tools || []).map((t) => (
@@ -134,6 +160,7 @@ export default function ToolCatalog({ projectId }) {
                     >
                       <b>{t.label}</b>
                       <span>{t.description}</span>
+                      <QueSePrueba herramienta={t} tipo={cat.type} />
                     </button>
                   ))}
                 </div>

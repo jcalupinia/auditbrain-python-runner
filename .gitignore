@@ -23,3 +23,6 @@ frontend/_hotel.json
 .venv-forge/
 # Entorno local para correr la suite de tests (diagnóstico de memoria 2026-08).
 .venv-audit/
+
+# Papeles de muestra regenerables (python scripts/papeles_muestra.py <carpeta>)
+docs/niif/papeles_muestra/

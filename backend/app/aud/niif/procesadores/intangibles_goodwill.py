@@ -41,6 +41,8 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     validar_campos, validar_definicion_generica,
 )
 
+from backend.app.aud.niif.procesadores import problemas
+
 VERSION = "intangibles_goodwill 1.0"
 RUBRO = "INTANGIBLES"
 
@@ -446,6 +448,7 @@ CEDULAS = [
     ("04_Reconocimiento", "Reconocimiento e investigación / desarrollo"), ("05_Amortizacion", "Amortización y vida finita / indefinida"),
     ("06_Vida_util", "Revisión de vida útil y valor residual"), ("07_Deterioro", "Deterioro e importe recuperable"),
     ("08_Reversion", "Reversión del deterioro"), ("09_Ajuste", "Valor neto y ajuste propuesto"), ("10_Problemas", "Problemas encontrados"),
+    ("11_Conclusion", "Indicadores y conclusión"), ("12_Lectura", "Lectura de resultados"),
 ]
 PARK = ["corte", "marco", "pymes", "edicion", "presuncion", "vidaMaxPymes", "saldoMayor"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -467,6 +470,314 @@ def _tot(col: str, n: int, v):
 def _opc(celda: str) -> str:
     """Referencia a un dato opcional: vacío sigue vacío."""
     return f'IF({celda}="","",{celda})'
+
+
+_H03 = "la hoja 03 (Auxiliar de intangibles y goodwill)"
+
+# Explicación HUMANA de cada columna calculada («Cómo se calcula esta hoja»).
+_EXPLICA = {
+    "01_Resumen": {
+        "Importe": ("Trae cada importe de la hoja de cálculo que le corresponde, concepto por concepto: los netos salen de la hoja 09 "
+                    "(Valor neto y ajuste propuesto), la baja a gasto de la hoja 04, la amortización de la hoja 05, el deterioro de la 07 y la "
+                    "reversión de la 08. El saldo del mayor es el del parámetro (si está en blanco, el neto del auxiliar) y el ajuste es el neto "
+                    "auditado menos ese saldo del mayor."),
+    },
+    "04_Reconocimiento": {
+        "Tipo": f"Copia, como texto, el tipo de intangible (software, licencia, marca, goodwill…) que informó el cliente en {_H03}.",
+        "Fase": f"Copia, como texto, la fase del proyecto interno (investigación o desarrollo) informada en {_H03}; si no aplica, queda en blanco.",
+        "Cumple NIC 38.57": f"Copia la respuesta del cliente (Sí/No) sobre si el desarrollo cumple los criterios de la NIC 38.57, tomada de {_H03}.",
+        "Categoría": ("Clasifica la partida leyendo el tipo y la fase: si alguno menciona «investigación» es Investigación; si menciona "
+                      "«desarrollo» es Desarrollo; si el tipo dice «goodwill» o «plusvalía» es Goodwill; cualquier otro caso queda como Otro."),
+        "Capitalizable": ("Decide si la partida puede quedarse en el activo: la investigación nunca; el desarrollo no en la ruta PYMES "
+                          "(parámetro de la hoja 02) ni cuando el cliente respondió «No» a la NIC 38.57; todo lo demás sí."),
+        "Criterio": ("Escribe en palabras el motivo de la decisión anterior: investigación a gasto, desarrollo a gasto en PYMES, desarrollo que "
+                     "no cumple la NIC 38.57, desarrollo sin evidencia de esos criterios (respuesta en blanco) o intangible reconocido."),
+        "Costo registrado": f"Trae el costo de la partida tal como lo registró el cliente en {_H03}.",
+        "Costo auditado": "Mantiene el costo registrado solo si la partida es capitalizable; si no lo es, el costo auditado es cero.",
+        "Neto a dar de baja (gasto)": (f"Solo para partidas no capitalizables: parte del costo de {_H03}, resta la amortización acumulada "
+                                       "inicial, la del año, el deterioro previo y el del año, y suma la reversión registrada. Es el neto que "
+                                       "debe pasar a gasto; en las capitalizables es cero."),
+    },
+    "05_Amortizacion": {
+        "Categoría": "Trae la categoría (Investigación, Desarrollo, Goodwill u Otro) asignada en la hoja 04 (Reconocimiento).",
+        "Capitalizable": "Trae de la hoja 04 (Reconocimiento) si la partida se mantiene en el activo (Sí) o va a gasto (No).",
+        "Costo auditado": "Trae el costo auditado de la hoja 04 (Reconocimiento): el costo registrado si es capitalizable, o cero si no.",
+        "Valor residual": f"Trae el valor residual informado por el cliente en {_H03}; si está en blanco, se toma como cero.",
+        "Importe amortizable": "Resta el valor residual al costo auditado; si el resultado fuera negativo, queda en cero.",
+        "Vida aplicada (meses)": (f"Toma la vida útil en meses de {_H03}. En la ruta PYMES la limita al tope de la hoja 02 (Parámetros); en "
+                                  "NIIF completas el goodwill queda sin vida. Queda en blanco si la partida no es capitalizable o si no hay "
+                                  "vida informada."),
+        "Tipo de vida": ("Indica «Finita» si hay vida aplicada. Sin vida: «No aplica» si no es capitalizable, «Sin estimación» en PYMES, y en "
+                         "NIIF completas «indefinida», con una leyenda propia para el goodwill, que no se amortiza."),
+        "Meses en uso del ejercicio": (f"Cuenta los meses desde la fecha en que el intangible quedó disponible para uso ({_H03}) hasta el corte "
+                                       "de la hoja 02, incluido el mes de inicio, con un mínimo de 0 y un máximo de 12. Sin fecha, da cero."),
+        "Importe pendiente": (f"Resta al importe amortizable la amortización acumulada inicial y el deterioro previo de {_H03}: es lo que "
+                              "todavía queda por amortizar (nunca menos de cero)."),
+        "Amortización recalculada (lineal)": ("Divide el importe amortizable para la vida aplicada y lo multiplica por los meses en uso del "
+                                              "ejercicio, sin pasar del importe pendiente. Da cero sin vida o sin meses de uso; en partidas "
+                                              "capitalizables queda en blanco si el método aplicado no es el lineal o si en PYMES falta la vida."),
+        "Amortización registrada (cliente)": f"Trae la amortización del año que registró el cliente en {_H03} (cero si está en blanco).",
+        "Diferencia": ("Resta la amortización registrada por el cliente a la recalculada; si la recalculada quedó en blanco (método no lineal "
+                       "o sin vida en PYMES), la diferencia también queda en blanco."),
+        "Amort. acumulada recalculada": (f"Suma la amortización acumulada inicial de {_H03} y la amortización auditada del año de esta misma "
+                                         "hoja: es la amortización acumulada al corte según el auditor."),
+        "Método informado por el cliente": f"Copia, como texto, el método de amortización que informó el cliente en {_H03}.",
+        "Circunstancia invocada (NIC 38.98A / 18.22A)": (f"Lee la justificación del método por ingresos de {_H03}: si empieza con «a» o «b» "
+                                                         "escribe la circunstancia correspondiente; con otro texto indica que no invoca ninguna; "
+                                                         "en blanco queda vacía."),
+        "Método aplicado por la herramienta": ("Si el cliente informa un método por ingresos, lo acepta cuando no rige la presunción "
+                                               "(parámetro de la hoja 02) o hay circunstancia a/b documentada; si no, aplica el lineal. Sin "
+                                               "método, lineal o línea recta es «Lineal»; otro método se acepta sin recalcular."),
+        "Amortización auditada": ("Usa la amortización recalculada cuando el método aplicado es el lineal; si la partida es capitalizable y "
+                                  "se aceptó otro método (ingresos u otro), acepta la amortización registrada por el cliente."),
+    },
+    "06_Vida_util": {
+        "Categoría": "Trae la categoría de la partida desde la hoja 05 (Amortización y vida finita / indefinida).",
+        "Vida registrada (meses)": f"Trae la vida útil en meses que registró el cliente en {_H03}; si no la informó, queda en blanco.",
+        "Vida aplicada (meses)": "Trae la vida aplicada de la hoja 05 (Amortización), ya limitada al tope PYMES cuando corresponde; en blanco si no hay.",
+        "Tipo de vida": "Trae de la hoja 05 (Amortización) si la vida es finita, indefinida, sin estimación o no aplica.",
+        "Meses transcurridos al cierre": (f"Cuenta los meses desde la fecha disponible para uso ({_H03}) hasta el corte, incluido el mes de "
+                                          "inicio y sin tope de 12. Queda en blanco si falta la fecha o la partida no es capitalizable."),
+        "Vida remanente (meses)": "Resta los meses transcurridos a la vida aplicada (mínimo cero); en blanco si falta alguno de los dos datos.",
+        "Amort. acumulada esperada": ("Reparte el importe amortizable de la hoja 05 (Amortización) entre la vida aplicada y lo multiplica "
+                                      "por los meses transcurridos, sin pasar del importe amortizable; en blanco si falta la vida o los meses."),
+        "Amort. acumulada recalculada": "Trae la amortización acumulada al corte que recalculó el auditor en la hoja 05 (Amortización).",
+        "Diferencia (esperada − recalculada)": (f"Resta la acumulada recalculada a la esperada. Queda en blanco si no hay esperada, si la "
+                                                f"partida tiene deterioro previo en {_H03} o si se aceptó un método distinto del lineal."),
+        "Valor residual": "Trae el valor residual usado en la hoja 05 (Amortización), cero si el cliente no lo informó.",
+        "Residual distinto de cero": "Marca «Sí» cuando la partida es capitalizable y su valor residual es mayor que cero; si no, «No».",
+        "Vida revisada al cierre": f"Copia la respuesta del cliente sobre si revisó la vida útil al cierre, tomada de {_H03}.",
+        "Revisión exigida": ("Indica con qué frecuencia debe revisarse la vida: no aplica si no es capitalizable; en PYMES, cuando hay "
+                             "indicios; en el goodwill de NIIF completas no aplica (va a prueba de deterioro); anual para vida finita o indefinida."),
+        "Totalmente amortizado": "Marca «Sí» cuando la vida remanente es cero; si es mayor o está en blanco, marca «No».",
+    },
+    "07_Deterioro": {
+        "Categoría": "Trae la categoría de la partida desde la hoja 05 (Amortización y vida finita / indefinida) para esta prueba.",
+        "Capitalizable": "Trae de la hoja 05 (Amortización) si la partida sigue en el activo; solo las capitalizables se prueban por deterioro.",
+        "Prueba exigida": ("Indica cuándo se exige la prueba: no aplica si no es capitalizable; en PYMES solo con indicios; anual para el "
+                           "goodwill y para partidas sin vida aplicada o sin fecha de uso; en las demás, solo si hay indicios."),
+        "Importe en libros antes del deterioro": (f"Parte del costo auditado de la hoja 05 (Amortización), resta la amortización acumulada "
+                                                  f"recalculada y el deterioro previo de {_H03}."),
+        "Valor en uso": f"Trae el valor en uso que informó el cliente en {_H03}; si no lo informó, queda en blanco.",
+        "VR menos costos de disposición": f"Trae el valor razonable menos costos de disposición informado en {_H03}; en blanco si falta.",
+        "Importe recuperable": "Toma el mayor entre el valor en uso y el valor razonable menos costos de disposición; si faltan ambos, queda en blanco.",
+        "Deterioro calculado": ("Si el importe en libros supera al recuperable, la diferencia es el deterioro (si no, cero). Queda en blanco "
+                                "cuando no hay importe recuperable o la partida no es capitalizable."),
+        "Deterioro registrado": f"Trae el deterioro del año que registró el cliente en {_H03} (cero si está en blanco).",
+        "Deterioro auditado": ("Usa el deterioro calculado; si no se pudo calcular (sin importe recuperable), acepta el registrado por el "
+                               "cliente. En partidas no capitalizables es cero."),
+        "Diferencia": "Resta el deterioro registrado por el cliente al deterioro auditado: lo que falta (positivo) o sobra (negativo) registrar.",
+    },
+    "08_Reversion": {
+        "Categoría": "Trae la categoría de la partida desde la hoja 05 (Amortización); el goodwill nunca revierte su deterioro.",
+        "Deterioro acumulado previo": f"Trae el deterioro acumulado de ejercicios anteriores informado en {_H03} (cero si está en blanco).",
+        "Indicio de reversión": f"Copia la respuesta del cliente sobre si hay indicios de que el deterioro se revirtió, tomada de {_H03}.",
+        "Importe en libros": "Trae el importe en libros antes del deterioro calculado en la hoja 07 (Deterioro e importe recuperable).",
+        "Importe recuperable": "Trae el importe recuperable de la hoja 07 (Deterioro e importe recuperable); en blanco si allí no se calculó.",
+        "Reversión calculada": ("Revierte lo que el recuperable supera al importe en libros, sin pasar del deterioro previo. Es cero en el "
+                                "goodwill, en partidas no capitalizables, sin deterioro previo o sin indicio «Sí»; en blanco si falta el recuperable."),
+        "Reversión registrada": f"Trae la reversión del deterioro que registró el cliente en {_H03} (cero si está en blanco).",
+        "Reversión auditada": "Usa la reversión calculada; si quedó en blanco por falta de importe recuperable, acepta la registrada por el cliente.",
+        "Diferencia": "Resta la reversión registrada por el cliente a la reversión auditada: positivo falta revertir, negativo sobra.",
+        "Límite: importe en libros sin deterioro (NIC 36.117)": ("Suma el importe en libros y el deterioro acumulado previo: es el techo "
+                                                                 "hasta donde puede subir el activo al revertir el deterioro."),
+    },
+    "09_Ajuste": {
+        "Neto en libros (cliente)": (f"Parte del costo de {_H03}, resta la amortización acumulada inicial, la del año, el deterioro previo "
+                                     "y el del año, y suma la reversión registrada: es el neto según las cifras del cliente."),
+        "Neto auditado": ("Parte del costo auditado (hoja 05), resta la amortización acumulada recalculada, el deterioro previo y el "
+                          "deterioro auditado (hoja 07), y suma la reversión auditada (hoja 08). Si la partida no es capitalizable, es cero."),
+        "Ajuste propuesto": "Resta el neto en libros del cliente al neto auditado: positivo aumenta el activo, negativo lo disminuye.",
+        "Semáforo": ("Estado de la partida: «Alerta» si el ajuste propuesto no es cero (hay diferencia entre el neto auditado y el neto "
+                     "en libros que debe investigarse), «Conforme» si el neto auditado coincide con el del cliente."),
+    },
+    "11_Conclusion": {
+        "Importe": ("Trae la cifra de cada indicador de la hoja que la calcula: el neto auditado suma la hoja 09 (Valor neto y ajuste "
+                    "propuesto), el saldo del mayor sale de la hoja 02 (o del auxiliar si no se informó), el deterioro auditado de la hoja 07 "
+                    "y la diferencia de amortización de la hoja 05; el ajuste propuesto es neto auditado menos el saldo del mayor."),
+        "Porcentaje": ("Divide el ajuste propuesto para el saldo del mayor (ambos de esta misma hoja): mide qué tan material es el ajuste "
+                       "frente al saldo registrado. Queda en blanco si el saldo del mayor es cero."),
+        "Cantidad": "Cuenta los problemas detectados en la hoja 10 (Problemas encontrados) contando los códigos que se listaron.",
+        "Estado": ("Semáforo del indicador: «Alerta» cuando hay un ajuste al saldo o un deterioro que corregir, «Revisar» cuando hay "
+                   "diferencia de amortización o problemas por atender y «Conforme» cuando el indicador no exige acción. En blanco en las "
+                   "filas solo informativas (neto auditado, saldo del mayor y porcentaje)."),
+    },
+}
+
+# Dashboard: el neto del auxiliar es la población; el neto auditado se compara con el saldo del mayor (el ajuste principal).
+PANEL = {
+    "poblacion":    {"rotulo": "Neto en libros (auxiliar)", "hoja": "09_Ajuste", "col": "Neto en libros (cliente)"},
+    "recalculado":  {"rotulo": "Neto auditado", "total": "netoAuditado"},
+    "registrado":   {"rotulo": "Saldo según el mayor", "total": "saldoMayor"},
+    "composicion":  {"rotulo": "Neto auditado por intangible", "hoja": "09_Ajuste", "etiqueta": "Descripción", "valor": "Neto auditado"},
+    "distribucion": {"rotulo": "Costo por tipo de intangible", "hoja": "03_Intangibles", "etiqueta": "Tipo", "valor": "Costo"},
+    # Tablero premium (columnas): indicadores fijos de la conclusión (11), serie «Importe» en USD.
+    "tableros": [
+        {"rotulo": "Intangibles y goodwill: neto en libros frente al auditado", "sub": "USD · neto en libros del cliente frente al auditado, por partida.",
+         "unidad": "USD", "hoja": "09_Ajuste", "etiqueta": "Código", "seccion": "Intangibles y goodwill (NIC 38 · Secc. 18)",
+         "series": [["Neto en libros (cliente)", "Neto en libros (cliente)"], ["Neto auditado", "Neto auditado"]],
+         "filas": ["SW-01", "LIC-01", "MAR-01", "GW-01", "INV-01", "DES-01", "DES-02", "DES-03", "PAT-01", "SW-02", "SW-03", "CON-01", "CON-02"]},
+    ],
+}
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) ----------------------------------------------
+# Los problemas por partida suman un importe de las partidas que cumplen la condición. La condición se evalúa sobre
+# las celdas de las cédulas (03 a 09 tienen una fila por partida, en el mismo orden) y el importe remite a la suma de
+# las celdas de esas partidas en la cédula donde se calcula.
+
+def _col(h, nombre):
+    return [c[0] for c in h["cols"]].index(nombre)
+
+
+def _dato(hojas, i):
+    """Lector de la fila i de las cédulas por partida: v(hoja, columna) → número o texto de la celda."""
+    def v(hoja_, columna):
+        h = next(x for x in hojas if x["name"] == hoja_)
+        c = h["rows"][i][_col(h, columna)]
+        n = problemas._num(c)
+        return n if n is not None else problemas._texto(c)
+    return v
+
+
+def _num(x) -> float:
+    return x if isinstance(x, (int, float)) else 0.0
+
+
+def _vacio(x) -> bool:
+    return not isinstance(x, (int, float)) and x == ""
+
+
+def _es_pymes(hojas) -> bool:
+    h = next(x for x in hojas if x["name"] == "02_Parametros")
+    return problemas._num(h["rows"][PAR["pymes"] - FILA0][1]) == 1
+
+
+def _suma_partidas(hoja_, columna, cond):
+    """SUM de las celdas (hoja_, columna) de las partidas que cumplen cond(v, pymes)."""
+    def f(hojas, e):
+        h = next(x for x in hojas if x["name"] == hoja_)
+        pymes = _es_pymes(hojas)
+        idx = [i for i in range(len(h["rows"])) if cond(_dato(hojas, i), pymes)]
+        if not idx:
+            return None
+        tramos, ini = [], idx[0]
+        for a, b in zip(idx, idx[1:] + [None]):
+            if b != a + 1:
+                c0 = problemas.celda(hojas, hoja_, columna, ini)
+                tramos.append(c0 if a == ini else f"{c0}:{problemas.celda(hojas, hoja_, columna, a).split('!')[1]}")
+                ini = b
+        valor = sum(_num(_dato(hojas, i)(hoja_, columna)) for i in idx)
+        return (tramos[0] if len(tramos) == 1 and ":" not in tramos[0] else f"SUM({','.join(tramos)})"), valor
+    return f
+
+
+def _resumen(concepto):
+    """Fila de 01_Resumen con ese concepto."""
+    def f(hojas, e):
+        h = next(x for x in hojas if x["name"] == "01_Resumen")
+        i = next((k for k, r in enumerate(h["rows"]) if problemas._texto(r[0]) == concepto), None)
+        return None if i is None else (problemas.celda(hojas, h["name"], "Importe", i), problemas._num(h["rows"][i][1]))
+    return f
+
+
+_A, _REC, _DET, _VID, _REV = "05_Amortizacion", "04_Reconocimiento", "07_Deterioro", "06_Vida_util", "08_Reversion"
+_LIBROS = lambda v: _num(v("09_Ajuste", "Neto en libros (cliente)"))
+_AREG = lambda v: _num(v(_A, "Amortización registrada (cliente)"))
+_MET = lambda v: v(_A, "Método aplicado por la herramienta")
+
+
+def _dif_amortizacion(v, pymes):
+    """Diferencia de amortización de las partidas no señaladas ya por goodwill / vida indefinida / método de ingresos."""
+    gw = v(_A, "Categoría") == "Goodwill"
+    ya = ((not pymes and gw and _AREG(v) > 0.005)
+          or (not gw and _vacio(v(_A, "Vida aplicada (meses)")) and _AREG(v) > 0.005)
+          or (pymes and gw and _AREG(v) == 0 and _num(v(_A, "Amortización recalculada (lineal)")) > 0.005)
+          or _MET(v) == "Lineal (presunción no refutada)")
+    d = v(_A, "Diferencia")
+    return v(_A, "Capitalizable") == "Sí" and not _vacio(d) and abs(d) > 0.005 and not ya
+
+
+REF_PROBLEMAS = {
+    # Neto a dar de baja (gasto) de las partidas de investigación / desarrollo no capitalizable (04_Reconocimiento).
+    "INVESTIGACION_CAPITALIZADA": _suma_partidas(_REC, "Neto a dar de baja (gasto)",
+                                                 lambda v, p: v(_REC, "Categoría") == "Investigación" and abs(_LIBROS(v)) > 0.005),
+    "DESARROLLO_CAPITALIZADO_PYMES": _suma_partidas(_REC, "Neto a dar de baja (gasto)",
+                                                    lambda v, p: v(_REC, "Categoría") == "Desarrollo" and abs(_LIBROS(v)) > 0.005),
+    "DESARROLLO_NO_CUMPLE_57": _suma_partidas(_REC, "Neto a dar de baja (gasto)",
+                                              lambda v, p: v(_REC, "Categoría") == "Desarrollo" and v(_REC, "Capitalizable") == "No"
+                                              and abs(_LIBROS(v)) > 0.005),
+    # Costo registrado del desarrollo sin evidencia de los criterios de NIC 38.57 (04_Reconocimiento).
+    "SIN_CRITERIOS_57": _suma_partidas(_REC, "Costo registrado",
+                                       lambda v, p: v(_REC, "Categoría") == "Desarrollo" and v(_REC, "Cumple NIC 38.57") == ""),
+    # Amortización registrada del goodwill (NIIF completas) o de intangibles de vida indefinida (05_Amortizacion).
+    "GOODWILL_AMORTIZADO_NIIF_COMPLETAS": _suma_partidas(_A, "Amortización registrada (cliente)",
+                                                         lambda v, p: v(_A, "Capitalizable") == "Sí" and v(_A, "Categoría") == "Goodwill"
+                                                         and _AREG(v) > 0.005),
+    "INDEFINIDA_AMORTIZADA": _suma_partidas(_A, "Amortización registrada (cliente)",
+                                            lambda v, p: v(_A, "Capitalizable") == "Sí" and v(_A, "Categoría") != "Goodwill"
+                                            and _vacio(v(_A, "Vida aplicada (meses)")) and _AREG(v) > 0.005),
+    # Importe en libros antes del deterioro de las partidas sin prueba de deterioro anual (07_Deterioro).
+    "SIN_PRUEBA_DETERIORO": _suma_partidas(_DET, "Importe en libros antes del deterioro",
+                                           lambda v, p: str(v(_DET, "Prueba exigida")).startswith("Anual")
+                                           and _vacio(v(_DET, "Importe recuperable"))),
+    # Importe en libros (07_Deterioro) de las partidas sin la revisión anual de vida útil exigida (06_Vida_util).
+    "SIN_REVISION_VIDA": _suma_partidas(_DET, "Importe en libros antes del deterioro",
+                                        lambda v, p: str(v(_VID, "Revisión exigida")).startswith("Anual")
+                                        and not str(v(_VID, "Vida revisada al cierre")).lower().startswith("s")),
+    # PYMES: importe en libros de las partidas sin vida estimada / con vida sobre el tope (07_Deterioro).
+    "VIDA_NO_ESTIMADA": _suma_partidas(_DET, "Importe en libros antes del deterioro",
+                                       lambda v, p: v(_A, "Tipo de vida") == "Sin estimación (18.20)"),
+    "VIDA_EXCEDE_TOPE_PYMES": _suma_partidas(_DET, "Importe en libros antes del deterioro",
+                                             lambda v, p: v(_A, "Capitalizable") == "Sí" and not _vacio(v(_VID, "Vida registrada (meses)"))
+                                             and not _vacio(v(_VID, "Vida aplicada (meses)"))
+                                             and v(_VID, "Vida registrada (meses)") > v(_VID, "Vida aplicada (meses)")),
+    # PYMES: amortización recalculada del goodwill que el cliente no amortizó (05_Amortizacion).
+    "SIN_AMORTIZAR_PYMES": _suma_partidas(_A, "Amortización recalculada (lineal)",
+                                          lambda v, p: v(_A, "Capitalizable") == "Sí" and v(_A, "Categoría") == "Goodwill"
+                                          and _AREG(v) == 0 and _num(v(_A, "Amortización recalculada (lineal)")) > 0.005),
+    # Método de ingresos sin excepción: diferencia lineal recalculada − registrada (05_Amortizacion).
+    "METODO_INGRESOS_SIN_JUSTIFICAR": _suma_partidas(_A, "Diferencia",
+                                                     lambda v, p: _MET(v) == "Lineal (presunción no refutada)" and not _vacio(v(_A, "Diferencia"))),
+    # Amortización registrada que se acepta sin recalcular, según el método aplicado (05_Amortizacion).
+    "METODO_INGRESOS_EXCEPCION": _suma_partidas(_A, "Amortización registrada (cliente)",
+                                                lambda v, p: _MET(v) == "Ingresos (excepción documentada)"),
+    "METODO_INGRESOS_PYMES_2015": _suma_partidas(_A, "Amortización registrada (cliente)",
+                                                 lambda v, p: _MET(v) == "Ingresos (sin presunción: PYMES 2015)"),
+    "METODO_NO_RECALCULADO": _suma_partidas(_A, "Amortización registrada (cliente)",
+                                            lambda v, p: v(_A, "Capitalizable") == "Sí" and _MET(v) == "Otro método informado (no recalculado)"),
+    # Amortización recalculada − registrada de las demás partidas (05_Amortizacion).
+    "DIF_AMORTIZACION": _suma_partidas(_A, "Diferencia", _dif_amortizacion),
+    # Amortización acumulada esperada − recalculada (06_Vida_util).
+    "ACUMULADA_INCONSISTENTE": _suma_partidas(_VID, "Diferencia (esperada − recalculada)",
+                                              lambda v, p: not _vacio(v(_VID, "Diferencia (esperada − recalculada)"))
+                                              and abs(v(_VID, "Diferencia (esperada − recalculada)")) > 0.005),
+    # Valor residual de las partidas con residual distinto de cero (06_Vida_util).
+    "RESIDUAL_NO_NULO": _suma_partidas(_VID, "Valor residual", lambda v, p: v(_VID, "Residual distinto de cero") == "Sí"),
+    # Deterioro auditado − registrado, positivo (no reconocido) o negativo (en exceso) (07_Deterioro).
+    "DETERIORO_NO_RECONOCIDO": _suma_partidas(_DET, "Diferencia",
+                                              lambda v, p: not _vacio(v(_DET, "Deterioro calculado")) and _num(v(_DET, "Diferencia")) > 0.005),
+    "DETERIORO_EN_EXCESO": _suma_partidas(_DET, "Diferencia",
+                                          lambda v, p: not _vacio(v(_DET, "Deterioro calculado")) and _num(v(_DET, "Diferencia")) < -0.005),
+    # Reversión registrada sobre goodwill (08_Reversion).
+    "REVERSION_GOODWILL": _suma_partidas(_REV, "Reversión registrada",
+                                         lambda v, p: v(_REV, "Categoría") == "Goodwill" and _num(v(_REV, "Reversión registrada")) > 0.005),
+    # Reversión auditada − registrada, positiva (pendiente) o negativa (en exceso) (08_Reversion).
+    "REVERSION_NO_RECONOCIDA": _suma_partidas(_REV, "Diferencia",
+                                              lambda v, p: v(_REV, "Categoría") != "Goodwill" and not _vacio(v(_REV, "Reversión calculada"))
+                                              and _num(v(_REV, "Diferencia")) > 0.005),
+    "REVERSION_EN_EXCESO": _suma_partidas(_REV, "Diferencia",
+                                          lambda v, p: v(_REV, "Categoría") != "Goodwill" and not _vacio(v(_REV, "Reversión calculada"))
+                                          and _num(v(_REV, "Diferencia")) < -0.005),
+    # Costo de las partidas con algún importe negativo en el auxiliar (03_Intangibles).
+    "VALOR_NEGATIVO": _suma_partidas("03_Intangibles", "Costo",
+                                     lambda v, p: any(_num(v("03_Intangibles", c)) < 0 for c in (
+                                         "Costo", "Valor residual", "Amort. acum. inicial", "Deterioro acum. previo", "Valor en uso",
+                                         "VR menos costos de disposición"))),
+    # Neto del auxiliar − saldo del mayor, y neto auditado − mayor (01_Resumen).
+    "AUXILIAR_MAYOR": _resumen("Diferencia auxiliar − mayor"),
+    "AJUSTE": _resumen("Ajuste propuesto (neto)"),
+}
 
 
 def hojas(res: dict) -> list[dict]:
@@ -572,6 +883,7 @@ def hojas(res: dict) -> list[dict]:
         aju.append([
             x["id"], x["desc"], fx(libros, x["libros"]),
             fx(f'IF({AMO}C{r}="No",0,{AMO}D{r}-{AMO}N{r}-{X("L")}-{DET}K{r}+{REV}I{r})', x["aud"]), fx(f"D{r}-C{r}", x["ajuste"]),
+            fx(f'IF(ABS(E{r})>=0.005,"Alerta","Conforme")', "Alerta" if abs(x["ajuste"]) >= 0.005 else "Conforme"),
         ])
 
     fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
@@ -589,8 +901,49 @@ def hojas(res: dict) -> list[dict]:
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
     S = lambda k: sum(x[k] for x in its if x[k] is not None)
     N = "n"
+
+    # 11 · indicadores y conclusión (con semáforo por indicador).
+    nprob = len(res["exceptions"])
+    PBL = ref("10_Problemas")
+    bc = lambda kk: f"B{FILA0 + kk}"
+    rc = lambda kk: FILA0 + kk
+    conclusion = [
+        ["Intangibles y goodwill netos auditados", fx(f"SUM({_rg(AJU, 'D', n)})", t["netoAuditado"]), None, None, ""],
+        ["Saldo según el mayor", fx(ref_res["saldoMayor"], t["saldoMayor"]), None, None, ""],
+        ["Ajuste propuesto (auditado − mayor)", fx(f"{bc(0)}-{bc(1)}", t["ajuste"]), None, None,
+         fx(f'IF(ABS(B{rc(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(t["ajuste"]) > 0.005 else "Conforme")],
+        ["% del ajuste sobre el saldo del mayor", None,
+         fx(f'IF({bc(1)}=0,"",{bc(2)}/{bc(1)})', None if t["saldoMayor"] == 0 else t["ajuste"] / t["saldoMayor"]), None, ""],
+        ["Deterioro auditado", fx(f"SUM({_rg(DET, 'K', n)})", t["deterioroAuditado"]), None, None,
+         fx(f'IF(B{rc(4)}>0.005,"Alerta","Conforme")', "Alerta" if t["deterioroAuditado"] > 0.005 else "Conforme")],
+        ["Diferencia de amortización (recalculada − registrada)", fx(f"SUM({_rg(AMO, 'M', n)})", t["difAmortizacion"]), None, None,
+         fx(f'IF(ABS(B{rc(5)})>0.005,"Revisar","Conforme")', "Revisar" if abs(t["difAmortizacion"]) > 0.005 else "Conforme")],
+        ["Problemas detectados", None, None, fx(f"COUNTA({_rg(PBL, 'A', max(nprob, 1))})", nprob),
+         fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+    ]
+    # 12 · lectura causa-efecto: el resultado y las variaciones materiales con su cifra embebida (FIXED
+    # respeta los separadores del equipo; el valor de Python va con los del Ecuador, como hace m()).
+    RES = ref("01_Resumen")
+    rl = lambda k: f"{RES}$B${fr[k]}"
+    lectura = [
+        ["Resultado principal",
+         fx(f'"Los intangibles y el goodwill netos auditados suman US$ "&FIXED({rl("netoAuditado")},2)&" frente a US$ "&FIXED({rl("saldoMayor")},2)&" según el mayor."',
+            f'Los intangibles y el goodwill netos auditados suman US$ {m(t["netoAuditado"])} frente a US$ {m(t["saldoMayor"])} según el mayor.')],
+        ["Ajuste y su efecto",
+         fx(f'"El ajuste propuesto neto asciende a US$ "&FIXED({rl("ajuste")},2)&": es la diferencia entre el neto auditado y el saldo del mayor."',
+            f'El ajuste propuesto neto asciende a US$ {m(t["ajuste"])}: es la diferencia entre el neto auditado y el saldo del mayor.')],
+        ["Amortización (hallazgo material)",
+         fx(f'"La amortización del año auditada suma US$ "&FIXED({rl("amortAuditada")},2)&", con una diferencia frente a la registrada de US$ "&FIXED({rl("difAmortizacion")},2)&"."',
+            f'La amortización del año auditada suma US$ {m(t["amortAuditada"])}, con una diferencia frente a la registrada de US$ {m(t["difAmortizacion"])}.')],
+        ["Deterioro y reversión (hallazgo material)",
+         fx(f'"El deterioro del año auditado es de US$ "&FIXED({rl("deterioroAuditado")},2)&" y la reversión de deterioro auditada de US$ "&FIXED({rl("reversionAuditada")},2)&"."',
+            f'El deterioro del año auditado es de US$ {m(t["deterioroAuditado"])} y la reversión de deterioro auditada de US$ {m(t["reversionAuditada"])}.')],
+        ["Cierre",
+         fx(f'"La investigación / desarrollo no capitalizable dada de baja asciende a US$ "&FIXED({rl("bajaNoCapitalizable")},2)&" y el ajuste total propuesto neto queda en US$ "&FIXED({rl("ajuste")},2)&"."',
+            f'La investigación / desarrollo no capitalizable dada de baja asciende a US$ {m(t["bajaNoCapitalizable"])} y el ajuste total propuesto neto queda en US$ {m(t["ajuste"])}.')],
+    ]
     return [
-        hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", N]], resumen),
+        hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", N]], resumen, explica=_EXPLICA["01_Resumen"]),
         hoja("02_Parametros", CEDULAS[1][1], [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Intangibles", CEDULAS[2][1],
              [["Código", "t"], ["Descripción", "t"], ["Tipo", "t"], ["Fase", "t"], ["Cumple NIC 38.57", "t"], ["Disponible para uso", "d"], ["Costo", N],
@@ -602,7 +955,8 @@ def hojas(res: dict) -> list[dict]:
         hoja("04_Reconocimiento", CEDULAS[3][1],
              [["Código", "t"], ["Tipo", "t"], ["Fase", "t"], ["Cumple NIC 38.57", "t"], ["Categoría", "t"], ["Capitalizable", "t"], ["Criterio", "t"],
               ["Costo registrado", N], ["Costo auditado", N], ["Neto a dar de baja (gasto)", N]],
-             rec, ["TOTAL", "", "", "", "", "", "", _tot("H", n, S("costo")), _tot("I", n, S("costoAud")), _tot("J", n, t["bajaNoCapitalizable"])]),
+             rec, ["TOTAL", "", "", "", "", "", "", _tot("H", n, S("costo")), _tot("I", n, S("costoAud")), _tot("J", n, t["bajaNoCapitalizable"])],
+             explica=_EXPLICA["04_Reconocimiento"]),
         hoja("05_Amortizacion", CEDULAS[4][1],
              [["Código", "t"], ["Categoría", "t"], ["Capitalizable", "t"], ["Costo auditado", N], ["Valor residual", N], ["Importe amortizable", N],
               ["Vida aplicada (meses)", "i"], ["Tipo de vida", "t"], ["Meses en uso del ejercicio", "i"], ["Importe pendiente", N],
@@ -611,29 +965,36 @@ def hojas(res: dict) -> list[dict]:
               ["Método aplicado por la herramienta", "t"], ["Amortización auditada", N]],
              amo, ["TOTAL", "", "", _tot("D", n, S("costoAud")), None, _tot("F", n, S("amortizable")), None, "", None, None,
                    _tot("K", n, t["amortCalculada"]), _tot("L", n, t["amortRegistrada"]), _tot("M", n, t["difAmortizacion"]), _tot("N", n, S("acum")),
-                   "", "", "", _tot("R", n, t["amortAuditada"])]),
+                   "", "", "", _tot("R", n, t["amortAuditada"])], explica=_EXPLICA["05_Amortizacion"]),
         hoja("06_Vida_util", CEDULAS[5][1],
              [["Código", "t"], ["Categoría", "t"], ["Vida registrada (meses)", "i"], ["Vida aplicada (meses)", "i"], ["Tipo de vida", "t"],
               ["Meses transcurridos al cierre", "i"], ["Vida remanente (meses)", "i"], ["Amort. acumulada esperada", N], ["Amort. acumulada recalculada", N],
               ["Diferencia (esperada − recalculada)", N], ["Valor residual", N], ["Residual distinto de cero", "t"], ["Vida revisada al cierre", "t"],
-              ["Revisión exigida", "t"], ["Totalmente amortizado", "t"]], vid),
+              ["Revisión exigida", "t"], ["Totalmente amortizado", "t"]], vid, explica=_EXPLICA["06_Vida_util"]),
         hoja("07_Deterioro", CEDULAS[6][1],
              [["Código", "t"], ["Categoría", "t"], ["Capitalizable", "t"], ["Prueba exigida", "t"], ["Importe en libros antes del deterioro", N],
               ["Valor en uso", N], ["VR menos costos de disposición", N], ["Importe recuperable", N], ["Deterioro calculado", N],
               ["Deterioro registrado", N], ["Deterioro auditado", N], ["Diferencia", N]],
              det, ["TOTAL", "", "", "", None, None, None, None, None, _tot("J", n, t["deterioroRegistrado"]), _tot("K", n, t["deterioroAuditado"]),
-                   _tot("L", n, S("difDet"))]),
+                   _tot("L", n, S("difDet"))], explica=_EXPLICA["07_Deterioro"]),
         hoja("08_Reversion", CEDULAS[7][1],
              [["Código", "t"], ["Categoría", "t"], ["Deterioro acumulado previo", N], ["Indicio de reversión", "t"], ["Importe en libros", N],
               ["Importe recuperable", N], ["Reversión calculada", N], ["Reversión registrada", N], ["Reversión auditada", N], ["Diferencia", N],
               ["Límite: importe en libros sin deterioro (NIC 36.117)", N]],
              rev, ["TOTAL", "", None, "", None, None, None, _tot("H", n, t["reversionRegistrada"]), _tot("I", n, t["reversionAuditada"]),
-                   _tot("J", n, S("difRev")), None]),
+                   _tot("J", n, S("difRev")), None], explica=_EXPLICA["08_Reversion"]),
         hoja("09_Ajuste", CEDULAS[8][1],
-             [["Código", "t"], ["Descripción", "t"], ["Neto en libros (cliente)", N], ["Neto auditado", N], ["Ajuste propuesto", N]],
-             aju, ["TOTAL", "", _tot("C", n, t["netoAuxiliar"]), _tot("D", n, t["netoAuditado"]), _tot("E", n, S("ajuste"))]),
+             [["Código", "t"], ["Descripción", "t"], ["Neto en libros (cliente)", N], ["Neto auditado", N], ["Ajuste propuesto", N], ["Semáforo", "t"]],
+             aju, ["TOTAL", "", _tot("C", n, t["netoAuxiliar"]), _tot("D", n, t["netoAuditado"]), _tot("E", n, S("ajuste")), ""],
+             explica=_EXPLICA["09_Ajuste"], colores=["Semáforo"]),
         hoja("10_Problemas", CEDULAS[9][1], [["Código", "t"], ["Descripción", "t"], ["Importe", N]],
              [[e["code"], e["message"], float(e["amount"])] for e in res["exceptions"]]),
+        hoja("11_Conclusion", CEDULAS[10][1],
+             [["Indicador", "t"], ["Importe", N], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=_EXPLICA["11_Conclusion"], colores=["Estado"]),
+        hoja("12_Lectura", CEDULAS[11][1], [["Concepto", "t"], ["Detalle", "t"]], lectura,
+             explica={"Detalle": "Lee el resultado del rubro y las variaciones o hallazgos materiales con su cifra "
+                                 "tomada del Resumen (hoja 01), redactados como causa-efecto para el lector del papel."}),
     ]
 
 

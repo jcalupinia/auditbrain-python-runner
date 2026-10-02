@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+import * as api from "../../api";
+
 import { herramientaDePrueba, tramosDeTexto } from "./cicloLogic";
 
 /*
@@ -165,13 +167,26 @@ function Cedulas({ prueba }) {
   if (!armado) return <p className="muted">Preparando cédulas…</p>;
   const base = `${(prueba.definicion.name || "prueba").replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}_${prueba.estado === "APROBADO" ? "APROBADO" : "EN_PROCESO"}`;
   const hoja = armado.hojas[activa] || [];
+  // Excel, Word, PowerPoint y el HTML con los demás formatos dentro: los arma el servidor
+  // con el diseño de los procesadores a partir de estas mismas cédulas (papelDeclarativo.js).
+  const bajarPapel = async (ext) => {
+    try {
+      const m = await import("./papelDeclarativo");
+      const contenido = await api.cicloPapelDeclarativo(m.cargaPapel(t), ext);
+      descargar(`${base}.${ext}`, contenido, m.MIME[ext]);
+    } catch (e) {
+      setError(e.message || String(e));
+    }
+  };
   return (
     <>
       <div className="nf-estudio-botones">
-        <button type="button" className="btn sm" onClick={() => descargar(`${base}.xlsx`, sitio[1].buildWorkbook(t), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}>
+        <button type="button" className="btn sm" onClick={() => bajarPapel("xlsx")}>
           Descargar Excel
         </button>
-        <button type="button" className="btn sm" onClick={() => descargar(`${base}.html`, sitio[1].buildHtml(t), "text/html;charset=utf-8")}>
+        <button type="button" className="btn sm" onClick={() => bajarPapel("docx")}>Word</button>
+        <button type="button" className="btn sm" onClick={() => bajarPapel("pptx")}>PowerPoint</button>
+        <button type="button" className="btn sm" title="Funciona sin internet y trae dentro Excel, Word y PowerPoint; «Guardar como PDF» lo imprime" onClick={() => bajarPapel("html")}>
           Descargar HTML
         </button>
       </div>

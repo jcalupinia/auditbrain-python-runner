@@ -29,6 +29,13 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-005": "RQ-005_politica_de_credito_y_cobranza_y_gestion_de_clie.pdf",
     "RQ-006": "RQ-006_cobros_posteriores_al_cierre.xlsx",
   },
+  pce_cohortes_niif9: {
+    "RQ-001": "RQ-001_cartera_t2.xlsx",
+    "RQ-002": "RQ-002_cartera_t1.xlsx",
+    "RQ-003": "RQ-003_cartera_t.xlsx",
+    "RQ-004": "RQ-004_movimiento_de_la_provision_de_incobrables_tres_e.xlsx",
+    "RQ-005": "RQ-005_informacion_prospectiva_con_fuente_y_politica_de.pdf",
+  },
   // --- Lote 1 ---
   // Datos que alimentan el cálculo: un libro derivado del EJEMPLO canónico del
   // procesador (scripts/ejemplos_lote.py). Requerimientos de soporte: documento
@@ -43,6 +50,10 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-006": "RQ-006_contratos_de_garantia_pignoracion_embargos_o_fid.pdf",
     "RQ-007": "RQ-007_certificados_y_contratos_de_inversiones_presenta.pdf",
     "RQ-008": "RQ-008_politica_contable_de_efectivo_y_equivalentes_y_a.pdf",
+    "RQ-009": "RQ-009_libro_mayor.xlsx",
+    "RQ-010": "RQ-010_estado_cuenta.xlsx",
+    "RQ-011": "RQ-011_conciliacion_anterior.xlsx",
+    "RQ-012": "RQ-012_arqueo.xlsx",
   },
   cxc_cartera: {
     "RQ-001": "RQ-001_cartera.xlsx",
@@ -75,6 +86,8 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-010": "RQ-010_costeo_estandar_y_lista_de_precios_de_los_produc.xlsx",
   },
   ppe_propiedad_planta: {
+    "RQ-011": "RQ-011_variaciones.xlsx",
+    "RQ-010": "RQ-010_mayor.xlsx",
     "RQ-001": "RQ-001_activos.xlsx",
     "RQ-002": "RQ-002_adiciones.xlsx",
     "RQ-003": "RQ-003_prestamos.xlsx",
@@ -84,6 +97,7 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-007": "RQ-007_contratos_de_prestamo_tablas_de_amortizacion_y_m.pdf",
     "RQ-008": "RQ-008_estimacion_tecnica_de_desmantelamiento_o_restaur.pdf",
     "RQ-009": "RQ-009_facturas_de_venta_y_actas_de_baja_del_ano.pdf",
+    "RQ-012": "RQ-012_facturas_de_las_adiciones_del_ano.pdf",
   },
   propiedades_inversion: {
     "RQ-001": "RQ-001_inmuebles.xlsx",
@@ -210,6 +224,18 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-005": "RQ-005_contratos_o_estatutos_de_acciones_preferentes_ap.pdf",
     "RQ-006": "RQ-006_estado_de_cambios_en_el_patrimonio_y_nota_de_pat.xlsx",
     "RQ-007": "RQ-007_conciliacion_de_la_adopcion_por_primera_vez_de_l.xlsx",
+  },
+  // --- Planificación de la auditoría (NIA 300, 315, 320) ---
+  planificacion_nia: {
+    "RQ-001": "RQ-001_balance_anterior.xlsx",
+    "RQ-002": "RQ-002_balance_actual.xlsx",
+    "RQ-003": "RQ-003_resultados_mismo_corte.xlsx",
+    "RQ-004": "RQ-004_carta_control_interno.xlsx",
+    "RQ-005": "RQ-005_informe_anterior.xlsx",
+    "RQ-006": "RQ-006_notas_estados_financieros.xlsx",
+    "RQ-009": "RQ-009_notas_detalle.xlsx",
+    "RQ-007": "RQ-007_informe_de_auditoria_notas_y_carta_de_control_in.pdf",
+    "RQ-008": "RQ-008_ruc_actualizado_de_la_entidad.pdf",
   },
 };
 

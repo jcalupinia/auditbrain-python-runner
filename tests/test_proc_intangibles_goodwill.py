@@ -225,3 +225,40 @@ def test_hojas_y_definicion():
     assert m.RUBRO == "INTANGIBLES" and m.CONTROL in {c["key"] for c in m.CAMPOS[m.PRINCIPAL]}
     for esc, ds, par, corte in m.ESCENARIOS:
         assert m.hojas(m.ejecutar(ds, par, corte))
+
+
+def test_conclusion():
+    """La cédula 11 lleva indicadores clave con importes en fórmula y un «Estado» coloreable."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(_run()) if x["name"] == "11_Conclusion")
+    cols = [c[0] for c in h["cols"]]
+    assert cols[0] == "Indicador" and "Estado" in cols and h.get("colores") == ["Estado"]
+    est, imp = cols.index("Estado"), cols.index("Importe")
+    importes = [f[imp] for f in h["rows"] if isinstance(f[imp], dict)]
+    assert importes and all("f" in f for f in importes)              # cada importe es fórmula, nada pegado
+    estados = [f[est] for f in h["rows"] if isinstance(f[est], dict)]
+    valores = {f["v"] for f in estados}
+    assert valores and valores <= {"Alerta", "Revisar", "Conforme"} and valores <= set(base.NIVEL_COLOR)
+    assert all(base.rol_color(h, "Estado", f) in ("alta", "media", "baja") for f in estados)
+
+
+def test_lectura():
+    """La cédula 12 lee el resultado y los hallazgos materiales con su cifra embebida por fórmula (FIXED)."""
+    h = next(x for x in m.hojas(_run()) if x["name"] == "12_Lectura")
+    assert h["label"] == "Lectura de resultados"
+    assert [c[0] for c in h["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(h["rows"]) <= 5 and not h.get("total") and not h.get("colores")
+    det = [f[1] for f in h["rows"]]
+    assert all(isinstance(d, dict) and "f" in d for d in det)       # cada Detalle es fórmula, nada pegado
+    assert all("FIXED(" in d["f"] for d in det)                     # la cifra va embebida con FIXED
+    assert "Detalle" in h["explica"] and len(h["explica"]["Detalle"]) >= 40
+
+
+def test_semaforo_ajuste():
+    from backend.app.aud.niif.procesadores.base import NIVEL_COLOR
+    h = next(x for x in m.hojas(_run()) if x["name"] == "09_Ajuste")
+    assert h["colores"] == ["Semáforo"]
+    sem = [c[0] for c in h["cols"]].index("Semáforo")
+    valores = {(fila[sem].get("v") if isinstance(fila[sem], dict) else fila[sem]) for fila in h["rows"]}
+    assert valores <= {"Alerta", "Conforme"} and valores <= set(NIVEL_COLOR) and valores
+    assert h["total"][sem] == ""

@@ -245,3 +245,127 @@ def test_hojas_y_definicion():
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "arrendamientos" and len(d["program"]) >= 5
     assert m.RUBRO == "ARRENDAMIENTOS" and m.PRINCIPAL in m.DATASETS and m.kind("contratos") == "contratos"
+
+
+def test_conclusion():
+    """La cédula 17 lleva indicadores clave con importes en fórmula y un «Estado» coloreable."""
+    from backend.app.aud.niif.procesadores import base
+    h = next(x for x in m.hojas(_run()) if x["name"] == "17_Conclusion")
+    cols = [c[0] for c in h["cols"]]
+    assert cols[0] == "Indicador" and "Estado" in cols and h.get("colores") == ["Estado"]
+    est, imp = cols.index("Estado"), cols.index("Importe")
+    importes = [f[imp] for f in h["rows"] if isinstance(f[imp], dict)]
+    assert importes and all("f" in f for f in importes)              # cada importe es fórmula, nada pegado
+    estados = [f[est] for f in h["rows"] if isinstance(f[est], dict)]
+    valores = {f["v"] for f in estados}
+    assert valores and valores <= {"Alerta", "Revisar", "Conforme"} and valores <= set(base.NIVEL_COLOR)
+    assert all(base.rol_color(h, "Estado", f) in ("alta", "media", "baja") for f in estados)
+
+
+def test_lectura():
+    """La cédula 18 lee el resultado y los hallazgos materiales con su cifra embebida por fórmula (FIXED)."""
+    h = next(x for x in m.hojas(_run()) if x["name"] == "18_Lectura")
+    assert h["label"] == "Lectura de resultados"
+    assert [c[0] for c in h["cols"]] == ["Concepto", "Detalle"]
+    assert 3 <= len(h["rows"]) <= 5 and not h.get("total") and not h.get("colores")
+    det = [f[1] for f in h["rows"]]
+    assert all(isinstance(d, dict) and "f" in d for d in det)       # cada Detalle es fórmula, nada pegado
+    assert all("FIXED(" in d["f"] for d in det)                     # la cifra va embebida con FIXED
+    assert "Detalle" in h["explica"] and len(h["explica"]["Detalle"]) >= 40
+
+
+def test_semaforo_conciliacion():
+    from backend.app.aud.niif.procesadores.base import NIVEL_COLOR
+    h = next(x for x in m.hojas(_run()) if x["name"] == "15_Conciliacion")
+    assert h["colores"] == ["Semáforo"]
+    sem = [c[0] for c in h["cols"]].index("Semáforo")
+    valores = {(fila[sem].get("v") if isinstance(fila[sem], dict) else fila[sem]) for fila in h["rows"]}
+    assert valores <= {"Alerta", "Conforme"} and valores
+    assert valores <= set(NIVEL_COLOR)
+    assert h["total"][sem] == ""
+
+
+def test_impuesto_diferido_reproduce_excel_cliente():
+    """NIC 12 / Secc. 29: la diferencia temporaria nace del canon deducible vs (depreciación + interés) del
+    arriendo capitalizado. Reproduce el Excel real del cliente (Inkas, oficinas Quito, 24 meses, 8,12% nominal):
+    generación y reversión en bruto por año (casilleros F-101 1114 / 1115) y cuadre a cero al fin de la vida."""
+    ds = {"contratos": [m._k("Q24", "Oficinas Quito", "2023-07-01", "24", "2400", "Mensual", "8.12", "0")]}
+    c = _c(m.ejecutar(ds, {**m.PARAMETROS, "_marco": "NIIF completas"}, "2026-12-31"), "Q24")  # Nominal + 25% por default
+    idf = c["idiferido"]
+    t = idf["tarifa"]
+    assert round(t, 4) == 0.25
+    an = idf["anios"]
+    assert round(an[2023]["gen"] * t, 2) == 198.26       # generación 2023 (cas 1114)
+    assert round(an[2024]["gen"] * t, 2) == 69.66        # generación 2024 (cas 1114)
+    assert round(an[2024]["rev"] * t, 2) == -64.24       # reversión 2024 (cas 1115)
+    assert round(an[2025]["rev"] * t, 2) == -203.68      # reversión 2025 (cas 1115)
+    assert round(idf["gen"] * t, 2) == 267.93 == round(-idf["rev"] * t, 2)     # bruto gen = bruto rev
+    assert round((idf["gen"] + idf["rev"]) * t, 6) == 0.0                      # se revierte a cero
+
+
+def test_impuesto_diferido_solo_en_capitalizados():
+    """La cédula de diferido solo aplica a contratos capitalizados (NIIF 16 / financiero PYMES). En un
+    operativo PYMES o un exento el gasto es el deducible: sin diferencia temporaria → idiferido None."""
+    res = _run(PYMES)                                     # EJEMPLO en PYMES: hay operativos y financieros
+    for c in res["detalle"]["contratos"]:
+        if c["reconoce"] == "Sí":
+            assert c["idiferido"] is not None and "anios" in c["idiferido"]
+        else:
+            assert c["idiferido"] is None
+
+
+def test_conciliacion_f101_y_asiento():
+    """Cédula 20: para el año del corte traslada generación (1114), reversión (1115), efecto neto (889)
+    y el saldo del activo por impuesto diferido, con un asiento cuadrado (Debe = Haber)."""
+    ds = {"contratos": [m._k("Q24", "Oficinas Quito", "2023-07-01", "24", "2400", "Mensual", "8.12", "0")]}
+    res = m.ejecutar(ds, {**m.PARAMETROS, "_marco": "NIIF completas"}, "2024-12-31")  # corte 2024
+    h = next(x for x in m.hojas(res) if x["name"] == "20_Conciliacion_F101")
+    val = lambda celda: celda["v"] if isinstance(celda, dict) else celda
+    filas = {fila[1]: fila for fila in h["rows"]}            # por casillero
+    assert round(val(filas["1114"][2]), 2) == 69.66          # generación 2024
+    assert round(val(filas["1115"][2]), 2) == -64.24         # reversión 2024
+    assert round(val(filas["889"][2]), 2) == 5.42            # efecto neto 2024
+    saldo = next(fila for fila in h["rows"] if fila[0].startswith("Saldo"))
+    assert round(val(saldo[2]), 2) == 203.68                 # activo por impuesto diferido al corte
+    # asiento cuadrado: el Debe de una fila iguala el Haber de otra
+    debe = [val(fila[3]) for fila in h["rows"] if isinstance(fila[3], dict)]
+    haber = [val(fila[4]) for fila in h["rows"] if isinstance(fila[4], dict)]
+    assert round(sum(debe), 2) == round(sum(haber), 2) == 5.42
+
+
+def test_recalc_cruza_el_impuesto_diferido():
+    """El recálculo del revisor re-deriva generación y reversión del diferido (segunda implementación) y
+    coincide con el motor."""
+    from backend.app.aud.niif.ciclo.revision.recalc import arrendamientos as rc
+    r = rc.recalcular(_run())
+    difer = [c for c in r["componentes"] if "diferencias temporarias" in c["concepto"]]
+    assert len(difer) == 2 and all(c["ok"] and c["diff"] == 0.0 for c in difer)
+
+
+def test_extraccion_por_ia_del_contrato():
+    """La herramienta declara la extracción por IA del contrato (como ppe y la planificación): el servicio y el
+    frontend la activan genéricamente. Con un chat simulado, la fila extraída trae los datos de hecho y deja la
+    tasa vacía (es juicio del auditor con la referencial del BCE), por lo que la validación la marca como faltante."""
+    import json
+    from backend.app.aud.niif.ciclo import extraccion_ia as ex
+    assert m.EXTRACCION_DATASETS == ("contratos",)
+    assert "Banco Central" in m.EXTRACCION_INSTRUCCIONES["contratos"]
+    assert m.EXTRACCION_ENUMS["contratos"]["periodicidad"] == ["Mensual", "Trimestral", "Semestral", "Anual"]
+
+    class _Resp:
+        def __init__(self, c):
+            self.content, self.model = c, "falso"
+    fila = {"id": "C-01", "activo": "Oficina Quito", "inicio": "2024-07-01", "plazo": 24, "pago": 2400,
+            "periodicidad": "Mensual", "momento": "Final", "tasa": "", "clasif_pymes": ""}
+    chat = lambda messages, system=None: _Resp(json.dumps({"filas": [fila]}))
+    res = ex.extraer_filas(m._CONTRATOS, "Contrato de arrendamiento de la oficina de Quito…",
+                           instrucciones=m.EXTRACCION_INSTRUCCIONES["contratos"],
+                           enums=m.EXTRACCION_ENUMS["contratos"], chat=chat)
+    assert res["n"] == 1
+    row = res["rows"][0]
+    assert row["activo"] == "Oficina Quito" and row["plazo"] == 24 and row["periodicidad"] == "Mensual"
+    assert row["tasa"] == "" and row["clasif_pymes"] == ""          # la IA no inventa la tasa ni la clasificación
+    val = m.validar_filas("contratos", [row])
+    # faltan solo los campos que no vienen del contrato: la tasa (la fija el auditor con la del BCE) y el
+    # pasivo registrado (saldo del mayor); todo lo demás lo extrajo la IA del contrato.
+    assert not val["ok"] and {e["field"] for e in val["errors"]} == {"tasa", "pasivo_reg"}

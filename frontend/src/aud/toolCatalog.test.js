@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { abrePruebasEncargo } from "./ToolCatalog.jsx";
+import { abrePruebasEncargo, pruebasDe, rotuloPruebas } from "./ToolCatalog.jsx";
 import { CATEGORIES } from "./catalog.js";
 import { PAGINAS } from "./motorAnalitico/paginas.js";
 
@@ -45,5 +45,24 @@ describe("celda de una cédula", () => {
     expect(celda("No aplica", "n")).toBe("No aplica");
     expect(celda(null, "n")).toBe("");
     expect(celda({ f: "A1", v: null }, "n")).toBe("");
+  });
+});
+
+describe("tarjetas de Análisis: qué se prueba", () => {
+  it("lista los objetivos que envía el servidor y rotula según el tipo de tarjeta", () => {
+    expect(pruebasDe({ pruebas: ["Depreciación", "", "Deterioro", "Desmantelamiento"] })).toEqual(["Depreciación", "Deterioro", "Desmantelamiento"]);
+    expect(pruebasDe({})).toEqual([]);
+    expect(rotuloPruebas("ciclo")).toBe("Qué se prueba");
+    expect(rotuloPruebas("etapa")).toBe("Qué incluye");
+  });
+});
+
+describe("tarjetas de Análisis: herramientas que no son NIIF", () => {
+  it("cada herramienta fija del catálogo dice qué prueba o qué incluye", () => {
+    const fijas = CATEGORIES.flatMap((c) => c.tools || []);
+    expect(fijas.length).toBeGreaterThanOrEqual(6);
+    for (const t of fijas) expect(pruebasDe(t).length, t.id).toBeGreaterThanOrEqual(3);
+    const vnr = CATEGORIES.find((c) => c.id === "INVENTARIOS").tools[0];
+    expect(pruebasDe(vnr)).toContain("Cálculo del VNR");
   });
 });

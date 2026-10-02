@@ -6,6 +6,7 @@ parámetros → ejecución → papel en los cuatro formatos. Los totales deben s
 directo del procesador con los mismos datos.
 """
 import io
+import re
 
 import pytest
 from openpyxl import load_workbook
@@ -59,6 +60,8 @@ def test_ejercicio_modelo_de_principio_a_fin(client, disco_temporal, pid):
     # Aparece en el catálogo, en la tarjeta de su rubro.
     h = next(x for x in client.get(f"{BASE}/herramientas", headers=_h(tok)).json() if x["origen"] == f"proc:{pid}")
     assert h["area"] == m.RUBRO and h["tipo"] == "herramienta NIIF"
+    # Su tarjeta dice qué se prueba: un objetivo por procedimiento del programa, sin códigos entre paréntesis.
+    assert h["pruebas"] and all(t and not t.endswith(")") for t in h["pruebas"])
 
     assert client.put(f"{BASE}/proyectos/{pid_proyecto}/ficha", headers=_h(tok),
                       json={**FICHA, "framework": marco, "edition": edicion, "cutoff": ej["corte"],
@@ -114,7 +117,21 @@ def test_ejercicio_modelo_de_principio_a_fin(client, disco_temporal, pid):
     # Mismo resultado que el cálculo directo con los datos tal como se leyeron del Excel.
     directo = m.ejecutar(p["registro"]["datasets"], {**param, "_marco": marco, "_edicion": edicion}, ej["corte"])
     assert p["registro"]["run"]["totals"] == directo["totals"]
-    assert [x["name"] for x in p["registro"]["run"]["hojas"]] == [n for n, _ in m.CEDULAS]
+    nombres = [x["name"] for x in p["registro"]["run"]["hojas"]]
+    assert [n for n in nombres if not re.match(r"D\d+_", n)] == [n for n, _ in m.CEDULAS]
+    # Datos del cliente dentro del libro: una hoja por anexo entregado (procesadores/datos_cliente.py).
+    entregados = [r["dataset"] for r in m.definicion()["requests"] if r.get("dataset") and p["registro"]["datasets"].get(r["dataset"])]
+    assert [x["dataset"] for x in p["registro"]["run"]["hojas"] if re.match(r"D\d+_", x["name"])] == entregados
     for fmt, firma in (("xlsx", b"PK"), ("docx", b"PK"), ("pptx", b"PK"), ("html", b"<!doctype html>")):
         r = client.get(f"{BASE}/pruebas/{p['id']}/libro?formato={fmt}", headers=_h(tok))
         assert r.status_code == 200 and r.content.startswith(firma), fmt
+
+
+def test_tarjeta_de_activo_fijo_dice_que_se_prueba():
+    """Auditoría externa · Análisis: la tarjeta de Propiedad, planta y equipo lista lo que prueba su herramienta."""
+    from backend.app.aud.niif.ciclo import servicio
+
+    pruebas = servicio.pruebas_de(procesadores.PROCESADORES["ppe_propiedad_planta"].definicion())
+    assert {"Depreciación", "Deterioro", "Desmantelamiento", "Bajas", "Revaluación"} <= set(pruebas)
+    # Los códigos de requisito entre paréntesis no van a la tarjeta.
+    assert servicio.pruebas_de({"program": [{"objective": "Corte (REV-03)"}, {"objective": "Corte"}]}) == ["Corte"]

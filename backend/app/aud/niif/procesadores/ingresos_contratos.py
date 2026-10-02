@@ -26,6 +26,8 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     n2, norm, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
 )
 
+from backend.app.aud.niif.procesadores import problemas
+
 VERSION = "ingresos_contratos 1.0"
 RUBRO = "INGRESOS"
 
@@ -93,6 +95,7 @@ CEDULAS = [
     ("10_Activo_pasivo", "Activo y pasivo del contrato"), ("11_Corte", "Corte de ingresos"),
     ("12_Modificaciones", "Modificaciones de contratos"), ("13_Conciliacion", "Conciliación y ajustes"),
     ("14_Asientos", "Asientos propuestos"), ("15_Problemas", "Problemas encontrados"),
+    ("16_Conclusion", "Indicadores y conclusión"), ("17_Lectura", "Lectura de resultados"),
 ]
 
 _NO_NEGATIVOS = ("psi", "precio", "variable", "costo_incurrido", "costo_total", "facturado", "cobrado", "plazo_cobro", "nc_posterior",
@@ -437,10 +440,32 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 
 # --- cédulas con fórmulas ---------------------------------------------------------
 
+# Dashboard (graficos.panel): población = ingreso registrado del año por obligación; recalculado = ingreso reconocible
+# del año frente al registrado EN LAS MISMAS líneas medidas (sin reconocible en blanco), así la brecha del comparativo
+# es el ajuste propuesto; la dona reparte el reconocible por contrato y las barras el registrado por modo de satisfacción.
+PANEL = {
+    "poblacion": {"rotulo": "Ingreso registrado del año", "hoja": "03_Detalle", "col": "Registrado en el año"},
+    "recalculado": {"rotulo": "Ingreso reconocible del año", "total": "ingresoReconocible"},
+    "registrado": {"rotulo": "Ingreso registrado (líneas medidas)", "hoja": "09_Reconocimiento", "col": "Registrado en el año",
+                   "con_valor": "Reconocible del año"},
+    "composicion": {"rotulo": "Reconocible por contrato", "hoja": "09_Reconocimiento", "etiqueta": "Contrato",
+                    "valor": "Reconocible del año"},
+    "distribucion": {"rotulo": "Ingreso por modo de satisfacción", "hoja": "03_Detalle", "etiqueta": "Modo",
+                     "valor": "Registrado en el año"},
+    # Tablero: conceptos fijos de la conciliación (13), ingreso reconocible del año frente al registrado (NIIF 15 · Secc. 23).
+    # El detalle por contrato/línea es variable, así que el tablero usa los conceptos de rótulo fijo de la cédula 13.
+    "tableros": [
+        {"rotulo": "Ingreso del año: reconocible frente a registrado", "sub": "USD · ingreso reconocible del año frente al registrado, por línea.",
+         "unidad": "USD", "hoja": "09_Reconocimiento", "etiqueta": "Línea", "seccion": "Reconocimiento de ingresos",
+         "filas": ["C-01-1", "C-01-2", "C-02-1", "C-03-1", "C-04-1", "C-05-1", "C-06-1", "C-07-1", "C-08-1", "C-09-1", "C-09-2", "C-10-1", "C-11-1", "C-12-1"],
+         "series": [["Reconocible del año", "Reconocible del año"], ["Registrado en el año", "Registrado en el año"]]},
+    ],
+}
+
 P = ref("02_Parametros")
-DET, PV, ASG, SAT, DEV, FIN, REC, AP, COR, CON = (ref(n) for n in (
+DET, PV, ASG, SAT, DEV, FIN, REC, AP, COR, CON, PRB = (ref(n) for n in (
     "03_Detalle", "04_Precio_variable", "05_Asignacion", "06_Satisfaccion", "07_Devoluciones", "08_Financiacion",
-    "09_Reconocimiento", "10_Activo_pasivo", "11_Corte", "13_Conciliacion"))
+    "09_Reconocimiento", "10_Activo_pasivo", "11_Corte", "13_Conciliacion", "15_Problemas"))
 _PAR = ["corte", "marco", "modelo", "tasaDescuento", "plazoFinanciacion", "umbralAltamenteProbable", "metodoVariable",
         "ingresoMayor", "activoContratoRegistrado", "pasivoContratoRegistrado", "activoDevolucion"]
 PAR = {k: FILA0 + i for i, k in enumerate(_PAR)}
@@ -461,6 +486,116 @@ def _rango(hoja_ref: str, col: str, n: int) -> str:
 def _op(hoja_ref, celda):
     """Dato opcional: vacío si la celda está en blanco (M22)."""
     return f'IF({hoja_ref}{celda}<>"",{hoja_ref}{celda},"")'
+
+
+# --- origen del importe de cada problema (ver procesadores/problemas.py) ----------------------------------------------
+
+def _hoja(hojas, nombre):
+    return next(x for x in hojas if x["name"] == nombre)
+
+
+def _idx_linea(h, msg):
+    """Fila cuya «Línea» abre el mensaje del problema («C-01-1: …» o «C-06-1 (C-06): …»)."""
+    for i, f in enumerate(h.get("rows") or []):
+        t = problemas._texto(f[0])
+        if t and (msg.startswith(t + ":") or msg.startswith(t + " (")):
+            return i
+    return None
+
+
+def _valor(h, columna, i):
+    return problemas._num(h["rows"][i][[c[0] for c in h["cols"]].index(columna)])
+
+
+def _por_linea(nombre, columna):
+    """Celda de la columna en la fila de la línea que nombra el problema."""
+    def f(hojas, e):
+        h = _hoja(hojas, nombre)
+        i = _idx_linea(h, e.get("message") or "")
+        if i is None:
+            return None
+        return problemas.celda(hojas, nombre, columna, i), _valor(h, columna, i)
+    return f
+
+
+def _error_corte(hojas, e):
+    """11_Corte: «Registrado antes de transferir» o «Transferido sin registrar» de la línea, según el sentido del error."""
+    msg = e.get("message") or ""
+    col = "Registrado antes de transferir" if ": ingreso registrado en el ejercicio" in msg else "Transferido sin registrar"
+    return _por_linea("11_Corte", col)(hojas, e)
+
+
+def _avance_mal_calculado(hojas, e):
+    """Diferencia de avance (06_Satisfaccion) × importe asignado a la obligación (05_Asignacion), misma línea."""
+    sat, asg = _hoja(hojas, "06_Satisfaccion"), _hoja(hojas, "05_Asignacion")
+    msg = e.get("message") or ""
+    i, j = _idx_linea(sat, msg), _idx_linea(asg, msg)
+    if i is None or j is None:
+        return None
+    dif, asig = _valor(sat, "Diferencia de avance", i), _valor(asg, "Asignado (relativo)", j)
+    if dif is None:
+        return None
+    return (f"{problemas.celda(hojas, sat['name'], 'Diferencia de avance', i)}"
+            f"*{problemas.celda(hojas, asg['name'], 'Asignado (relativo)', j)}"), dif * (asig or 0)
+
+
+def _financiacion_sin_tasa(hojas, e):
+    """Reconocible neto de las líneas con financiación significativa (08_Financiacion), medidas sin tasa."""
+    h = _hoja(hojas, "08_Financiacion")
+    n = len(h["rows"])
+    if not n:
+        return None
+    rango = lambda col: (f"{problemas.celda(hojas, h['name'], col, 0)}:"
+                         f"{problemas.celda(hojas, h['name'], col, n - 1).split('!')[1]}")
+    cols = [c[0] for c in h["cols"]]
+    js, jn = cols.index("Financiación significativa"), cols.index("Reconocible neto")
+    valor = sum(problemas._num(f[jn]) or 0 for f in h["rows"] if problemas._texto(f[js]) == "Sí")
+    return f'SUMIF({rango("Financiación significativa")},"Sí",{rango("Reconocible neto")})', valor
+
+
+def _conciliacion(clave):
+    """Fila fija de 13_Conciliacion."""
+    def f(hojas, e):
+        h = _hoja(hojas, "13_Conciliacion")
+        i = CONF[clave] - FILA0
+        return problemas.celda(hojas, h["name"], "Importe", i), _valor(h, "Importe", i)
+    return f
+
+
+REF_PROBLEMAS = {
+    # Ingreso registrado en el año de la línea sin contrato válido (09_Reconocimiento).
+    "SIN_CONTRATO": _por_linea("09_Reconocimiento", "Registrado en el año"),
+    # Registrado antes de transferir el control / transferido sin registrar, por línea (11_Corte).
+    "ERROR_CORTE": _error_corte,
+    # Ingreso registrado de la línea que no se pudo medir (09_Reconocimiento: reconocible vacío).
+    "SIN_FECHA_TRANSFERENCIA": _por_linea("09_Reconocimiento", "Registrado en el año"),
+    "AVANCE_SIN_DATOS": _por_linea("09_Reconocimiento", "Registrado en el año"),
+    # Diferencia de avance × precio asignado a la obligación.
+    "AVANCE_MAL_CALCULADO": _avance_mal_calculado,
+    # Pérdida esperada del contrato: costos totales − precio asignado (06_Satisfaccion).
+    "PERDIDA_ESPERADA": _por_linea("06_Satisfaccion", "Pérdida esperada del contrato"),
+    # Asignado por precio independiente relativo − asignación del cliente (05_Asignacion).
+    "ASIGNACION_INCORRECTA": _por_linea("05_Asignacion", "Diferencia"),
+    # Variable del cliente que excede la incluida tras la restricción (04_Precio_variable).
+    "VARIABLE_SIN_RESTRICCION": _por_linea("04_Precio_variable", "Exceso sobre la restricción"),
+    # Variable estimada que queda fuera del precio por no tener probabilidad (04_Precio_variable).
+    "VARIABLE_SIN_PROBABILIDAD": _por_linea("04_Precio_variable", "Variable estimada"),
+    # Notas de crédito posteriores que exceden el pasivo por reembolso (07_Devoluciones).
+    "DEVOLUCIONES_NO_PROVISIONADAS": _por_linea("07_Devoluciones", "NC no provisionadas"),
+    # Importe de la modificación sin tratamiento documentado (12_Modificaciones).
+    "MODIFICACION_SIN_TRATAMIENTO": _por_linea("12_Modificaciones", "Importe"),
+    # Reconocible neto de las líneas con financiación significativa sin tasa (08_Financiacion).
+    "FINANCIACION_SIN_TASA": _financiacion_sin_tasa,
+    # Componente de financiación a separar (TOTAL de 08_Financiacion).
+    "FINANCIACION_NO_SEPARADA": ("08_Financiacion", "Componente de financiación", "total"),
+    # Activo / pasivo del contrato requerido − registrado (13_Conciliacion).
+    "ACTIVO_CONTRATO_NO_PRESENTADO": _conciliacion("difActivo"),
+    "PASIVO_CONTRATO_NO_PRESENTADO": _conciliacion("difPasivo"),
+    # Ingreso del anexo − ingreso según el mayor (13_Conciliacion).
+    "DIF_MAYOR": _conciliacion("difMayor"),
+    # Ajuste propuesto: reconocible del año − registrado (TOTAL de 09_Reconocimiento).
+    "AJUSTE_INGRESOS": ("09_Reconocimiento", "Ajuste", "total"),
+}
 
 
 def hojas(res: dict) -> list[dict]:
@@ -589,9 +724,11 @@ def hojas(res: dict) -> list[dict]:
         r = FILA0 + i
         rec.append([x["id"], x["contrato"], fx(f"{FIN}F{r}", x["vp"]), fx(f'IF({DET}R{r}<>"",{DET}R{r},0)', x["anteriorEf"]),
                     fx(f'IF(C{r}="","",C{r}-D{r})', x["recAnio"]), fx(f"{DET}Q{r}", n2(x["registrado"])),
-                    fx(f'IF(E{r}="","",E{r}-F{r})', x["ajuste"])])
+                    fx(f'IF(E{r}="","",E{r}-F{r})', x["ajuste"]),
+                    fx(f'IF(G{r}="","",IF(ABS(G{r})>=0.005,"Alerta","Conforme"))',
+                       "" if x["ajuste"] is None else ("Alerta" if abs(x["ajuste"]) >= 0.005 else "Conforme"))])
     tot_rec = ["TOTAL", "", suma("C", fin, sum(x["vp"] or 0 for x in L)), suma("D", fin, sum(x["anteriorEf"] for x in L)),
-               suma("E", fin, t["ingresoReconocible"]), suma("F", fin, t["ingresoRegistrado"]), suma("G", fin, t["ajuste"])]
+               suma("E", fin, t["ingresoReconocible"]), suma("F", fin, t["ingresoRegistrado"]), suma("G", fin, t["ajuste"]), ""]
 
     # 10 · Activo / pasivo del contrato (por contrato).
     apr = []
@@ -691,8 +828,234 @@ def hojas(res: dict) -> list[dict]:
     ref_res = {k: f"{CON}{cb(k)}" for k in res["labels"]}
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
+    # «Cómo se calcula esta hoja»: explicación humana de cada columna calculada.
+    incluir = ("si su probabilidad supera el 50 % (PYMES 2015)" if d["s15"]
+               else "si su probabilidad alcanza el umbral de «altamente probable» de la hoja 02 (Parámetros)")
+    ex = {
+        "01_Resumen": {
+            "Importe": ("Trae cada importe de la hoja 13 (Conciliación y ajustes), concepto por concepto, para que el resumen "
+                        "muestre siempre las mismas cifras que la conciliación."),
+        },
+        "03_Detalle": {
+            "Contrato válido": ("Lee la evidencia del contrato informada por el cliente en esta hoja: «No» si dijo que no hay "
+                                "contrato aprobado, «Sin dato» si la dejó vacía y «Sí» en los demás casos."),
+        },
+        "04_Precio_variable": {
+            "Precio fijo": "Trae el precio del contrato asignado por el cliente a la línea, de la hoja 03 (Detalle por obligación).",
+            "Variable estimada": ("Trae la contraprestación variable estimada de la línea (hoja 03); queda en blanco si el "
+                                  "contrato no tiene parte variable."),
+            "Probabilidad": ("Trae la probabilidad de la variable informada en la hoja 03 y la expresa como porcentaje; queda en "
+                             "blanco si no se informó."),
+            "Importe estimado por el método": ("Si el método de la hoja 02 es «Valor esperado», multiplica la variable por su "
+                                               "probabilidad; si es «Importe más probable», toma la variable completa. Queda en "
+                                               "blanco si no hay variable (o, con valor esperado, si falta la probabilidad)."),
+            "Importe que supera la restricción": ("Trae de la hoja 03 la parte de la variable que el cliente no puede incluir "
+                                                  "por la restricción; queda en blanco si no se informó."),
+            "Variable incluida (restringida)": ("Si se informó el importe que supera la restricción, incluye el importe estimado "
+                                                "menos ese importe (nunca menos de cero); si no, incluye todo el importe estimado "
+                                                + incluir + " y nada en caso contrario o si falta la probabilidad."),
+            "Variable del cliente": ("Trae la contraprestación variable que el cliente incluyó en el precio (hoja 03); queda en "
+                                     "blanco si no la informó."),
+            "Exceso sobre la restricción": ("Resta la variable incluida por el auditor de la que incluyó el cliente; si el cliente "
+                                            "incluyó menos, da cero. En blanco si el cliente no informó su variable."),
+            "Precio de la transacción del contrato": ("Suma, para todas las líneas del mismo contrato de esta hoja, los precios "
+                                                      "fijos y las variables incluidas: es el precio total a repartir entre las obligaciones."),
+        },
+        "05_Asignacion": {
+            "Precio independiente usado": ("Toma el precio de venta independiente de la línea (hoja 03); si el cliente no lo "
+                                           "informó, usa el precio del contrato de esa misma hoja."),
+            "Suma del contrato": "Suma los precios independientes usados de todas las líneas del mismo contrato en esta hoja.",
+            "Precio de la transacción": ("Trae el precio de la transacción del contrato calculado en la hoja 04 (Precio y "
+                                         "contraprestación variable)."),
+            "Asignado (relativo)": ("Reparte el precio de la transacción en proporción al precio independiente de la línea "
+                                    "sobre la suma del contrato; en blanco si esa suma es cero."),
+            "Asignación del cliente": ("Suma el precio fijo y la variable que incluyó el cliente (hoja 04; si no la informó se "
+                                       "toma cero): es lo que el cliente asignó a la línea."),
+            "Diferencia": "Resta la asignación del cliente del importe asignado por el auditor; en blanco si no se pudo asignar.",
+            "Obligaciones del contrato": "Cuenta cuántas líneas (obligaciones) de esta hoja pertenecen al mismo contrato.",
+            "Diferencia absoluta": ("Muestra la diferencia de asignación sin signo, solo cuando el contrato tiene dos o más "
+                                    "obligaciones; en contratos de una sola obligación pone cero."),
+        },
+        "06_Satisfaccion": {
+            "Modo": "Trae si la obligación se satisface en un momento o a lo largo del tiempo, según la hoja 03 (Detalle).",
+            "Avance recalculado (costos)": ("Solo para obligaciones a lo largo del tiempo: divide los costos incurridos para los "
+                                            "costos totales estimados de la hoja 03, con tope de 100 %; en blanco si faltan costos "
+                                            "o si la obligación se satisface en un momento."),
+            "Avance del cliente": "Trae el porcentaje de avance que informó el cliente en la hoja 03; en blanco si no lo informó.",
+            "Diferencia de avance": ("Resta el avance recalculado del avance del cliente; en blanco si falta cualquiera de los "
+                                     "dos."),
+            "Control transferido al corte": ("Solo para obligaciones en un momento: «Sí» si la fecha de transferencia del "
+                                             "control (hoja 03) es igual o anterior al corte de la hoja 02 y «No» si es posterior; "
+                                             "en blanco si falta la fecha."),
+            "Factor de satisfacción": ("Indica qué parte de la obligación está cumplida: cero si el contrato no es válido "
+                                       "(hoja 03); el avance recalculado si es a lo largo del tiempo; 1 o 0 según se haya "
+                                       "transferido el control si es en un momento."),
+            "Reconocible bruto acumulado": ("Multiplica el importe asignado de la hoja 05 (Asignación) por el factor de "
+                                            "satisfacción; en blanco si falta alguno de los dos."),
+            "Pérdida esperada del contrato": ("Para obligaciones a lo largo del tiempo, resta el importe asignado (hoja 05) de "
+                                              "los costos totales estimados (hoja 03); si los costos no lo superan, pone cero."),
+        },
+        "07_Devoluciones": {
+            "Reconocible bruto": "Trae el reconocible bruto acumulado de la línea calculado en la hoja 06 (Satisfacción).",
+            "Devolución esperada": ("Trae el porcentaje de devoluciones esperadas de la hoja 03; si no se informó, se toma "
+                                    "cero."),
+            "Pasivo por reembolso": ("Multiplica el reconocible bruto por el porcentaje de devolución esperada: es lo que se "
+                                     "espera devolver al cliente. En blanco si el bruto no se pudo medir."),
+            "Reconocible neto de devoluciones": "Resta el pasivo por reembolso del reconocible bruto de la línea.",
+            "NC posteriores al cierre": ("Trae las notas de crédito emitidas después del cierre para la línea (hoja 03); en "
+                                         "blanco si no hay."),
+            "NC no provisionadas": ("Resta el pasivo por reembolso de las notas de crédito posteriores; lo que exceda es "
+                                    "devolución no provisionada (cero si no hay notas o si el pasivo las cubre)."),
+            "Costo de los bienes vendidos": ("Trae el costo de los bienes vendidos de la línea informado en la hoja 03; en "
+                                             "blanco si no se informó."),
+            "Activo por derecho a recuperar productos": ("Multiplica el costo de los bienes vendidos por el porcentaje de "
+                                                         "devolución esperada. Es cero si la hoja 02 indica que el marco no lo "
+                                                         "reconoce o si no hay devoluciones; en blanco si falta el costo o el pasivo por reembolso."),
+        },
+        "08_Financiacion": {
+            "Reconocible neto": "Trae el reconocible neto de devoluciones de la línea, de la hoja 07 (Devoluciones).",
+            "Plazo de cobro (meses)": "Trae el plazo de cobro en meses informado en la hoja 03; en blanco si no se informó.",
+            "Financiación significativa": ("Marca «Sí» cuando el plazo de cobro supera el plazo que la hoja 02 (Parámetros) "
+                                           "considera financiación significativa; en otro caso «No»."),
+            "Tasa anual": "Trae la tasa de descuento anual de la hoja 02 (Parámetros); en blanco si no se informó.",
+            "Valor presente (ingreso ordinario)": ("Si hay financiación significativa y tasa, descuenta el reconocible neto por "
+                                                   "el plazo de cobro a la tasa anual; si no hay financiación o falta la tasa, "
+                                                   "deja el reconocible neto tal cual."),
+            "Componente de financiación": ("Resta el valor presente del reconocible neto: es la parte que es interés y no "
+                                           "ingreso ordinario. Cero sin financiación significativa; en blanco si falta la tasa."),
+            "Días devengados": ("Con financiación significativa, cuenta los días desde la transferencia del control (hoja 03) "
+                                "hasta el corte (hoja 02), sin pasar del plazo de cobro; cero en los demás casos."),
+            "Interés devengado al corte": ("Capitaliza el valor presente a la tasa anual por los días devengados y toma solo el "
+                                           "interés ganado hasta el corte; cero si no hay componente de financiación."),
+        },
+        "09_Reconocimiento": {
+            "Reconocible acumulado": ("Trae el valor presente (ingreso ordinario) acumulado de la línea, calculado en la hoja 08 "
+                                      "(Componente de financiación)."),
+            "Reconocido años anteriores": ("Trae el ingreso de la línea reconocido en años anteriores (hoja 03); si no se "
+                                           "informó, se toma cero."),
+            "Reconocible del año": ("Resta lo reconocido en años anteriores del reconocible acumulado: es el ingreso que "
+                                    "corresponde a este año. En blanco si la línea no se pudo medir."),
+            "Registrado en el año": "Trae el ingreso que el cliente registró en el año para la línea, de la hoja 03 (Detalle).",
+            "Ajuste": ("Resta lo registrado del reconocible del año: negativo significa que el cliente registró ingreso de más. "
+                       "En blanco si la línea no se pudo medir."),
+            "Semáforo": ("Estado de la línea: «Alerta» si hay diferencia entre el ingreso reconocible del año y el registrado (hay que "
+                         "ajustarla), «Conforme» si coinciden; en blanco si la línea no se pudo medir."),
+        },
+        "10_Activo_pasivo": {
+            "Reconocible bruto acumulado": ("Suma el reconocible bruto acumulado de la hoja 06 (Satisfacción) de todas las "
+                                            "líneas de este contrato (identificadas por el contrato en la hoja 03)."),
+            "Facturado": "Suma el facturado acumulado de las líneas de este contrato informado en la hoja 03 (Detalle).",
+            "Cobrado": "Suma el cobrado acumulado de las líneas de este contrato informado en la hoja 03 (Detalle).",
+            "Posición": ("Resta lo facturado del reconocible bruto acumulado del contrato; queda en blanco si alguna obligación "
+                         "del contrato no se pudo medir."),
+            d["nAct"]: ("Si la posición es positiva (se ha cumplido más de lo facturado), ese importe se presenta como "
+                        "activo; si es negativa, cero."),
+            d["nPas"]: ("Si la posición es negativa (se ha facturado más de lo cumplido), su valor sin signo se presenta como "
+                        "pasivo; si es positiva, cero."),
+            "Cuenta por cobrar": "Resta lo cobrado de lo facturado del contrato: es el saldo que el cliente final aún debe.",
+            "Obligaciones sin medir": ("Cuenta cuántas líneas del contrato quedaron con el reconocible bruto en blanco en la "
+                                       "hoja 06 (Satisfacción) por falta de datos."),
+        },
+        "11_Corte": {
+            "Registrado en el año": "Trae el ingreso registrado en el año para la línea, de la hoja 03 (Detalle por obligación).",
+            "Registrado en el ejercicio": ("Marca «Sí» si la fecha de registro del ingreso es igual o anterior al corte de la "
+                                           "hoja 02; si es posterior, «No»."),
+            "Transferido en el ejercicio": ("Marca «Sí» si la fecha de transferencia del control es igual o anterior al corte "
+                                            "de la hoja 02; si es posterior, «No»."),
+            "Registrado antes de transferir": ("Si el ingreso se registró en el ejercicio pero el control se transfirió después "
+                                               "del corte, trae el importe registrado (ingreso anticipado); si no, cero."),
+            "Transferido sin registrar": ("Si el control se transfirió en el ejercicio pero el ingreso se registró después del "
+                                          "corte, trae el reconocible bruto de la hoja 06 (ingreso omitido); si no, cero."),
+        },
+        "12_Modificaciones": {
+            "Importe": "Trae el importe de la modificación del contrato informado en la hoja 03; en blanco si no se informó.",
+        },
+        "13_Conciliacion": {
+            "Importe": ("Cada concepto trae su importe de la hoja donde se calcula: el registrado suma la hoja 03, el mayor y "
+                        "los saldos registrados vienen de la hoja 02 (si falta el mayor se usa el anexo), los demás son totales "
+                        "de las hojas 04 a 11, y las diferencias restan dos renglones de esta misma hoja."),
+        },
+        "14_Asientos": {
+            "Debe": ("Toma, sin signo, el importe del concepto que origina el asiento en la hoja 13 (ajuste de ingresos, "
+                     "interés devengado o activo por devoluciones) y lo lleva a la cuenta que se debita."),
+            "Haber": ("Lleva a la cuenta que se acredita el mismo importe del débito, tomado sin signo de la hoja 13 "
+                      "(Conciliación y ajustes), para que el asiento cuadre."),
+        },
+        "16_Conclusion": {
+            "Importe": ("Cada indicador toma su cifra de la hoja 13 (Conciliación y ajustes): el ingreso reconocible, el "
+                        "registrado, el ajuste propuesto, la diferencia contra el mayor y el componente de financiación, sin "
+                        "volver a calcularlos aquí."),
+            "Porcentaje": ("Divide el ajuste propuesto para el ingreso registrado del año (renglones de esta misma hoja): es "
+                           "el peso del ajuste sobre lo contabilizado; en blanco si no hay ingreso registrado."),
+            "Cantidad": ("Cuenta los problemas listados en la hoja 15 (Problemas encontrados): cuántas excepciones dejó "
+                         "abiertas la prueba de ingresos."),
+            "Estado": ("Semáforo de cada indicador: el ajuste marca «Alerta» si supera el mínimo significativo y «Conforme» si "
+                       "no; una diferencia contra el mayor, un componente de financiación por separar o problemas abiertos "
+                       "piden «Revisar»."),
+        },
+    }
+
+    # 16 · indicadores y conclusión (semáforo).  Columnas: indicador, importe, porcentaje, cantidad, estado.
+    nprob = len(res["exceptions"])
+    b16 = lambda kk: f"B{FILA0 + kk}"
+    dd16 = lambda kk: f"D{FILA0 + kk}"
+    aj_v, dm_v, cf_v = t["ajuste"], t["difMayor"], t["componenteFinanciero"]
+    con16 = [
+        ["Ingreso reconocible del año (recalculado)", fx(f"{CON}{cb('ingresoReconocible')}", t["ingresoReconocible"]), None, None, ""],
+        ["Ingreso registrado en el año (población del anexo)", fx(f"{CON}{cb('ingresoRegistrado')}", t["ingresoRegistrado"]), None, None, ""],
+        ["Ajuste propuesto a ingresos (NIIF 15 · Secc. 23)", fx(f"{CON}{cb('ajuste')}", t["ajuste"]), None, None,
+         fx(f'IF(ABS({b16(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(aj_v) > 0.005 else "Conforme")],
+        ["% del ajuste sobre el ingreso registrado", None, fx(f'IF({b16(1)}=0,"",{b16(2)}/{b16(1)})',
+         None if t["ingresoRegistrado"] == 0 else t["ajuste"] / t["ingresoRegistrado"]), None, ""],
+        ["Diferencia anexo − mayor (integridad, NIA 500)", fx(f"{CON}{cb('difMayor')}", t["difMayor"]), None, None,
+         fx(f'IF(ABS({b16(4)})>0.005,"Revisar","Conforme")', "Revisar" if abs(dm_v) > 0.005 else "Conforme")],
+        ["Componente de financiación a separar", fx(f"{CON}{cb('componenteFinanciero')}", t["componenteFinanciero"]), None, None,
+         fx(f'IF(ABS({b16(5)})>0.005,"Revisar","Conforme")', "Revisar" if abs(cf_v) > 0.005 else "Conforme")],
+        ["Problemas encontrados (cantidad)", None, None, fx(f"COUNTA({_rango(PRB, 'A', nprob)})", nprob),
+         fx(f'IF({dd16(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+        ["Conclusión: el ingreso se reconoce al transferir el control de cada obligación (NIIF 15 · PYMES Secc. 23); esta "
+         "prueba no concluye por sí sola el cumplimiento de las NIIF.", None, None, None, ""],
+    ]
+
+    # 17 · lectura causa-efecto: cada frase lee el resultado con su cifra embebida (FIXED) desde el Resumen (hoja 01).
+    R1 = ref("01_Resumen")
+    fr = {k: FILA0 + i for i, k in enumerate(res["labels"])}
+    rc = lambda key: f"{R1}B{fr[key]}"
+    lectura = [
+        ["Resultado de la prueba",
+         fx(f'"El ingreso reconocible del año en las líneas medidas es de US$ "&FIXED({rc("ingresoReconocible")},2)&", frente a '
+            f'US$ "&FIXED({rc("ingresoRegistrado")},2)&" registrado en el anexo (NIIF 15 · Sección 23)."',
+            f'El ingreso reconocible del año en las líneas medidas es de US$ {m(t["ingresoReconocible"])}, frente a US$ '
+            f'{m(t["ingresoRegistrado"])} registrado en el anexo (NIIF 15 · Sección 23).')],
+        ["Ajuste propuesto y su efecto",
+         fx(f'"El ajuste propuesto a ingresos es de US$ "&FIXED({rc("ajuste")},2)&": "&'
+            f'IF({rc("ajuste")}>=0,"reconoce ingreso adicional del ejercicio.","reduce el ingreso registrado.")',
+            f'El ajuste propuesto a ingresos es de US$ {m(t["ajuste"])}: '
+            + ("reconoce ingreso adicional del ejercicio." if t["ajuste"] >= 0 else "reduce el ingreso registrado."))],
+        ["Corte de ingresos",
+         fx(f'"Del corte de ingresos: US$ "&FIXED({rc("corteAnticipado")},2)&" se registró antes de transferir el control y '
+            f'US$ "&FIXED({rc("corteOmitido")},2)&" se transfirió sin registrar en el ejercicio."',
+            f'Del corte de ingresos: US$ {m(t["corteAnticipado"])} se registró antes de transferir el control y US$ '
+            f'{m(t["corteOmitido"])} se transfirió sin registrar en el ejercicio.')],
+        ["Componente de financiación",
+         fx(f'"Hay un componente de financiación de US$ "&FIXED({rc("componenteFinanciero")},2)&" a separar del ingreso ordinario '
+            f'y presentar como interés; el interés devengado al corte es de US$ "&FIXED({rc("interesDevengado")},2)&"."',
+            f'Hay un componente de financiación de US$ {m(t["componenteFinanciero"])} a separar del ingreso ordinario y presentar '
+            f'como interés; el interés devengado al corte es de US$ {m(t["interesDevengado"])}.')],
+        ["Cierre",
+         fx(f'"El anexo de ingresos difiere del mayor en US$ "&FIXED({rc("difMayor")},2)&", que "&'
+            f'IF(ABS({rc("difMayor")})<=0.005,"concilia con la contabilidad.","debe investigarse (NIA 500).")',
+            f'El anexo de ingresos difiere del mayor en US$ {m(t["difMayor"])}, que '
+            + ("concilia con la contabilidad." if abs(t["difMayor"]) <= 0.005 else "debe investigarse (NIA 500)."))],
+    ]
+    ex_lectura = {"Detalle": ("Lee en lenguaje corriente el resultado de la prueba y sus hallazgos materiales con la cifra embebida "
+                              "tomada del Resumen (hoja 01): el ingreso reconocible frente al registrado, el ajuste propuesto y su "
+                              "efecto, el corte de ingresos anticipado y omitido, el componente de financiación a separar y su interés "
+                              "devengado, y la conciliación del anexo con el mayor. Cada cifra remite por fórmula a la celda del "
+                              "Resumen.")}
+
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex["01_Resumen"]),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Detalle", "Detalle por obligación",
              [["Línea", "t"], ["Contrato", "t"], ["Cliente", "t"], ["Obligación", "t"], ["Evidencia del contrato", "t"], ["Modo", "t"],
@@ -701,44 +1064,48 @@ def hojas(res: dict) -> list[dict]:
               ["Avance del cliente (%)", "x"], ["Registrado en el año", "n"], ["Reconocido años anteriores", "n"], ["Facturado acumulado", "n"],
               ["Cobrado acumulado", "n"], ["Plazo de cobro (meses)", "x"], ["Devoluciones esperadas (%)", "x"], ["NC posteriores", "n"],
               ["Modificación", "t"], ["Importe modificación", "n"], ["Variable que supera la restricción", "n"],
-              ["Costo de los bienes vendidos", "n"], ["Contrato válido", "t"]], det, tot_det),
+              ["Costo de los bienes vendidos", "n"], ["Contrato válido", "t"]], det, tot_det, explica=ex["03_Detalle"]),
         hoja("04_Precio_variable", "Precio y contraprestación variable",
              [["Línea", "t"], ["Contrato", "t"], ["Precio fijo", "n"], ["Variable estimada", "n"], ["Probabilidad", "p"],
               ["Importe estimado por el método", "n"], ["Importe que supera la restricción", "n"],
               ["Variable incluida (restringida)", "n"], ["Variable del cliente", "n"], ["Exceso sobre la restricción", "n"],
-              ["Precio de la transacción del contrato", "n"]], pv, tot_pv),
+              ["Precio de la transacción del contrato", "n"]], pv, tot_pv, explica=ex["04_Precio_variable"]),
         hoja("05_Asignacion", "Asignación del precio",
              [["Línea", "t"], ["Contrato", "t"], ["Precio independiente usado", "n"], ["Suma del contrato", "n"], ["Precio de la transacción", "n"],
               ["Asignado (relativo)", "n"], ["Asignación del cliente", "n"], ["Diferencia", "n"], ["Obligaciones del contrato", "i"],
-              ["Diferencia absoluta", "n"]], asg, tot_asg),
+              ["Diferencia absoluta", "n"]], asg, tot_asg, explica=ex["05_Asignacion"]),
         hoja("06_Satisfaccion", "Satisfacción y porcentaje de avance",
              [["Línea", "t"], ["Modo", "t"], ["Avance recalculado (costos)", "p"], ["Avance del cliente", "p"], ["Diferencia de avance", "p"],
               ["Control transferido al corte", "t"], ["Factor de satisfacción", "p"], ["Reconocible bruto acumulado", "n"],
-              ["Pérdida esperada del contrato", "n"]], sat, tot_sat),
+              ["Pérdida esperada del contrato", "n"]], sat, tot_sat, explica=ex["06_Satisfaccion"]),
         hoja("07_Devoluciones", "Devoluciones y notas de crédito",
              [["Línea", "t"], ["Reconocible bruto", "n"], ["Devolución esperada", "p"], ["Pasivo por reembolso", "n"],
               ["Reconocible neto de devoluciones", "n"], ["NC posteriores al cierre", "n"], ["NC no provisionadas", "n"],
-              ["Costo de los bienes vendidos", "n"], ["Activo por derecho a recuperar productos", "n"]], dev, tot_dev),
+              ["Costo de los bienes vendidos", "n"], ["Activo por derecho a recuperar productos", "n"]], dev, tot_dev, explica=ex["07_Devoluciones"]),
         hoja("08_Financiacion", "Componente de financiación",
              [["Línea", "t"], ["Reconocible neto", "n"], ["Plazo de cobro (meses)", "x"], ["Financiación significativa", "t"], ["Tasa anual", "p"],
               ["Valor presente (ingreso ordinario)", "n"], ["Componente de financiación", "n"], ["Días devengados", "x"],
-              ["Interés devengado al corte", "n"]], fn, tot_fn),
+              ["Interés devengado al corte", "n"]], fn, tot_fn, explica=ex["08_Financiacion"]),
         hoja("09_Reconocimiento", "Ingreso reconocible vs registrado",
              [["Línea", "t"], ["Contrato", "t"], ["Reconocible acumulado", "n"], ["Reconocido años anteriores", "n"], ["Reconocible del año", "n"],
-              ["Registrado en el año", "n"], ["Ajuste", "n"]], rec, tot_rec),
+              ["Registrado en el año", "n"], ["Ajuste", "n"], ["Semáforo", "t"]], rec, tot_rec, explica=ex["09_Reconocimiento"], colores=["Semáforo"]),
         hoja("10_Activo_pasivo", "Activo y pasivo del contrato",
              [["Contrato", "t"], ["Cliente", "t"], ["Reconocible bruto acumulado", "n"], ["Facturado", "n"], ["Cobrado", "n"], ["Posición", "n"],
-              [d["nAct"], "n"], [d["nPas"], "n"], ["Cuenta por cobrar", "n"], ["Obligaciones sin medir", "i"]], apr, tot_ap),
+              [d["nAct"], "n"], [d["nPas"], "n"], ["Cuenta por cobrar", "n"], ["Obligaciones sin medir", "i"]], apr, tot_ap, explica=ex["10_Activo_pasivo"]),
         hoja("11_Corte", "Corte de ingresos",
              [["Línea", "t"], ["Contrato", "t"], ["Registro", "d"], ["Transferencia", "d"], ["Registrado en el año", "n"],
               ["Registrado en el ejercicio", "t"], ["Transferido en el ejercicio", "t"], ["Registrado antes de transferir", "n"],
-              ["Transferido sin registrar", "n"]], cor, tot_cor),
+              ["Transferido sin registrar", "n"]], cor, tot_cor, explica=ex["11_Corte"]),
         hoja("12_Modificaciones", "Modificaciones de contratos",
-             [["Línea", "t"], ["Contrato", "t"], ["Modificación informada", "t"], ["Importe", "n"], ["Tratamiento", "t"], ["Estado", "t"]], mods),
-        hoja("13_Conciliacion", "Conciliación y ajustes", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], con),
-        hoja("14_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
+             [["Línea", "t"], ["Contrato", "t"], ["Modificación informada", "t"], ["Importe", "n"], ["Tratamiento", "t"], ["Estado", "t"]], mods, explica=ex["12_Modificaciones"]),
+        hoja("13_Conciliacion", "Conciliación y ajustes", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], con, explica=ex["13_Conciliacion"]),
+        hoja("14_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos, explica=ex["14_Asientos"]),
         hoja("15_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("16_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], con16,
+             explica=ex["16_Conclusion"], colores=["Estado"]),
+        hoja("17_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura, explica=ex_lectura),
     ]
 
 

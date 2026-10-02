@@ -33,6 +33,7 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
     n2, norm, problema, r2, ref, req, suma, validar_campos, validar_definicion_generica,
 )
 from backend.app.aud.niif.procesadores.cxc_cartera import NOMBRE_TRAMO, TRAMOS, _rango, _tramo, _tramo_formula
+from backend.app.aud.niif.procesadores import problemas
 
 VERSION = "proveedores_cxp 1.0"
 RUBRO = "PROVEEDORES"
@@ -88,6 +89,7 @@ CEDULAS = [
     ("08_Corte_compras", "Corte de compras"), ("09_Costo_amortizado", "Costo amortizado e intereses implícitos"),
     ("10_Clasificacion", "Clasificación corriente / no corriente"), ("11_Ajuste", "Saldo auditado y ajustes"),
     ("12_Asientos", "Asientos propuestos"), ("13_Problemas", "Problemas encontrados"),
+    ("14_Conclusion", "Indicadores y conclusión"),
 ]
 
 _SI = {"si", "s", "x", "yes", "y", "1", "true", "verdadero"}
@@ -337,6 +339,17 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
 
 # --- cédulas con fórmulas ---------------------------------------------------------
 
+# Panel del dashboard (formato en graficos.py): saldo del auxiliar por documento; saldo auditado frente al del
+# auxiliar; composición del costo amortizado por clasificación y saldo por tramo de antigüedad.
+PANEL = {
+    "poblacion":   {"rotulo": "Proveedores según auxiliar", "hoja": "03_Detalle", "col": "Saldo"},
+    "recalculado": {"rotulo": "Saldo de proveedores auditado", "total": "saldoAuditado"},
+    "registrado":  {"rotulo": "Saldo del auxiliar (nominal)", "total": "saldo"},
+    "composicion": {"rotulo": "Costo amortizado por clasificación", "hoja": "10_Clasificacion", "etiqueta": "Clasificación requerida",
+                    "valor": "Costo amortizado"},
+    "distribucion": {"rotulo": "Saldo por antigüedad", "hoja": "04_Aging", "etiqueta": "Tramo", "valor": "Saldo"},
+}
+
 P = ref("02_Parametros")
 DET, PAG, PNR, CNF, COR, CAM, AJ = (ref(n) for n in ("03_Detalle", "05_Pagos_posteriores", "06_Pasivos_no_registrados", "07_Confirmaciones",
                                                     "08_Corte_compras", "09_Costo_amortizado", "11_Ajuste"))
@@ -349,6 +362,62 @@ AJF = {k: FILA0 + i for i, k in enumerate(_AJ)}
 
 def _pb(k):
     return f"{P}$B${PAR[k]}"
+
+
+def _concepto(etiqueta: str):
+    """Celda «Importe» de la fila ``etiqueta`` de 11_Ajuste (saldo auditado y ajustes)."""
+    def f(hojas, e):
+        h = next((x for x in hojas if x["name"] == "11_Ajuste"), None)
+        for i, fila in enumerate((h or {}).get("rows") or []):
+            if fila[0] == etiqueta:
+                return problemas.celda(hojas, "11_Ajuste", "Importe", i), problemas._num(fila[1])
+        return None
+    return f
+
+
+def _saldo_detalle_si(criterios):
+    """SUMIFS del «Saldo» de 03_Detalle con ``criterios`` = [(columna, criterio Excel, prueba en Python)]."""
+    def f(hojas, e):
+        h = next((x for x in hojas if x["name"] == "03_Detalle"), None)
+        n = len((h or {}).get("rows") or [])
+        if not n:
+            return None
+        cols = [c[0] for c in h["cols"]]
+        rango = lambda col: (f"{problemas.celda(hojas, '03_Detalle', col, 0)}:"
+                             f"{problemas.celda(hojas, '03_Detalle', col, n - 1).split('!')[1]}")
+        j = cols.index("Saldo")
+        valor = sum(problemas._num(fila[j]) or 0 for fila in h["rows"]
+                    if all(prueba(fila[cols.index(col)]) for col, _, prueba in criterios))
+        conds = ",".join(f'{rango(col)},"{crit}"' for col, crit, _ in criterios)
+        return f"SUMIFS({rango('Saldo')},{conds})", valor
+    return f
+
+
+_n = lambda v: problemas._num(v) or 0
+
+
+# De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
+REF_PROBLEMAS = {
+    "PASIVO_NO_REGISTRADO": ("06_Pasivos_no_registrados", "Pasivo no registrado", "total"),   # pasivos omitidos
+    "DIF_CONFIRMACION": ("07_Confirmaciones", "Diferencia absoluta", "total"),                # suma de diferencias absolutas
+    "ERROR_CORTE_COMPRAS": ("08_Corte_compras", "Registrada antes de la recepción"),           # saldo del documento anticipado
+    "PAGO_MAYOR_SALDO": ("05_Pagos_posteriores", "Pago mayor al saldo"),                       # exceso del pago sobre el saldo
+    "PAGO_NO_POSTERIOR": ("05_Pagos_posteriores", "Pago informado"),                           # pago sin fecha posterior al corte
+    "FINANCIACION_SIN_TASA": ("09_Costo_amortizado", "Nominal", "total"),                      # nominal de los documentos financiados
+    "FINANCIACION_NO_RECONOCIDA": _concepto("(-) Ajuste por financiación implícita"),         # intereses requeridos − registrados
+    "NO_CORRIENTE_COMO_CORRIENTE": _concepto("Reclasificación a no corriente"),               # no corriente requerida − presentada
+    "CORRIENTE_COMO_NO_CORRIENTE": _concepto("Reclasificación a no corriente"),               # idem (negativa)
+    # saldo positivo de los documentos sin «Partida de explotación» informada
+    "PARTIDA_EXPLOTACION_NO_INFORMADA": _saldo_detalle_si([("Partida de explotación", "", lambda v: not problemas._texto(v)),
+                                                           ("Saldo", ">0", lambda v: _n(v) > 0)]),
+    "SALDOS_DEUDORES": ("03_Detalle", "Saldo deudor", "total"),                                # saldos deudores a reclasificar
+    # saldo positivo vencido hace más de 360 días
+    "VENCIDO_MAS_360": _saldo_detalle_si([("Días desde vencimiento", ">360", lambda v: _n(v) > 360),
+                                          ("Saldo", ">0", lambda v: _n(v) > 0)]),
+    # saldo en moneda distinta del dólar
+    "MONEDA_EXTRANJERA": _saldo_detalle_si([("Moneda", "<>USD", lambda v: problemas._texto(v) != "USD")]),
+    "DIF_MAYOR": _concepto("Diferencia auxiliar − mayor"),                                     # auxiliar − mayor
+}
 
 
 def hojas(res: dict) -> list[dict]:
@@ -388,9 +457,11 @@ def hojas(res: dict) -> list[dict]:
             fx(f'IF(P{r}="Sí",M{r},0)', x["importeNC"]),
             fx(f"IF(F{r}<0,-F{r},0)", x["deudor"]),
             x["explotacion"] or None,
+            fx(f'IF(I{r}<=0,"Conforme",IF(I{r}<=90,"Revisar","Alerta"))',
+               "Conforme" if x["dv"] <= 0 else ("Revisar" if x["dv"] <= 90 else "Alerta")),
         ])
     tot_det = ["TOTAL", "", "", "", "", suma("F", fin_det, t["saldo"]), "", "", None, "", None, "", suma("M", fin_det, sum(x["ca"] for x in fl)),
-               suma("N", fin_det, t["interesNoDevengado"]), None, "", suma("Q", fin_det, t["noCorriente"]), suma("R", fin_det, t["saldosDeudores"]), ""]
+               suma("N", fin_det, t["interesNoDevengado"]), None, "", suma("Q", fin_det, t["noCorriente"]), suma("R", fin_det, t["saldosDeudores"]), "", ""]
 
     # 04 · Aging (importe nominal).
     aging = []
@@ -557,40 +628,174 @@ def hojas(res: dict) -> list[dict]:
                "relacionadas": ajb("relacionadas")}
     resumen = [[res["labels"][k], fx(ref_res[k], t[k])] for k in res["labels"]]
 
+    # Explicaciones humanas de «Cómo se calcula esta hoja» (una por columna calculada).
+    ex01 = {"Importe": ("Trae cada importe de la hoja 11 (Saldo auditado y ajustes), concepto por concepto: el saldo del auxiliar, los "
+                        "pasivos no registrados, el corte, la financiación implícita, los saldos deudores, el saldo auditado, el ajuste "
+                        "neto, la clasificación y los datos de control (mayor, confirmaciones, pagos posteriores y relacionadas).")}
+    ex03 = {
+        "Días desde vencimiento": ("Resta la fecha de vencimiento de la fecha de corte (hoja 02): días que el documento lleva vencido. "
+                                   "Si es negativo, todavía no vence."),
+        "Tramo": ("Ubica los días desde el vencimiento en su tramo de antigüedad: cero o menos es «Corriente / por vencer»; luego 1 a 30, "
+                  "31 a 60, 61 a 90, 91 a 180, 181 a 360 y más de 360 días."),
+        "Plazo de pago (días)": "Resta la fecha de la factura de la fecha de vencimiento: es el plazo de crédito que dio el proveedor, en días.",
+        "Financiación implícita": ("«Sí» cuando el saldo es positivo y el plazo de pago supera el plazo que se considera financiación "
+                                   "(meses de la hoja 02 convertidos a días); en otro caso, «No»."),
+        "Costo amortizado": ("Si hay financiación implícita y tasa de mercado (hoja 02), descuenta el saldo a esa tasa por todo el plazo y "
+                             "lo hace crecer por los días ya transcurridos hasta el corte; si no, deja el saldo nominal."),
+        "Interés implícito por devengar": ("Resta el costo amortizado del saldo nominal: interés implícito que aún no se devenga. En blanco "
+                                           "si hay financiación pero falta la tasa de mercado; cero si no hay financiación."),
+        "Días por vencer": "Resta la fecha de corte (hoja 02) de la fecha de vencimiento; si el documento ya venció, cuenta cero.",
+        "No corriente": ("«Sí» cuando el saldo es positivo y los días por vencer superan el límite: 12 meses si la partida no es de "
+                         "explotación; si lo es o no se informó, el mayor entre 12 meses y el ciclo de operación (hoja 02)."),
+        "Importe no corriente": "Si el documento es no corriente, toma su costo amortizado; si es corriente, cero.",
+        "Saldo deudor": "Si el saldo es negativo (un anticipo o saldo a favor), lo pasa a positivo para reclasificarlo al activo; si no, cero.",
+        "Semáforo": ("Estado del documento según su antigüedad: «Conforme» si aún no vence (días desde el vencimiento cero o menos), "
+                     "«Revisar» si lleva vencido hasta 90 días y «Alerta» si supera los 90 días vencido."),
+    }
+    ex04 = {
+        "Documentos": "Cuenta cuántos documentos del detalle (hoja 03) caen en este tramo de antigüedad.",
+        "Saldo": "Suma el saldo por pagar de los documentos del detalle (hoja 03) que caen en este tramo de antigüedad.",
+        "% del saldo": ("Divide el saldo del tramo para el saldo total del detalle (hoja 03): qué parte de la deuda con proveedores está "
+                        "en este tramo. En blanco si el total es cero."),
+    }
+    ex05 = {
+        "Días desde vencimiento": "Trae de la hoja 03 (Detalle por documento) los días que el documento lleva vencido a la fecha de corte.",
+        "Saldo al corte": "Trae de la hoja 03 (Detalle por documento) el saldo por pagar del documento a la fecha de corte.",
+        "Pago posterior aplicable": ("Si hay pago y fecha de pago, y la fecha es posterior al corte, toma el menor entre el pago y el saldo "
+                                     "al corte; si falta el pago o su fecha, o se pagó antes del corte, cero."),
+        "Saldo sin pago posterior": ("Resta el pago posterior aplicable del saldo al corte: es la parte del saldo que no quedó respaldada "
+                                     "por un pago después del cierre."),
+        "Pago mayor al saldo": ("Si el pago es posterior al corte, toma lo que el pago excede al saldo registrado (cero si no lo excede): "
+                                "indica un posible pasivo subestimado."),
+    }
+    ex06 = {
+        "Posterior al corte": "«Sí» si la fecha del pago o de la factura es posterior a la fecha de corte de la hoja 02 (Parámetros).",
+        "Causa hasta el corte": ("«Sí» si el bien o servicio se recibió hasta la fecha de corte (hoja 02): la obligación ya existía al "
+                                 "cierre."),
+        "Pasivo no registrado": ("Si el documento es posterior al corte, la recepción fue hasta el corte y el pasivo no estaba registrado, "
+                                 "toma su importe: es un pasivo omitido. En otro caso, cero."),
+    }
+    ex07 = {
+        "Saldo en libros": "Trae de la hoja 03 (Detalle por documento) el saldo por pagar registrado para el documento confirmado.",
+        "Diferencia": "Resta el saldo en libros del saldo confirmado por el proveedor. Positivo: el proveedor reporta más de lo registrado.",
+        "Diferencia absoluta": "Toma la diferencia sin signo, para sumar las diferencias sin que se compensen unas con otras.",
+        "Estado": ("Califica la respuesta: «Conforme» si la diferencia no pasa de medio centavo; si no, «Proveedor reporta más» o "
+                   "«Proveedor reporta menos», según el signo."),
+    }
+    ex08 = {
+        "Saldo": "Trae de la hoja 03 (Detalle por documento) el saldo por pagar del documento con fecha de recepción informada.",
+        "Recibida en el ejercicio": "«Sí» si la fecha de recepción del bien o servicio es anterior o igual a la fecha de corte (hoja 02).",
+        "Registrada antes de la recepción": ("Si el bien o servicio no se recibió hasta el corte, toma el saldo del documento: es una compra "
+                                             "registrada antes de tiempo. Si se recibió, cero."),
+    }
+    ex09 = {
+        "Nominal": "Trae de la hoja 03 (Detalle por documento) el saldo por pagar del documento con financiación implícita.",
+        "Plazo (días)": "Resta la fecha de la factura de la fecha de vencimiento: días de crédito que dio el proveedor.",
+        "Días transcurridos": ("Días desde la fecha de la factura hasta el corte (hoja 02), sin bajar de cero ni pasar del plazo del "
+                               "documento."),
+        "TIE = tasa de mercado": "Trae la tasa de mercado anual de la hoja 02 (Parámetros) y la divide para 100; en blanco si no se informó.",
+        "Pasivo inicial (valor presente)": ("Descuenta el nominal a la tasa de mercado por el plazo: nominal ÷ (1 + tasa) elevado a plazo/365. "
+                                            "Es el pasivo que debió reconocerse al comprar."),
+        "Financiación implícita": "Resta el pasivo inicial (valor presente) del nominal: es el interés escondido en el precio de la compra.",
+        "TIE recalculada": ("Despeja la tasa que convierte el pasivo inicial en el nominal en el plazo del documento; debe coincidir con la "
+                            "tasa de mercado y sirve de control."),
+        "Interés devengado al corte": ("Aplica al pasivo inicial la tasa de mercado por los días transcurridos: pasivo inicial × ((1 + tasa) "
+                                       "elevado a días/365 − 1)."),
+        "Costo amortizado al corte": "Suma el pasivo inicial y el interés devengado al corte: es el saldo que corresponde presentar a la fecha de corte.",
+        "Interés por devengar": "Resta el costo amortizado al corte del nominal: es el interés implícito que queda por devengar después del corte.",
+    }
+    ex10 = {
+        "Días por vencer": "Trae de la hoja 03 (Detalle por documento) los días que faltan desde el corte hasta el vencimiento.",
+        "Costo amortizado": "Trae de la hoja 03 (Detalle por documento) el costo amortizado del documento.",
+        "Clasificación requerida": ("«Activo (anticipo)» si el costo amortizado es negativo; «No corriente» si en la hoja 03 el documento "
+                                    "quedó marcado como no corriente; si no, «Corriente»."),
+        "Corriente": "Si la clasificación requerida es «Corriente», toma el costo amortizado del documento; en otro caso, cero.",
+        "No corriente": "Trae de la hoja 03 (Detalle por documento) el importe no corriente del documento (su costo amortizado si vence después del límite).",
+        "Saldo deudor (activo)": "Trae de la hoja 03 (Detalle por documento) el saldo deudor en positivo, que se reclasifica al activo.",
+        "Partida de explotación": "Copia de la hoja 03 si el documento es una partida de explotación (sí/no); en blanco si no se informó.",
+        "Límite aplicado (días)": ("Días a partir de los cuales el documento es no corriente: 365 si no es partida de explotación; si lo es "
+                                   "o no se informó, el mayor entre 12 meses y el ciclo de operación (hoja 02), en días."),
+    }
+    ex11 = {"Importe": ("Cada fila tiene su propia fórmula: suma columnas de la hoja 03 (saldo, interés por devengar, no corriente, saldos "
+                        "deudores, relacionadas), trae los totales de las hojas 05 a 08 o valores de la hoja 02, y arma el saldo auditado: "
+                        "libros netos + omitidos − compras anticipadas − ajuste por financiación + saldos deudores.")}
+    ex12 = {
+        "Debe": ("Trae el importe de cada asiento de la hoja 11 (Saldo auditado y ajustes); en la financiación implícita no registrada, "
+                 "de los totales de la hoja 09 (interés por devengar e interés devengado)."),
+        "Haber": ("Trae la contrapartida de cada asiento de la hoja 11 (Saldo auditado y ajustes); en la financiación implícita no "
+                  "registrada, el total de financiación implícita de la hoja 09."),
+    }
+    ex14 = {
+        "Importe": ("Trae la cifra de cada indicador de la hoja 11 (Saldo auditado y ajustes): el saldo auditado, el saldo en libros neto, "
+                    "el ajuste neto propuesto, la reclasificación a no corriente y las diferencias de confirmación; el ajuste neto es el "
+                    "saldo auditado menos el saldo en libros."),
+        "Porcentaje": ("Divide el ajuste neto propuesto para el saldo en libros neto (ambos de esta misma hoja): mide qué tan material es "
+                       "el ajuste frente al saldo registrado. Queda en blanco si el saldo en libros es cero."),
+        "Cantidad": "Cuenta los problemas detectados en la hoja 13 (Problemas encontrados) contando los códigos que se listaron.",
+        "Estado": ("Semáforo del indicador: «Alerta» cuando hay un ajuste neto al saldo que corregir, «Revisar» cuando hay reclasificación "
+                   "a no corriente, diferencias de confirmación o problemas por atender y «Conforme» cuando el indicador no exige acción. "
+                   "En blanco en las filas solo informativas (saldo auditado, saldo en libros y porcentaje)."),
+    }
+
+    # 14 · indicadores y conclusión (con semáforo por indicador).
+    nprob = len(res["exceptions"])
+    PBL = ref("13_Problemas")
+    librosNeto = t["saldo"] - t["descuentoRegistrado"]
+    bc = lambda kk: f"B{FILA0 + kk}"
+    rc = lambda kk: FILA0 + kk
+    conclusion = [
+        ["Saldo de proveedores auditado", fx(ajb("auditado"), t["saldoAuditado"]), None, None, ""],
+        ["Saldo en libros neto", fx(ajb("libros"), librosNeto), None, None, ""],
+        ["Ajuste neto propuesto a proveedores", fx(ajb("ajusteNeto"), t["ajusteNeto"]), None, None,
+         fx(f'IF(ABS(B{rc(2)})>0.005,"Alerta","Conforme")', "Alerta" if abs(t["ajusteNeto"]) > 0.005 else "Conforme")],
+        ["% del ajuste sobre el saldo en libros", None,
+         fx(f'IF({bc(1)}=0,"",{bc(2)}/{bc(1)})', None if librosNeto == 0 else t["ajusteNeto"] / librosNeto), None, ""],
+        ["Reclasificación a no corriente", fx(ajb("reclas"), t["reclasificacionNoCorriente"]), None, None,
+         fx(f'IF(ABS(B{rc(4)})>0.005,"Revisar","Conforme")', "Revisar" if abs(t["reclasificacionNoCorriente"]) > 0.005 else "Conforme")],
+        ["Diferencias de confirmación (absolutas)", fx(ajb("difConf"), t["difConfirmacion"]), None, None,
+         fx(f'IF(B{rc(5)}>0.005,"Revisar","Conforme")', "Revisar" if t["difConfirmacion"] > 0.005 else "Conforme")],
+        ["Problemas detectados", None, None, fx(f"COUNTA({_rango(PBL, 'A', max(nprob, 1))})", nprob),
+         fx(f'IF(D{rc(6)}>0,"Revisar","Conforme")', "Revisar" if nprob > 0 else "Conforme")],
+    ]
+
     return [
-        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen),
+        hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex01),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros),
         hoja("03_Detalle", "Detalle por documento",
              [["Documento", "t"], ["Proveedor", "t"], ["Fecha factura", "d"], ["Recepción", "d"], ["Vencimiento", "d"], ["Saldo", "n"],
               ["Relacionado", "t"], ["Moneda", "t"], ["Días desde vencimiento", "i"], ["Tramo", "t"], ["Plazo de pago (días)", "i"],
               ["Financiación implícita", "t"], ["Costo amortizado", "n"], ["Interés implícito por devengar", "n"], ["Días por vencer", "i"],
-              ["No corriente", "t"], ["Importe no corriente", "n"], ["Saldo deudor", "n"], ["Partida de explotación", "t"]], detalle, tot_det),
+              ["No corriente", "t"], ["Importe no corriente", "n"], ["Saldo deudor", "n"], ["Partida de explotación", "t"], ["Semáforo", "t"]],
+             detalle, tot_det, explica=ex03, colores=["Semáforo"]),
         hoja("04_Aging", "Antigüedad de proveedores", [["Tramo", "t"], ["Documentos", "i"], ["Saldo", "n"], ["% del saldo", "p"], ["Vencido", "t"]],
-             aging, ["TOTAL", suma("B", fin_ag, nd), suma("C", fin_ag, t["saldo"]), None, ""]),
+             aging, ["TOTAL", suma("B", fin_ag, nd), suma("C", fin_ag, t["saldo"]), None, ""], explica=ex04),
         hoja("05_Pagos_posteriores", "Pagos posteriores al cierre",
              [["Documento", "t"], ["Proveedor", "t"], ["Días desde vencimiento", "i"], ["Saldo al corte", "n"], ["Pago informado", "n"], ["Fecha del pago", "d"],
-              ["Pago posterior aplicable", "n"], ["Saldo sin pago posterior", "n"], ["Pago mayor al saldo", "n"]], pagos, tot_pag),
+              ["Pago posterior aplicable", "n"], ["Saldo sin pago posterior", "n"], ["Pago mayor al saldo", "n"]], pagos, tot_pag, explica=ex05),
         hoja("06_Pasivos_no_registrados", "Búsqueda de pasivos no registrados",
              [["Documento", "t"], ["Proveedor", "t"], ["Fecha pago / factura", "d"], ["Recepción", "d"], ["Importe", "n"], ["¿Registrado al corte?", "t"],
-              ["Posterior al corte", "t"], ["Causa hasta el corte", "t"], ["Pasivo no registrado", "n"]], pnr, tot_pnr),
+              ["Posterior al corte", "t"], ["Causa hasta el corte", "t"], ["Pasivo no registrado", "n"]], pnr, tot_pnr, explica=ex06),
         hoja("07_Confirmaciones", "Confirmación de proveedores",
              [["Documento", "t"], ["Proveedor", "t"], ["Saldo en libros", "n"], ["Saldo confirmado", "n"], ["Diferencia", "n"], ["Diferencia absoluta", "n"], ["Estado", "t"]],
-             cnf, tot_cnf),
+             cnf, tot_cnf, explica=ex07),
         hoja("08_Corte_compras", "Corte de compras",
              [["Documento", "t"], ["Proveedor", "t"], ["Fecha factura", "d"], ["Recepción", "d"], ["Saldo", "n"], ["Recibida en el ejercicio", "t"],
-              ["Registrada antes de la recepción", "n"]], cor, tot_cor),
+              ["Registrada antes de la recepción", "n"]], cor, tot_cor, explica=ex08),
         hoja("09_Costo_amortizado", "Costo amortizado e intereses implícitos",
              [["Documento", "t"], ["Proveedor", "t"], ["Fecha factura", "d"], ["Vencimiento", "d"], ["Nominal", "n"], ["Plazo (días)", "i"],
               ["Días transcurridos", "i"], ["TIE = tasa de mercado", "p"], ["Pasivo inicial (valor presente)", "n"], ["Financiación implícita", "n"],
-              ["TIE recalculada", "p"], ["Interés devengado al corte", "n"], ["Costo amortizado al corte", "n"], ["Interés por devengar", "n"]], cam, tot_cam),
+              ["TIE recalculada", "p"], ["Interés devengado al corte", "n"], ["Costo amortizado al corte", "n"], ["Interés por devengar", "n"]], cam, tot_cam, explica=ex09),
         hoja("10_Clasificacion", "Clasificación corriente / no corriente",
              [["Documento", "t"], ["Proveedor", "t"], ["Vencimiento", "d"], ["Días por vencer", "i"], ["Costo amortizado", "n"], ["Clasificación requerida", "t"],
               ["Corriente", "n"], ["No corriente", "n"], ["Saldo deudor (activo)", "n"], ["Partida de explotación", "t"],
-              ["Límite aplicado (días)", "i"]], cla, tot_cla),
-        hoja("11_Ajuste", "Saldo auditado y ajustes", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], ajuste),
-        hoja("12_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos),
+              ["Límite aplicado (días)", "i"]], cla, tot_cla, explica=ex10),
+        hoja("11_Ajuste", "Saldo auditado y ajustes", [["Concepto", "t"], ["Importe", "n"], ["Referencia", "t"]], ajuste, explica=ex11),
+        hoja("12_Asientos", "Asientos propuestos", [["Asiento", "t"], ["Cuenta", "t"], ["Debe", "n"], ["Haber", "n"]], asientos, explica=ex12),
         hoja("13_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
+        hoja("14_Conclusion", "Indicadores y conclusión",
+             [["Indicador", "t"], ["Importe", "n"], ["Porcentaje", "p"], ["Cantidad", "i"], ["Estado", "t"]], conclusion,
+             explica=ex14, colores=["Estado"]),
     ]
 
 

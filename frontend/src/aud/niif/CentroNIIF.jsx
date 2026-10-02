@@ -11,8 +11,10 @@ const ReconstruirExcel = lazy(() => import("./ReconstruirExcel.jsx"));
 const ManualMetodologia = lazy(() => import("./ManualMetodologia.jsx"));
 const PruebasEncargo = lazy(() => import("./PruebasEncargo.jsx"));
 const Bandejas = lazy(() => import("./Bandejas.jsx"));
+const PilotoGuiado = lazy(() => import("./PilotoGuiado.jsx"));
 
 const SECCIONES = [
+  { id: "piloto", label: "Piloto guiado", Vista: PilotoGuiado },
   { id: "pruebas", label: "Pruebas del encargo", Vista: PruebasEncargo },
   { id: "bandejas", label: "En revisión y aprobados", Vista: Bandejas },
   { id: "fichas", label: "Diseñar fichas", Vista: GeneradorHerramientasNIIF },
@@ -23,7 +25,7 @@ const SECCIONES = [
 ];
 
 export default function CentroNIIF({ proyecto, cliente }) {
-  const [seccion, setSeccion] = useState("pruebas");
+  const [seccion, setSeccion] = useState("piloto");
   const { Vista } = SECCIONES.find((s) => s.id === seccion);
   return (
     <div className="nf-centro">

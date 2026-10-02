@@ -238,6 +238,23 @@ function TokensPanel({ llm }) {
   const primary = llm?.primary;
   const configured = llm?.configured || [];
   const primaryInfo = primary ? LLM_PROVIDER_INFO[primary] : null;
+  // Prueba en vivo del servidor de IA local: llama al endpoint autenticado
+  // (lleva el JWT de la sesión) y muestra si el gateway local respondió.
+  const [probando, setProbando] = useState(false);
+  const [probe, setProbe] = useState(null);
+
+  async function probarLocal() {
+    setProbando(true);
+    setProbe(null);
+    try {
+      const estado = await api.iaEstado();
+      setProbe(estado.local || { ok: false, detalle: "Respuesta sin datos del servidor local." });
+    } catch (e) {
+      setProbe({ ok: false, detalle: e.message || String(e) });
+    } finally {
+      setProbando(false);
+    }
+  }
 
   return (
     <div className="cc-ctx-card">
@@ -313,6 +330,40 @@ function TokensPanel({ llm }) {
               ),
             )}
         </div>
+      </div>
+      <div
+        style={{
+          marginTop: 12,
+          paddingTop: 10,
+          borderTop: "1px solid var(--border, #334155)",
+        }}
+      >
+        <button
+          type="button"
+          className="btn block"
+          disabled={probando}
+          onClick={probarLocal}
+          style={{ textAlign: "center" }}
+        >
+          {probando ? "Probando…" : "🔌 Probar servidor de IA local"}
+        </button>
+        {probe && (
+          <div
+            style={{
+              marginTop: 8,
+              fontSize: 12,
+              color: probe.ok ? "#35C15E" : "#EF5A5E",
+            }}
+          >
+            <b>{probe.ok ? "✓ Conectado" : "✕ No responde"}</b>
+            {probe.ok && probe.latencia_ms != null && (
+              <span style={{ color: "var(--muted, #94a3b8)" }}> · {probe.latencia_ms} ms</span>
+            )}
+            {probe.detalle && (
+              <div style={{ marginTop: 4, color: "var(--muted, #94a3b8)" }}>{probe.detalle}</div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1814,9 +1865,6 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
           <button className="qa-item" onClick={goDocs}>
             <b>Subir / generar documento</b><span>PDF · Word · Excel · PPT</span>
           </button>
-          <button className="qa-item" onClick={goDocs}>
-            <b>Generar reporte</b><span>Informe ejecutivo</span>
-          </button>
           {isStaff ? (
             <button className="qa-item" onClick={goRunner}>
               <b>Ejecutar proceso</b><span>Motor Python · Tier 0</span>
@@ -1826,12 +1874,6 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
               <b>Ejecutar proceso</b><span>Solo operadores</span>
             </button>
           )}
-          <button className="qa-item off" disabled>
-            <b>Buscar en biblioteca</b><span>Fase 2</span>
-          </button>
-          <button className="qa-item off" disabled>
-            <b>Crear workflow</b><span>Fase 2</span>
-          </button>
         </div>
       </Panel>
     </div>

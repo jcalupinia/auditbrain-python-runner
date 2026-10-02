@@ -4,7 +4,7 @@ import pytest
 
 from tests.test_aud_ciclo_ejecucion import _navegador, _validada
 from tests.test_aud_ciclo_evidencia import _leer
-from tests.test_aud_ciclo_http import BASE, FICHA, _accion, _prueba_vnr
+from tests.test_aud_ciclo_http import BASE, FICHA, _accion, _prueba_vnr, _staff_con_proyecto
 from tests.test_aud_niif_fichas import _h
 
 
@@ -59,6 +59,14 @@ def test_revision_aprobacion_y_papel_inmutable(client):
     assert r.status_code == 400 and "evaluación de excepciones" in r.json()["detail"]
     p = _accion(client, tok, p, "approve", aprobar).json()
     assert p["estado"] == "APROBADO" and p["registro"]["approvedBy"] and p["registro"]["approvedAt"]
+    # NIA 220 (decisión del dueño): se permite aprobar el propio trabajo, pero queda advertido en el registro, la
+    # bitácora y la carátula del papel.
+    assert p["registro"]["submittedBy"] == p["registro"]["approvedBy"] and p["registro"]["segregation"] is False
+    ev = next(e for e in _leer(client, tok, p)["eventos"] if e["accion"] == "approve")
+    assert ev["comentario"].startswith("Aprobado por quien lo envió a revisión: sin segregación de funciones (NIA 220).")
+    from backend.app.aud.niif.procesadores import libro
+    assert libro._segregacion(p["registro"]).startswith("ADVERTENCIA: aprobó la misma persona")
+    assert libro._segregacion({**p["registro"], "submittedBy": "otra@firma.ec"}).startswith("Sí:")
 
     # Inmutable: ninguna acción del circuito ni la edición del contexto.
     r = _accion(client, tok, p, "save_analysis", {"analysis": "x"})
@@ -84,23 +92,94 @@ def test_revision_aprobacion_y_papel_inmutable(client):
     assert fila["estado"] == "APROBADO" and fila["cliente"] and fila["notas_abiertas"] == 0
 
     # Nueva versión: solo una sucesora; no se elimina la madre antes que la hija.
-    n = _accion(client, tok, p, "new_version").json()
+    # M1 (NIA 230): la versión nueva exige su motivo, que queda en la bitácora con su autor y fecha.
+    r = _accion(client, tok, p, "new_version", {"motivo": "corto"})
+    assert r.status_code == 400 and "motivo" in r.json()["detail"]
+    motivo = {"motivo": "El cliente entregó el ajuste de la provisión después de la aprobación."}
+    n = _accion(client, tok, p, "new_version", motivo).json()
     assert n["version"] == 2 and n["estado"] == "PRUEBA_SELECCIONADA" and n["id"] != p["id"]
+    assert n["registro"]["versionMotivo"] == motivo["motivo"] and n["registro"]["posteriorInforme"] is False
+    ev = next(e for e in _leer(client, tok, n)["eventos"] if e["accion"] == "new_version")
+    assert ev["comentario"].endswith("Motivo: " + motivo["motivo"])
     assert not any(s["verified"] for s in n["registro"]["sources"])
     p = _leer(client, tok, p)
     assert p["sucesora"] == n["id"]
-    r = _accion(client, tok, p, "new_version")
+    r = _accion(client, tok, p, "new_version", motivo)
     assert r.status_code == 400 and "sucesora" in r.json()["detail"]
     cliente = p["registro"]["engagement"]["client"]
-    r = _accion(client, tok, p, "delete", {"confirmClient": cliente, "deleteConfirmed": True, "approvedConfirmed": True})
-    assert r.status_code == 409 and "Elimine primero la más reciente" in r.json()["detail"]
     assert _accion(client, tok, n, "delete", {"confirmClient": cliente, "deleteConfirmed": True}).json()["deleted"] is True
-    r = _accion(client, tok, p, "delete", {"confirmClient": cliente, "deleteConfirmed": True})
-    assert r.status_code == 400 and "Confírmelo expresamente" in r.json()["detail"]
-    r = _accion(client, tok, p, "delete", {"confirmClient": "Otro", "deleteConfirmed": True, "approvedConfirmed": True})
-    assert r.status_code == 400 and "nombre del cliente" in r.json()["detail"]
-    assert _accion(client, tok, p, "delete", {"confirmClient": cliente, "deleteConfirmed": True, "approvedConfirmed": True}).json()["deleted"]
-    assert client.get(f"{BASE}/pruebas/{p['id']}", headers=_h(tok)).status_code == 404
+    # NIA 230: la versión aprobada es evidencia del encargo: no se elimina ni se reinicia, ni siquiera confirmándolo.
+    for accion, datos in (("delete", {"confirmClient": cliente, "deleteConfirmed": True, "approvedConfirmed": True}),
+                          ("erase", {"confirmClient": cliente, "downloadConfirmed": True})):
+        r = _accion(client, tok, p, accion, datos)
+        assert r.status_code == 400 and "no se reinicia ni se elimina" in r.json()["detail"]
+    p = _leer(client, tok, p)
+    assert p["estado"] == "APROBADO" and any(e["accion"] == "approve" for e in p["eventos"])   # la bitácora sigue intacta
+
+
+def test_papel_declarativo_guarda_tambien_word_y_powerpoint(client):
+    """Una prueba declarativa guarda su papel completo: Excel, HTML, Word y PowerPoint."""
+    tok, p = _analizada(client)
+    p = _accion(client, tok, p, "submit", {"analysis": "Dos partidas bajo costo.", "conclusion": "Ajuste de 82,00."}).json()
+    p = _accion(client, tok, p, "approve", {"conclusion": "Se propone ajuste de 82,00.", "conclusionReviewed": True,
+                                             "exceptionReview": "Las dos excepciones son deterioro por precio; se registran."}).json()
+    assert p["estado"] == "APROBADO", p
+
+    def subir(docx=b"PK\x03\x04word", pptx=b"PK\x03\x04ppt"):
+        return client.post(f"{BASE}/pruebas/{p['id']}/papel", headers=_h(tok), data={"revision": str(p["revision"])},
+                           files={"xlsx": ("p.xlsx", b"PK\x03\x04excel"), "html": ("p.html", b"<!doctype html><html></html>"),
+                                  "docx": ("p.docx", docx), "pptx": ("p.pptx", pptx)})
+
+    r = subir(docx=b"no es word")
+    assert r.status_code == 400 and "Word" in r.json()["detail"]
+    r = subir(pptx=b"no es ppt")
+    assert r.status_code == 400 and "PowerPoint" in r.json()["detail"]
+    assert subir().status_code == 200
+    p = _leer(client, tok, p)
+    arts = p["registro"]["artifacts"]
+    assert set(arts) == {"xlsx", "html", "docx", "pptx"}
+    assert len(p["papeles"]) == 4 and all(len(x["sha256"]) == 64 for x in p["papeles"])
+    for ext, esperado in (("docx", b"PK\x03\x04word"), ("pptx", b"PK\x03\x04ppt")):
+        bajado = client.get(f"{BASE}/pruebas/{p['id']}/archivos/{arts[ext]['id']}", headers=_h(tok))
+        assert bajado.content == esperado and arts[ext]["nombre"].endswith(f".{ext}")
+
+
+def test_papel_declarativo_con_el_diseno_nuevo_lo_arma_el_servidor(client):
+    """El navegador envía las cédulas del sitio; el servidor arma y guarda Excel, HTML, Word y
+    PowerPoint con el diseño de los procesadores (la definición, versión y estado son los de la prueba)."""
+    import io
+    import json
+    from pathlib import Path
+
+    from openpyxl import load_workbook
+
+    carga = json.loads((Path(__file__).parent / "fixtures" / "papel_declarativo" / "vnr.json").read_text(encoding="utf-8"))
+    tok, p = _analizada(client)
+    # Antes de aprobar: el papel en curso se descarga, pero no se guarda.
+    r = client.post(f"{BASE}/papel-declarativo?formato=xlsx", headers=_h(tok), json=carga)
+    assert r.status_code == 200 and r.content[:2] == b"PK", r.text
+    assert load_workbook(io.BytesIO(r.content)).sheetnames[0] == "00_Inicio"
+    assert client.post(f"{BASE}/papel-declarativo?formato=exe", headers=_h(tok), json=carga).status_code == 400
+    r = client.post(f"{BASE}/papel-declarativo", headers=_h(tok), json={"herramienta": {}, "cedulas": {}})
+    assert r.status_code == 400 and "definición" in r.json()["detail"]
+    guardar = lambda q: client.post(f"{BASE}/pruebas/{q['id']}/papel-declarativo", headers=_h(tok),  # noqa: E731
+                                    json={"revision": q["revision"], **carga})
+    r = guardar(p)
+    assert r.status_code == 400 and "versión aprobada" in r.json()["detail"]
+
+    p = _accion(client, tok, p, "submit", {"analysis": "Dos partidas bajo costo.", "conclusion": "Ajuste de 82,00."}).json()
+    p = _accion(client, tok, p, "approve", {"conclusion": "Se propone ajuste de 82,00.", "conclusionReviewed": True,
+                                             "exceptionReview": "Las dos excepciones son deterioro por precio; se registran."}).json()
+    r = guardar(p)
+    assert r.status_code == 200, r.text
+    p = _leer(client, tok, p)
+    arts = p["registro"]["artifacts"]
+    assert set(arts) == {"xlsx", "html", "docx", "pptx"} and len(p["papeles"]) == 4
+    for ext in ("xlsx", "docx", "pptx"):
+        assert client.get(f"{BASE}/pruebas/{p['id']}/archivos/{arts[ext]['id']}", headers=_h(tok)).content[:2] == b"PK"
+    html = client.get(f"{BASE}/pruebas/{p['id']}/archivos/{arts['html']['id']}", headers=_h(tok)).text
+    assert '<header class="topbar">' in html and html.count('<div class="kpi k-') == 5
+    assert guardar(p).status_code == 400, "el papel aprobado no se reemplaza"
 
 
 def test_devolver_a_datos_reabre_los_puntos(client):
@@ -168,3 +247,34 @@ def test_editar_la_ficha_con_alcance(client):
     assert r.status_code == 200, r.text
     assert _leer(client, tok, b)["registro"]["engagement"]["reviewer"] == "Rita Todas"
     assert client.get(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok)).json()["ficha"]["reviewer"] == "Rita Todas"
+
+
+@pytest.mark.parametrize("processor", ["planificacion_nia", "efectivo_equivalentes"])
+def test_vista_3_pasos_aprueba_sin_confirmar_base_legal(client, processor):
+    """Planificación y Efectivo (vista de 3 pasos): el programa se aprueba sin
+    confirmar base legal —ni contable NIIF/NIA ni tributaria— (decisión del dueño,
+    2026-10-01). Aunque la prueba sea «tributaria», con una cita «VERIFICAR» sin
+    resolver y sin marcar la conformidad, llega a PROGRAMA_APROBADO: las fuentes se
+    dan por verificadas automáticamente (como las envía `fuentesConfirmadas` en el
+    frontend) y no se exige el recuadro de base legal."""
+    tok, pid = _staff_con_proyecto(client)
+    assert client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok), json=FICHA).status_code == 200
+    r = client.post(f"{BASE}/proyectos/{pid}/pruebas", headers=_h(tok),
+                    json={"origen": f"proc:{processor}", "tributario": True})
+    assert r.status_code == 201, r.text
+    p = r.json()
+    assert p["registro"]["taxApplicable"] is True
+    p = _accion(client, tok, p, "research").json()
+    p = _accion(client, tok, p, "generate_program").json()
+    assert p["estado"] == "PROGRAMA_PROPUESTO", p
+    programa = p["registro"]["program"]
+    codigos = [x["code"] for x in programa]
+    # Como las envía `fuentesConfirmadas`: verificadas y con todos los procedimientos.
+    fuentes = [{**s, "verified": True, "section": "según programa", "date": "vigente 2025",
+                "procedures": codigos} for s in p["registro"]["sources"]]
+    # taxScope con «VERIFICAR» sin resolver y SIN marcar conformidad: antes bloqueaba.
+    p = _accion(client, tok, p, "approve_program",
+                {"program": programa, "sources": fuentes,
+                 "taxScope": "Base legal VERIFICAR art. X", "taxAcknowledged": False}).json()
+    assert p["estado"] == "PROGRAMA_APROBADO", p
+    assert all(x["state"] == "APROBADO" for x in p["registro"]["program"])

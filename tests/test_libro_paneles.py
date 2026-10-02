@@ -53,4 +53,4 @@ def test_sin_enriquecimiento_no_agrega_paneles():
     wb = _wb({"engagement": {}, "run": {"engine": "x", "hojas": []}})
     assert "15_Riesgo" not in wb.sheetnames and "16_Evidencia" not in wb.sheetnames
     # el papel base sigue cerrando en Control de revisión
-    assert "14_Control_Revision" in wb.sheetnames
+    assert "99_Control_Revision" in wb.sheetnames

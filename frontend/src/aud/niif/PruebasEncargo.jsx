@@ -16,7 +16,13 @@ import { Documentacion, EditorRequerimiento } from "./CicloDocumentacion";
 import { Ejecucion } from "./CicloEjecucion";
 import { Revision } from "./CicloRevision";
 import { VistaTrabajo } from "./CicloVista";
+import VistaProceso from "./VistaProceso";
+import { configDeProcesador } from "./procesoConfig";
+import ConsolaPrueba from "./ConsolaPrueba";
+import PruebasSugeridas from "./PruebasSugeridas";
+import { esPlanificacion } from "./pruebasSugeridasLogic";
 import { ContextFields } from "./ContextoEncargo";
+import { RegistroEncargo } from "./RegistroEncargo";
 import "./fichaNiif.css";
 
 /*
@@ -275,6 +281,11 @@ export function Prueba({ id, onCambio, onAbrir }) {
   if (!prueba) return error ? <p className="nf-error">{error}</p> : <p className="muted">Cargando prueba…</p>;
   const etapa = etapaDe(prueba.estado);
   const reg = prueba.registro;
+  // Vista de 3 pasos config-driven (tema oscuro): la usan «Efectivo y Equivalentes»
+  // (efectivo_equivalentes) y «Planificación de la auditoría» (planificacion_nia),
+  // cada una con su propia config (procesoConfig.js). El resto de las herramientas
+  // conserva el apilado histórico (vista de trabajo + consolas).
+  const configProceso = configDeProcesador(prueba.definicion.processor);
 
   return (
     <div className="nf-rec-panel nf-ciclo-prueba">
@@ -290,17 +301,40 @@ export function Prueba({ id, onCambio, onAbrir }) {
       </ol>
       {error && <p role="alert" className="nf-error">{error}</p>}
 
-      <VistaTrabajo prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
+      {/* Herramientas con vista de 3 pasos (efectivo, planificación): reemplaza el
+          apilado (consolas + circuito). La vista de trabajo detallada sigue accesible
+          dentro de VistaProceso (paso 3). */}
+      {configProceso && (
+        <VistaProceso config={configProceso} prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
+      )}
 
-      {["PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS"].includes(prueba.estado) && (
+      {!configProceso && (
+       <>
+      {/* Se retiró la consola-chat (asistente): la vista de trabajo detallada es la vista principal
+          para todas las pruebas (subir documentos, procesar, cédulas, análisis y revisión). */}
+      <div id={`detalle-${prueba.id}`}>
+          <VistaTrabajo prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
+
+          {["PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS"].includes(prueba.estado) && (
+            <section>
+              <h5>Análisis y cierre del papel de trabajo</h5>
+              <Ejecucion prueba={prueba} onAccion={accion} ocupado={ocupado} soloAnalisis />
+            </section>
+          )}
+
+          <section>
+            <Revision prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
+          </section>
+        </div>
+
+      {esPlanificacion(prueba) && (
         <section>
-          <h5>Análisis y cierre del papel de trabajo</h5>
-          <Ejecucion prueba={prueba} onAccion={accion} ocupado={ocupado} soloAnalisis />
+          <PruebasSugeridas pruebaId={prueba.id} />
         </section>
       )}
 
       <section>
-        <Revision prueba={prueba} onAccion={accion} onRecargar={async () => { await cargar(); onCambio(); }} ocupado={ocupado} />
+        <ConsolaPrueba pruebaId={prueba.id} />
       </section>
 
       <details className="nf-circuito">
@@ -372,6 +406,8 @@ export function Prueba({ id, onCambio, onAbrir }) {
       )}
 
       </details>
+       </>
+      )}
 
       <details>
         <summary>Bitácora ({prueba.eventos.length})</summary>
@@ -432,6 +468,12 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
     }
   }
 
+  // El gobierno del encargo (independencia, enfoque por ciclo, aceptación) vive DENTRO de la
+  // planificación: su panel solo aparece cuando la prueba abierta es la de planificación, nunca
+  // en las demás pruebas. La lista trae el `origen` (proc:<id>), no la definición.
+  const pruebaAbierta = pruebas.find((p) => p.id === abierta);
+  const abiertaEsPlanificacion = pruebaAbierta?.origen === "proc:planificacion_nia";
+
   return (
     <div className="nf-ciclo">
       <p className="nf-eyebrow">PRUEBAS DEL ENCARGO · {proyecto.name}</p>
@@ -442,42 +484,71 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
           <FichaEncargo proyecto={proyecto} cliente={cliente} ficha={ficha} onGuardada={setFicha} />
 
           <section className="nf-rec-panel">
-            <p className="nf-eyebrow">2 · PRUEBAS</p>
-            {ficha ? (
-              <div className="nf-rec-row">
-                <label className="nf-ctx-field" style={{ flex: 1 }}>
-                  Nueva prueba
-                  <select value={origen} onChange={(e) => setOrigen(e.target.value)}>
-                    <option value="">Seleccione la herramienta…</option>
-                    {herramientas.map((h) => (
-                      <option key={h.origen} value={h.origen}>{h.nombre} · {h.tipo}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="nf-ctx-check">
-                  <input type="checkbox" checked={tributario} onChange={(e) => setTributario(e.target.checked)} /> Incluye
-                  tratamiento tributario
-                </label>
-                <button type="button" className="btn sm primary" disabled={!origen} onClick={crear}>Crear prueba</button>
-              </div>
-            ) : (
-              <p className="muted">Guarde primero la ficha del encargo.</p>
+            <p className="nf-eyebrow">3 · PRUEBAS</p>
+            {/* El selector para crear/escoger otra prueba solo se ve en la lista; al entrar a una
+                prueba (p. ej. Caja y bancos) desaparece para no invitar a saltar a otra. */}
+            {!ficha && <p className="muted">Guarde primero la ficha del encargo.</p>}
+            {ficha && abierta && (
+              <button type="button" className="btn sm" onClick={() => setAbierta(null)}>
+                ← Volver a las pruebas del encargo
+              </button>
             )}
-            {pruebas.length === 0 ? (
-              <p className="muted">Este encargo todavía no tiene pruebas.</p>
-            ) : (
-              <ul className="nf-consola-lista">
-                {pruebas.map((p) => (
-                  <li key={p.id}>
-                    <button type="button" className={abierta === p.id ? "selected" : ""} onClick={() => setAbierta(abierta === p.id ? null : p.id)}>
-                      <strong>{p.nombre} · v{p.version}</strong>
-                      <small>{nombreEstado(p.estado)} · {ETAPAS[etapaDe(p.estado)]}</small>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+            {ficha && !abierta && (
+              <>
+                <div className="nf-rec-row">
+                  <label className="nf-ctx-field" style={{ flex: 1 }}>
+                    Nueva prueba
+                    <select value={origen} onChange={(e) => setOrigen(e.target.value)}>
+                      <option value="">Seleccione la herramienta…</option>
+                      {herramientas.map((h) => (
+                        <option key={h.origen} value={h.origen}>{h.nombre} · {h.tipo}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="nf-ctx-check">
+                    <input type="checkbox" checked={tributario} onChange={(e) => setTributario(e.target.checked)} /> Incluye
+                    tratamiento tributario
+                  </label>
+                  <button type="button" className="btn sm primary" disabled={!origen} onClick={crear}>Crear prueba</button>
+                </div>
+                {pruebas.length === 0 ? (
+                  <p className="muted">Este encargo todavía no tiene pruebas.</p>
+                ) : (
+                  // La lista de pruebas ya creadas queda colapsada tras una flecha: al elegir una
+                  // herramienta arriba no estorba, y se despliega solo si el auditor quiere abrir otra.
+                  <details className="nf-registro-colapsado">
+                    <summary>
+                      <strong>Pruebas del encargo</strong> <span className="muted">({pruebas.length}) — ábrelo para ver o abrir otra prueba</span>
+                    </summary>
+                    <ul className="nf-consola-lista">
+                      {pruebas.map((p) => (
+                        <li key={p.id}>
+                          <button type="button" className={abierta === p.id ? "selected" : ""} onClick={() => setAbierta(p.id)}>
+                            <strong>{p.nombre} · v{p.version}</strong>
+                            <small>{nombreEstado(p.estado)} · {ETAPAS[etapaDe(p.estado)]}</small>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </>
             )}
           </section>
+
+          {/* Gobierno del encargo (independencia, enfoque por ciclo, aceptación, cartas): SOLO dentro
+              de la planificación. En las demás pruebas (Caja y bancos, etc.) no aparece. */}
+          {abierta && abiertaEsPlanificacion && (
+            <details className="nf-rec-panel nf-registro-colapsado">
+              <summary>
+                <strong>Registro del encargo</strong> · <span className="nf-ok">automático por política de la firma</span>
+                <small className="muted"> — parte de la planificación: independencia sin amenazas y ciclos sustantivos por
+                  defecto. Ábrelo solo si hay una amenaza a la independencia, quieres confiar en los controles de un ciclo,
+                  o generar la carta de encargo y los demás documentos.</small>
+              </summary>
+              <RegistroEncargo proyecto={proyecto} />
+            </details>
+          )}
 
           {abierta && <Prueba key={abierta} id={abierta} onCambio={recargar} onAbrir={setAbierta} />}
         </>
