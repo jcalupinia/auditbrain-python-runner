@@ -72,6 +72,81 @@ def test_doc_antiguo_avisa_convertir():
 
 
 # --------------------------------------------------------------------------- #
+#  Puente OCR → extracción (pólizas escaneadas sin capa de texto)              #
+# --------------------------------------------------------------------------- #
+def _pdf_sin_texto() -> bytes:
+    """Un PDF válido de una página en blanco (sin capa de texto)."""
+    pypdf = pytest.importorskip("pypdf")
+    w = pypdf.PdfWriter()
+    w.add_blank_page(width=612, height=792)
+    buf = io.BytesIO()
+    w.write(buf)
+    return buf.getvalue()
+
+
+def test_pdf_escaneado_sin_ocr_sigue_avisando(monkeypatch):
+    """Sin OCR configurado, un PDF escaneado (sin texto) mantiene el aviso de
+    siempre (degradación elegante al respaldo Excel/CSV)."""
+    from backend.app.utils import ocr
+
+    monkeypatch.setattr(ocr, "is_available", lambda: False)
+    with pytest.raises(ex.ExtraccionError, match="escaneado"):
+        ex.texto_de_documento("poliza.pdf", _pdf_sin_texto())
+
+
+def test_pdf_escaneado_con_ocr_usa_vision(monkeypatch):
+    """Con OCR disponible, un PDF escaneado se lee por OCR en vez de fallar."""
+    from backend.app.utils import ocr
+
+    texto_poliza = (
+        "ASEGURADORA ALFA S.A.\nPóliza POL-01 · Incendio y líneas aliadas\n"
+        "Suma asegurada 700000 · Prima total 7300"
+    )
+    llamado = {"n": 0}
+
+    def _ocr_falso(datos: bytes) -> dict:
+        llamado["n"] += 1
+        assert isinstance(datos, (bytes, bytearray))
+        return {"text": texto_poliza, "pages": 1, "chunks": 1, "language_hints": ["es"]}
+
+    monkeypatch.setattr(ocr, "is_available", lambda: True)
+    monkeypatch.setattr(ocr, "ocr_pdf_bytes", _ocr_falso)
+
+    texto = ex.texto_de_documento("poliza_escaneada.pdf", _pdf_sin_texto())
+    assert "ASEGURADORA ALFA" in texto and "POL-01" in texto
+    assert llamado["n"] == 1  # el puente llamó al OCR exactamente una vez
+
+
+def test_texto_pdf_ocr_degrada_sin_disponibilidad(monkeypatch):
+    """_texto_pdf_ocr nunca levanta: sin OCR disponible devuelve ''."""
+    from backend.app.utils import ocr
+
+    monkeypatch.setattr(ocr, "is_available", lambda: False)
+    assert ex._texto_pdf_ocr(b"%PDF-1.4 escaneado") == ""
+
+
+def test_texto_pdf_ocr_devuelve_texto_limpio(monkeypatch):
+    """Con OCR disponible, _texto_pdf_ocr devuelve el texto de Vision (recortado)."""
+    from backend.app.utils import ocr
+
+    monkeypatch.setattr(ocr, "is_available", lambda: True)
+    monkeypatch.setattr(ocr, "ocr_pdf_bytes", lambda datos: {"text": "  POL-07 · ALFA  \n"})
+    assert ex._texto_pdf_ocr(b"%PDF-1.4 escaneado") == "POL-07 · ALFA"
+
+
+def test_texto_pdf_ocr_traga_errores_de_vision(monkeypatch):
+    """Si Vision falla, _texto_pdf_ocr traga el error y devuelve '' (no crashea)."""
+    from backend.app.utils import ocr
+
+    def _boom(datos):
+        raise RuntimeError("Vision API caída")
+
+    monkeypatch.setattr(ocr, "is_available", lambda: True)
+    monkeypatch.setattr(ocr, "ocr_pdf_bytes", _boom)
+    assert ex._texto_pdf_ocr(b"%PDF-1.4 escaneado") == ""
+
+
+# --------------------------------------------------------------------------- #
 #  Extracción de filas (chat falso)                                            #
 # --------------------------------------------------------------------------- #
 def test_extraer_carta_produce_filas_validas():

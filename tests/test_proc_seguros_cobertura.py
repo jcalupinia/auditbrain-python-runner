@@ -197,3 +197,48 @@ def test_conclusion_estado():
     # El ancho de cada fila coincide con el nº de columnas (5).
     for fila in h["rows"]:
         assert len(fila) == len(h["cols"])
+
+
+# --------------------------------------------------------------------------- #
+#  F1.2 — Extracción por IA de las pólizas (PDF/escaneado) habilitada          #
+# --------------------------------------------------------------------------- #
+def test_extraccion_datasets_declara_polizas():
+    # La herramienta pide transcribir las pólizas por IA (opt-in); los activos
+    # (anexo numérico de cálculo) siguen siendo Excel/CSV.
+    assert m.EXTRACCION_DATASETS == ("polizas",)
+    assert "polizas" in m.DATASETS and "activos" not in m.EXTRACCION_DATASETS
+
+
+def test_requerimiento_de_polizas_acepta_pdf():
+    reqs = {r["id"]: r for r in m.definicion()["requests"]}
+    pol = reqs["RQ-002"]
+    assert pol.get("dataset") == "polizas"
+    # Alineado al frontend aprobado: .pdf / .xlsx / .csv
+    assert "pdf" in pol["formats"] and "xlsx" in pol["formats"]
+
+
+def test_polizas_se_extraen_por_ia_y_validan():
+    """Una póliza transcrita por IA (chat falso, sin red) pasa la validación real
+    del procesador — prueba que el esquema se deriva de los CAMPOS de pólizas."""
+    import json
+
+    from backend.app.aud.niif.ciclo import extraccion_ia as ex
+
+    class _Resp:
+        def __init__(self, content):
+            self.content = content
+            self.model = "modelo-falso"
+            self.tokens_in = self.tokens_out = None
+
+    filas = [
+        {"id": "POL-01", "aseguradora": "Aseguradora Alfa S.A.", "ramo": "Incendio y líneas aliadas",
+         "vigencia_desde": "2025-07-01", "vigencia_hasta": "2026-07-01", "suma_total": 700000.0,
+         "prima_total": 7300.0, "prima_anticipada": 3640.0, "siniestro": None, "monto_siniestro": None,
+         "siniestro_revelado": None, "tipo_siniestro": None, "cobro_exigible": None},
+    ]
+    chat = lambda messages, system=None: _Resp(json.dumps({"filas": filas}))
+    out = ex.extraer_filas(m.CAMPOS[m.kind("polizas")], "texto de la póliza escaneada",
+                           instrucciones=m.EXTRACCION_INSTRUCCIONES.get("polizas"), chat=chat)
+    assert out["n"] == 1
+    v = m.validar_filas("polizas", out["rows"])
+    assert v["ok"], v["errors"]
