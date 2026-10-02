@@ -64,6 +64,21 @@ from backend.app.ingesta.normalizer import (
     normalizar_monto,
     normalizar_valor,
 )
+from backend.app.ingesta.confidence_live import (
+    UMBRAL_PCT_DUDOSOS,
+    ItemRevision,
+    ResumenConfianza,
+    cola_de_revision,
+    consolidar_confianza,
+    resumen_confianza,
+)
+from backend.app.ingesta.semantic_resolver import (
+    DISCLAIMER_IA,
+    ResolucionSemantica,
+    resoluble,
+    resolver_campo,
+    resolver_dataset,
+)
 
 __all__ = [
     "CONTRATO_VERSION",
@@ -99,4 +114,15 @@ __all__ = [
     "normalizar_fecha",
     "normalizar_monto",
     "normalizar_valor",
+    "UMBRAL_PCT_DUDOSOS",
+    "ItemRevision",
+    "ResumenConfianza",
+    "cola_de_revision",
+    "consolidar_confianza",
+    "resumen_confianza",
+    "DISCLAIMER_IA",
+    "ResolucionSemantica",
+    "resoluble",
+    "resolver_campo",
+    "resolver_dataset",
 ]
