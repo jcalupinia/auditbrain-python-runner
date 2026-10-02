@@ -84,6 +84,7 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-008": "RQ-008_politica_de_obsolescencia_y_lenta_rotacion.pdf",
     "RQ-009": "RQ-009_inventario_de_terceros_o_en_consignacion.xlsx",
     "RQ-010": "RQ-010_costeo_estandar_y_lista_de_precios_de_los_produc.xlsx",
+    "RQ-011": "RQ-011_mayor.xlsx",
   },
   ppe_propiedad_planta: {
     "RQ-011": "RQ-011_variaciones.xlsx",
