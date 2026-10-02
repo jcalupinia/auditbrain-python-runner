@@ -34,7 +34,11 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile.render
     dockerContext: .
-    plan: starter
+    # Standard (2 GB) en vez de Starter (512 MB): el runner hace trabajo pesado
+    # y sincrónico (ICT/NIIF con openpyxl + matplotlib, parseo de PDF, OCR) que
+    # en 512 MB provocó OOM → "Failed service" (2026-10-02). 2 GB da el margen
+    # necesario. Gestionado por Blueprint: el plan se fija AQUÍ, no en el panel.
+    plan: standard
     autoDeploy: true
 
     # Disco persistente: los archivos ICT (PDFs de origen + Excel generados:
@@ -71,9 +75,12 @@ services:
       #
       # Qué buscar en los logs antes de activarlo: líneas REQUEST_METRICS
       # donde `rss_after_mb` quede muy por encima de `rss_before_mb` y el
-      # valor NO baje en los requests siguientes. Si eso ocurre, descomentar:
-      # - key: MALLOC_ARENA_MAX
-      #   value: "2"
+      # valor NO baje en los requests siguientes.
+      # ACTIVADO (2026-10-02): el OOM que dejó el runner en "Failed service"
+      # confirma la hipótesis de RSS en reposo muy por encima de lo que la app
+      # necesita. Limitar las arenas de glibc a 2 reduce ese residuo retenido.
+      - key: MALLOC_ARENA_MAX
+        value: "2"
 
       - key: AUD_OF_TMP_DIR
         value: /var/data/obligaciones_fiscales
