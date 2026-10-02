@@ -8,7 +8,7 @@ los módulos futuros responden como stub (501) sin lógica de negocio.
 from backend.app.document_services import universal_document_client
 from backend.app.services import python_runner_service
 
-OPERATIONAL_TARGETS = {"python_runner", "document_generator"}
+OPERATIONAL_TARGETS = {"python_runner", "document_generator", "ingestion_engine"}
 
 FUTURE_TARGETS = {
     "future_audit_module",
@@ -73,5 +73,26 @@ async def route(payload: dict) -> dict:
             document_service=inner.get("document_service", {}),
         )
         return {"target": target, "status": "ok", "result": result}
+
+    if target == "ingestion_engine":
+        import base64
+
+        from backend.app.ingesta import ingerir
+
+        filename = str(inner.get("filename", "documento")).strip() or "documento"
+        b64 = inner.get("contenido_base64") or ""
+        try:
+            contenido = base64.b64decode(b64) if b64 else b""
+        except Exception as exc:  # base64 mal formado
+            raise RouterError(400, f"contenido_base64 inválido: {exc}")
+        if not contenido:
+            raise RouterError(400, "Falta 'contenido_base64' (bytes del documento).")
+        ds = ingerir(
+            filename,
+            contenido,
+            tipo_declarado=inner.get("tipo_declarado"),
+            ocr=bool(inner.get("ocr", True)),
+        )
+        return {"target": target, "status": "ok", "result": ds.model_dump(mode="json")}
 
     raise RouterError(500, "Estado de enrutamiento inesperado.")

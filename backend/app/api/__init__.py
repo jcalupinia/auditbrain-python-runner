@@ -93,4 +93,29 @@ def _montar_forge(router: APIRouter) -> bool:
 #: ¿Quedó Forge montado? Lo consulta el healthcheck para no mentir sobre el estado.
 forge_montado = _montar_forge(api_router)
 
-__all__ = ["api_router", "forge_montado"]
+
+def _montar_ingesta(router: APIRouter) -> bool:
+    """Monta el router del Motor de Ingesta de forma AISLADA.
+
+    El Motor de Ingesta (Fase 7) es funcionalidad nueva y opcional. Igual que
+    Forge, se monta con import contenido aquí dentro: si algo revienta, se
+    registra y ``/api/v1`` arranca SIN ingesta (auth, portal, ICT, AUD intactos)
+    en vez de no arrancar. El resto de routers del núcleo siguen al top level.
+    """
+    try:
+        from backend.app.api import ingesta as ingesta_module
+
+        router.include_router(ingesta_module.router)
+    except Exception:  # noqa: BLE001 - aislar ingesta es justo el objetivo
+        _log.exception(
+            "Motor de Ingesta no se pudo montar; /api/v1 arranca SIN ingesta "
+            "(auth, portal, ICT y AUD quedan intactos)."
+        )
+        return False
+    return True
+
+
+#: ¿Quedó el Motor de Ingesta montado? Lo puede consultar el healthcheck.
+ingesta_montado = _montar_ingesta(api_router)
+
+__all__ = ["api_router", "forge_montado", "ingesta_montado"]
