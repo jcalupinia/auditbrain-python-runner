@@ -95,3 +95,31 @@ def test_prueba_que_no_es_del_catalogo_no_se_toca():
     salida = servicio._t(p)
     assert salida["requests"][0]["formats"] == ["xlsx"]
     assert salida["requests"][0]["required"] is True
+
+
+def test_requests_vivos_agrega_anexo_nuevo_del_catalogo_a_prueba_vieja():
+    """Una prueba de inventarios creada antes de que existiera RQ-011 (Libro Mayor) debe
+    heredar ese anexo nuevo del catálogo, para que se muestre la tarjeta y acepte la subida."""
+    viejos = [{"id": "RQ-001", "document": "Inventario valorado", "dataset": "inventario",
+               "formats": ["xlsx", "csv"], "required": True, "status": "RECIBIDO"}]
+    p = SimpleNamespace(
+        origen="proc:inventarios_costos", estado="REQUERIMIENTO_APROBADO",
+        registro={"requests": [dict(r) for r in viejos], "engagement": {"cutoff": "2025-12-31"}},
+        definicion={"processor": "inventarios_costos", "requests": [dict(r) for r in viejos]},
+    )
+    vivos = servicio.requests_vivos(p)
+    ids = {r["id"] for r in vivos}
+    assert "RQ-011" in ids  # el anexo nuevo del catálogo aparece aunque el encargo no lo trajera
+    rq11 = next(r for r in vivos if r["id"] == "RQ-011")
+    assert rq11["dataset"] == "mayor" and rq11["required"] is False and rq11["status"] == "PENDIENTE"
+    assert rq11.get("period") == "2025-12-31"  # hereda el corte del encargo
+
+
+def test_requests_vivos_no_agrega_nada_si_no_es_del_catalogo():
+    viejos = [{"id": "RQ-001", "document": "X", "formats": ["xlsx"], "required": True}]
+    p = SimpleNamespace(
+        origen="ficha:9", estado="REQUERIMIENTO_APROBADO",
+        registro={"requests": [dict(r) for r in viejos]},
+        definicion={"requests": [dict(r) for r in viejos]},
+    )
+    assert [r["id"] for r in servicio.requests_vivos(p)] == ["RQ-001"]
