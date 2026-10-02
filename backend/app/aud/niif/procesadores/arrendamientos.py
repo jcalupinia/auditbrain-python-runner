@@ -108,14 +108,39 @@ PRINCIPAL = "contratos"
 CONTROL = "pasivo_reg"
 TOTAL_EJEMPLO = "pasivo"
 
+# Extracción por IA del contrato (PDF/Word). El servicio y el frontend leen estas constantes
+# genéricamente (igual que en ppe y en la planificación): habilitan subir el contrato firmado para
+# que la IA llene la fila del anexo. La IA solo transcribe lo explícito; la tasa y los juicios del
+# auditor (clasificación, renovación cierta, bajo valor, exención) quedan vacíos para que el auditor
+# los complete antes de procesar.
+EXTRACCION_DATASETS = ("contratos",)
+EXTRACCION_ENUMS = {"contratos": {"periodicidad": ["Mensual", "Trimestral", "Semestral", "Anual"], "momento": ["Inicio", "Final"]}}
+EXTRACCION_INSTRUCCIONES = {
+    "contratos": (
+        "Cada contrato de arrendamiento es una fila. Extraiga SOLO lo que conste expresamente en el documento: el "
+        "activo arrendado (objeto del contrato), la fecha de comienzo (inicio del arriendo), el plazo no cancelable en "
+        "meses (si solo constan las fechas de inicio y fin, calcule los meses entre ellas), el canon o cuota periódica "
+        "y su periodicidad (mensual, trimestral, semestral o anual), si el pago es al inicio o al final del período, "
+        "los meses de la opción de renovación si existe, el precio de la opción de compra si existe, y —solo si el "
+        "contrato lo dice— si la renta se ajusta por un índice de inflación y el importe del componente ligado al "
+        "índice. NO complete la tasa de descuento (casi nunca consta en el contrato; la fija el auditor con la tasa "
+        "referencial del Banco Central del Ecuador), ni la clasificación financiero/operativo, ni si la renovación o la "
+        "compra son razonablemente ciertas, ni el bajo valor, ni la exención: esos son juicios del auditor. Lo que no "
+        "aparezca, déjelo vacío."
+    ),
+}
+
 CONVENCIONES = ("Efectiva anual", "Nominal anual")
-PARAMETROS = {"convencionTasa": "Efectiva anual", "umbralVida": 75, "umbralVP": 90, "limiteBajoValor": 5000}
+# Default «Nominal anual»: el auditor tipea la tasa anual tal cual la publica el BCE y la herramienta la divide ÷12
+# (decisión del dueño, para no confundir al equipo con conversiones de tasa efectiva).
+PARAMETROS = {"convencionTasa": "Nominal anual", "umbralVida": 75, "umbralVP": 90, "limiteBajoValor": 5000, "tarifaIR": 25}
 PARAM_NEGATIVOS = ()
 ETIQUETAS_PARAM = {
     "convencionTasa": "Tasa anual del contrato (efectiva o nominal)",
     "umbralVida": "PYMES: plazo ≥ % de la vida económica (indicador 20.5 c)",
     "umbralVP": "PYMES: VP de los pagos mínimos ≥ % del valor razonable (indicador 20.5 d)",
     "limiteBajoValor": "Límite de «bajo valor» del activo nuevo (USD)",
+    "tarifaIR": "Tarifa de impuesto a la renta (%) para el impuesto diferido (NIC 12 / Secc. 29)",
 }
 
 COL = {c["key"]: get_column_letter(i + 1) for i, c in enumerate(_CONTRATOS)}
@@ -245,6 +270,34 @@ def _dep(t, roi, md, ev):
     if t <= me:
         return roi * min(t, md) / md
     return roi * min(me, md) / md + (roi * (1 - min(me, md) / md) + aj) * min(t - me, md2 - me) / (md2 - me)
+
+
+def _idiferido(c: dict, tarifa: float) -> dict:
+    """Impuesto diferido (NIC 12 / Secc. 29) del arrendamiento capitalizado, por año fiscal.
+
+    La diferencia temporaria nace porque el gasto contable del arrendatario (depreciación del derecho de uso
+    + interés del pasivo) se separa del gasto deducible, que en Ecuador es el canon devengado del período. Cada
+    período con diferencia POSITIVA genera (gasto no deducible → casillero F-101 1114) y con diferencia NEGATIVA
+    revierte (casillero 1115); ambos se llevan en bruto y por separado, no neteados. Sobre toda la vida la suma
+    de (depreciación + interés) iguala la suma de los cánones, así que la diferencia acumulada revierte a cero.
+
+    Devuelve {anios: {año: {dep, interes, canon, dif, gen, rev}}, tarifa, gen, rev} con los subtotales en bruto
+    por año. El efecto en el impuesto diferido se obtiene multiplicando por la tarifa (fórmula del lado Excel)."""
+    roi, md, ev, m = c["activo_ini"], c["md"], c["ev"], c["m"]
+    anios: dict[int, dict] = {}
+    for x in c["tabla"]:
+        j = x["j"]
+        dep = _dep(j * m, roi, md, ev) - _dep((j - 1) * m, roi, md, ev)
+        dif = dep + x["interes"] - x["pago"]
+        y = c["inicio"].year + (c["inicio"].month - 1 + (j - 1) * m) // 12
+        a = anios.setdefault(y, {"dep": 0.0, "interes": 0.0, "canon": 0.0, "dif": 0.0, "gen": 0.0, "rev": 0.0})
+        a["dep"] += dep
+        a["interes"] += x["interes"]
+        a["canon"] += x["pago"]
+        a["dif"] += dif
+        a["gen" if dif > 0 else "rev"] += dif
+    return {"anios": anios, "tarifa": tarifa / 100,
+            "gen": sum(a["gen"] for a in anios.values()), "rev": sum(a["rev"] for a in anios.values())}
 
 
 # --- cálculo ---------------------------------------------------------------------------
@@ -435,6 +488,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     p["limiteBajoValor"] = a_num(p["limiteBajoValor"])
     if p["limiteBajoValor"] is None or p["limiteBajoValor"] < 0:
         raise ValueError("Límite de bajo valor: indique un importe no negativo.")
+    p["tarifaIR"] = a_num(p["tarifaIR"])
+    if p["tarifaIR"] is None or not 0 <= p["tarifaIR"] <= 100:
+        raise ValueError("Tarifa de impuesto a la renta: use un porcentaje entre 0 y 100.")
     pymes = es_pymes(p)
     if not datasets.get("contratos"):
         raise ValueError("Cargue el anexo de contratos de arrendamiento.")
@@ -501,9 +557,12 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             c["deterioro"] = 0 if c["recuperable"] is None else max(0, c["neto_antes"] - c["recuperable"])
             c["neto"] = c["neto_antes"] - c["deterioro"]
             c["gasto"] = 0.0
+            # impuesto diferido (NIC 12 / Secc. 29): solo en contratos capitalizados (ver _idiferido)
+            c["idiferido"] = _idiferido(c, p["tarifaIR"])
         else:
             for k in ("pasivo", "interes", "pagos", "remedicion", "cp", "lp", "devengo", "dep", "deterioro", "neto"):
                 c[k] = 0.0
+            c["idiferido"] = None  # operativo/exento: gasto = deducible, sin diferencia temporaria
             # 7 · gasto lineal de exentos y operativos
             c["pagos_tot"] = c["pago_medido"] * c["n"]
             c["meses_anio"] = min(max(M, 0), c["plazo_total"]) - min(max(M - 12, 0), c["plazo_total"])
@@ -638,13 +697,15 @@ CEDULAS = [
     ("14_Venta_medicion_post", "Venta con arrendamiento posterior: medición posterior"),
     ("15_Conciliacion", "Conciliación y ajuste"), ("16_Problemas", "Problemas encontrados"),
     ("17_Conclusion", "Indicadores y conclusión"), ("18_Lectura", "Lectura de resultados"),
+    ("19_Impuesto_Diferido", "Impuesto diferido (NIC 12)"),
+    ("20_Conciliacion_F101", "Conciliación F-101 y asiento"),
 ]
 P = ref("02_Parametros")
 CT, ID, PL, MI, PG, RE, TA, PC, DU, GL, VA = (ref(n) for n in ("03_Contratos", "04_Identificacion", "05_Plazo", "06_Medicion_inicial",
                                                               "07_Pagos_variables", "08_Remedicion", "09_Tabla_amortizacion",
                                                               "10_Pasivo_corte", "11_Derecho_uso", "12_Gasto_lineal",
                                                               "13_Venta_arr_posterior"))
-PAR = {k: FILA0 + i for i, k in enumerate(["corte", "conv", "umbralVida", "umbralVP", "limiteBajoValor", "marco"])}
+PAR = {k: FILA0 + i for i, k in enumerate(["corte", "conv", "umbralVida", "umbralVP", "limiteBajoValor", "marco", "tarifaIR"])}
 
 
 def _x(key: str, r: int) -> str:
@@ -662,6 +723,15 @@ def _txt(key, r, v, defecto=""):
 
 def _dep_f(t: str, r: int, ev: bool) -> str:
     C, D, F, G, H = f"C{r}", f"D{r}", f"F{r}", f"G{r}", f"H{r}"
+    base = f"{C}*MIN({t},{D})/{D}"
+    if not ev:
+        return base
+    return f"IF({t}<={F},{base},{C}*MIN({F},{D})/{D}+({C}*(1-MIN({F},{D})/{D})+{G})*MIN({t}-{F},{H}-{F})/({H}-{F}))"
+
+
+def _dep_f_du(t: str, du: str, rc: int, ev: bool) -> str:
+    """Igual que _dep_f, pero desde otra hoja: cualifica C/D/F/G/H de 11_Derecho_uso con su prefijo (`du`)."""
+    C, D, F, G, H = f"{du}C{rc}", f"{du}D{rc}", f"{du}F{rc}", f"{du}G{rc}", f"{du}H{rc}"
     base = f"{C}*MIN({t},{D})/{D}"
     if not ev:
         return base
@@ -773,6 +843,12 @@ _EX_COMUN = {
         "Remedición": "Solo en el período del evento: diferencia entre el pasivo remedido (hoja 08) y el saldo final de ese período; "
                       "en los demás períodos es 0.",
         "Saldo final ajustado": "Suma al saldo final la remedición del período: es el saldo con que empieza el período siguiente.",
+        "Año de devengo": "Año calendario en que se devenga la cuota: el año del mes de comienzo del período (fecha de comienzo de "
+                          "la hoja 03 más los meses transcurridos). Sirve para agrupar el impuesto diferido por ejercicio.",
+        "Depreciación del período": "Depreciación del derecho de uso que corresponde al período: la depreciación acumulada al final "
+                                    "del período menos la del período anterior (lineal sobre los meses de depreciación de la hoja 11).",
+        "Diferencia temporaria (NIC 12)": "Depreciación del período más el interés menos el pago (canon): la diferencia entre el gasto "
+                                          "contable del arrendamiento y el gasto deducible, que origina el impuesto diferido (hoja 19).",
     },
     "10_Pasivo_corte": {
         "Reconoce": "Trae de la hoja 04 (Identificación) si el contrato se reconoce en balance; si no, el resto de la fila queda en "
@@ -1117,6 +1193,8 @@ def hojas(res: dict) -> list[dict]:
          else "NIIF completas · NIIF 16 (modelo único del arrendatario)",
          "Tercera edición: Sección 20 con modificaciones solo editoriales; se mantiene financiero/operativo; vigente desde el 1-1-2027; para cortes 2025–2026 solo con adopción anticipada" if pymes
          else "NIIF 16 párr. 22–46"],
+        ["Tarifa de impuesto a la renta (%)", float(p["tarifaIR"]),
+         "Impuesto diferido del arrendamiento capitalizado (NIC 12 / Secc. 29); tarifa de sociedades del Art. 37 LRTI o la del encargo"],
     ]
 
     # 03 · universo (datos del cliente normalizados)
@@ -1309,6 +1387,7 @@ def hojas(res: dict) -> list[dict]:
     # 08 · tabla de amortización
     fila_c = {c["id"]: FILA0 + i for i, c in enumerate(cs)}
     tabla = []
+    tot_dep_per = tot_dif_per = 0.0
     for k, x in enumerate(tab):
         rr = FILA0 + k
         rc = fila_c[x["id"]]
@@ -1319,11 +1398,100 @@ def hojas(res: dict) -> list[dict]:
         ne = f"{RE}F{rc}" if x["nuevo"] else f"{PL}H{rc}"
         ini = f"{MI}L{rc}" if x["j"] == 1 else f"J{rr - 1}"
         es_ev = ev is not None and x["j"] == ev["ke"]
+        # columnas K/L/M (NIC 12): año de devengo, depreciación del período y diferencia temporaria del período.
+        ini_d = a_fecha(c["inicio"])
+        anio_v = ini_d.year + (ini_d.month - 1 + (x["j"] - 1) * c["m"]) // 12
+        dep_v = _dep(x["j"] * c["m"], c["activo_ini"], c["md"], ev) - _dep((x["j"] - 1) * c["m"], c["activo_ini"], c["md"], ev)
+        dif_v = dep_v + x["interes"] - x["pago"]
+        tot_dep_per += dep_v
+        tot_dif_per += dif_v
+        tj, tj1 = f"B{rr}*{PL}G{rc}", f"(B{rr}-1)*{PL}G{rc}"
         tabla.append([x["id"], fx(f"COUNTIF(A${FILA0}:A{rr},A{rr})", x["j"]),
                       fx(f"EDATE({_x('inicio', rc)},B{rr}*{PL}G{rc})", x["vence"]), fx(tasa, x["tasa"]), fx(ini, x["ini"]), fx(f"E{rr}*D{rr}", x["interes"]),
                       fx(f"IF(B{rr}<{ne},{pg},IF(B{rr}={ne},{MI}F{rc}+(1-{MI}E{rc})*{pg},0))", x["pago"]),
                       fx(f"E{rr}+F{rr}-G{rr}", x["fin"]), fx(f"{RE}K{rc}-H{rr}", x["ajuste"]) if es_ev else 0,
-                      fx(f"H{rr}+I{rr}", x["saldo"])])
+                      fx(f"H{rr}+I{rr}", x["saldo"]),
+                      fx(f"YEAR(EDATE({_x('inicio', rc)},{tj1}))", anio_v),
+                      fx(f"({_dep_f_du(tj, DU, rc, bool(ev))})-({_dep_f_du(tj1, DU, rc, bool(ev))})", dep_v),
+                      fx(f"L{rr}+F{rr}-G{rr}", dif_v)])
+
+    # 19 · impuesto diferido (NIC 12 / Secc. 29) — contrato × año, solo contratos capitalizados.
+    TA_Ad, TA_Kd, TA_Md = rng(TA, "A"), rng(TA, "K"), rng(TA, "M")
+    TA_Ld, TA_Fd, TA_Gd = rng(TA, "L"), rng(TA, "F"), rng(TA, "G")
+    tarifa_cell = f"{P}$B${PAR['tarifaIR']}/100"
+    idiferido_rows, tot_idf = [], {"gasto": 0.0, "canon": 0.0, "dif": 0.0, "gen": 0.0, "rev": 0.0, "idg": 0.0, "idr": 0.0, "neto": 0.0}
+    for c in cs:
+        idf = c.get("idiferido")
+        if not idf:
+            continue
+        tasa, acum, rc, primero = idf["tarifa"], 0.0, fila_c[c["id"]], True
+        for y in sorted(idf["anios"]):
+            a = idf["anios"][y]
+            acum += a["dif"]
+            r = FILA0 + len(idiferido_rows)
+            # el año se escribe como fórmula (nada pegado): YEAR(comienzo) el primer año del contrato, +1 los siguientes
+            anio_f = fx(f"YEAR({_x('inicio', rc)})", y) if primero else fx(f"B{r - 1}+1", y)
+            primero = False
+            crit = f"{TA_Md},{TA_Ad},A{r},{TA_Kd},B{r}"  # misma diferencia, por contrato y año
+            idiferido_rows.append([
+                c["id"], anio_f,
+                fx(f"SUMIFS({TA_Ld},{TA_Ad},A{r},{TA_Kd},B{r})+SUMIFS({TA_Fd},{TA_Ad},A{r},{TA_Kd},B{r})", a["dep"] + a["interes"]),
+                fx(f"SUMIFS({TA_Gd},{TA_Ad},A{r},{TA_Kd},B{r})", a["canon"]),
+                fx(f"C{r}-D{r}", a["dif"]),
+                fx(f'SUMIFS({crit},{TA_Md},">0")', a["gen"]),
+                fx(f'SUMIFS({crit},{TA_Md},"<0")', a["rev"]),
+                fx(tarifa_cell, tasa),
+                fx(f"F{r}*H{r}", a["gen"] * tasa), fx(f"G{r}*H{r}", a["rev"] * tasa), fx(f"I{r}+J{r}", (a["gen"] + a["rev"]) * tasa),
+                fx(f'SUMIFS({TA_Md},{TA_Ad},A{r},{TA_Kd},"<="&B{r})*H{r}', acum * tasa),
+            ])
+            tot_idf["gasto"] += a["dep"] + a["interes"]
+            tot_idf["canon"] += a["canon"]
+            tot_idf["dif"] += a["dif"]
+            tot_idf["gen"] += a["gen"]
+            tot_idf["rev"] += a["rev"]
+            tot_idf["idg"] += a["gen"] * tasa
+            tot_idf["idr"] += a["rev"] * tasa
+            tot_idf["neto"] += (a["gen"] + a["rev"]) * tasa
+    fin_idf = FILA0 + max(len(idiferido_rows), 1) - 1
+    Si = lambda col, v: suma(col, fin_idf, v)
+    total_idf = (["TOTAL", None, Si("C", tot_idf["gasto"]), Si("D", tot_idf["canon"]), Si("E", tot_idf["dif"]),
+                  Si("F", tot_idf["gen"]), Si("G", tot_idf["rev"]), None, Si("I", tot_idf["idg"]), Si("J", tot_idf["idr"]),
+                  Si("K", tot_idf["neto"]), None] if idiferido_rows else None)
+    n_idf_real = len(idiferido_rows)
+    if not idiferido_rows:
+        idiferido_rows = [["— Sin contratos capitalizados: el gasto contable es el deducible, no hay diferencia temporaria "
+                           "(NIC 12 / Secc. 29) —"] + [None] * 11]
+
+    # 20 · conciliación F-101 y asiento del impuesto diferido (año del corte).
+    IDF = ref("19_Impuesto_Diferido")
+    a_idf, b_idf = FILA0, FILA0 + max(n_idf_real, 1) - 1
+    IB = f"{IDF}$B${a_idf}:$B${b_idf}"
+    II, IJ, IK = (f"{IDF}${col}${a_idf}:${col}${b_idf}" for col in ("I", "J", "K"))
+    corte_ref = f"{P}$B${PAR['corte']}"
+    corte_y = int(d["corte"][:4])
+    tfr = p["tarifaIR"] / 100
+    gen_cy = sum((c["idiferido"]["anios"].get(corte_y, {}).get("gen", 0.0)) for c in cs if c.get("idiferido")) * tfr
+    rev_cy = sum((c["idiferido"]["anios"].get(corte_y, {}).get("rev", 0.0)) for c in cs if c.get("idiferido")) * tfr
+    neto_cy = gen_cy + rev_cy
+    saldo_cy = sum(sum(a["dif"] for y, a in c["idiferido"]["anios"].items() if y <= corte_y) * c["idiferido"]["tarifa"]
+                   for c in cs if c.get("idiferido"))
+    r0 = FILA0
+    if neto_cy >= 0:
+        cta_d, cta_h, mf = "Dr. Activo por impuesto diferido", "Cr. Ingreso por impuesto a la renta diferido", f"MAX(C{r0 + 2},0)"
+    else:
+        cta_d, cta_h, mf = "Dr. Gasto por impuesto a la renta diferido", "Cr. Activo por impuesto diferido", f"-MIN(C{r0 + 2},0)"
+    monto_asiento = abs(neto_cy)
+    concil_rows = [
+        ["Impuesto diferido generado en el ejercicio (gasto no deducible temporario)", "1114",
+         fx(f"SUMIFS({II},{IB},YEAR({corte_ref}))", gen_cy), None, None],
+        ["Impuesto diferido revertido en el ejercicio", "1115", fx(f"SUMIFS({IJ},{IB},YEAR({corte_ref}))", rev_cy), None, None],
+        ["Efecto neto en resultados: ingreso/(gasto) por impuesto a la renta diferido", "889",
+         fx(f"C{r0}+C{r0 + 1}", neto_cy), None, None],
+        ["Saldo del activo/(pasivo) por impuesto diferido al corte", "",
+         fx(f'SUMIFS({IK},{IB},"<="&YEAR({corte_ref}))', saldo_cy), None, None],
+        [cta_d, "Asiento del ejercicio", None, fx(mf, monto_asiento), None],
+        [cta_h, "", None, None, fx(mf, monto_asiento)],
+    ]
 
     t = d["totales"]
     fin = FILA0 + N - 1
@@ -1431,9 +1599,11 @@ def hojas(res: dict) -> list[dict]:
              reme, ["TOTAL", None, "", None, None, None, None, None, None, None, None, S("L", t["remedicion"]), ""], explica=_explica("08_Remedicion", pymes)),
         hoja("09_Tabla_amortizacion", "Tabla de amortización",
              [["Contrato", "t"], ["Período", "i"], ["Vencimiento", "d"], ["Tasa periódica", "p"], ["Saldo inicial", n_], ["Interés (37)", n_],
-              ["Pago", n_], ["Saldo final", n_], ["Remedición", n_], ["Saldo final ajustado", n_]], tabla,
+              ["Pago", n_], ["Saldo final", n_], ["Remedición", n_], ["Saldo final ajustado", n_], ["Año de devengo", "i"],
+              ["Depreciación del período", n_], ["Diferencia temporaria (NIC 12)", n_]], tabla,
              ["TOTAL", None, None, None, None, suma("F", fin_t, sum(x["interes"] for x in tab)), suma("G", fin_t, sum(x["pago"] for x in tab)),
-              None, suma("I", fin_t, sum(x["ajuste"] for x in tab)), None] if tab else None, explica=_explica("09_Tabla_amortizacion", pymes)),
+              None, suma("I", fin_t, sum(x["ajuste"] for x in tab)), None, None, suma("L", fin_t, tot_dep_per), suma("M", fin_t, tot_dif_per)]
+             if tab else None, explica=_explica("09_Tabla_amortizacion", pymes)),
         hoja("10_Pasivo_corte", "Pasivo al corte: corriente y no corriente",
              [["Contrato", "t"], ["Reconoce", "t"], ["Períodos finales", "i"], ["Meses transcurridos", "i"], ["Períodos vencidos al corte", "i"],
               ["Períodos vencidos al inicio del año", "i"], ["Pasivo al corte", n_], ["Pasivo al inicio del año", n_], ["Altas del año", n_],
@@ -1483,6 +1653,43 @@ def hojas(res: dict) -> list[dict]:
         hoja("18_Lectura", "Lectura de resultados", [["Concepto", "t"], ["Detalle", "t"]], lectura,
              explica={"Detalle": "Lee el resultado del rubro y las variaciones o hallazgos materiales con su cifra "
                                  "tomada del Resumen (hoja 01), redactados como causa-efecto para el lector del papel."}),
+        hoja("19_Impuesto_Diferido", "Impuesto diferido (NIC 12)",
+             [["Contrato", "t"], ["Año de devengo", "i"], ["Gasto NIIF 16 (depreciación + interés)", n_], ["Canon deducible", n_],
+              ["Diferencia temporaria", n_], ["Generación · cas 1114", n_], ["Reversión · cas 1115", n_], ["Tarifa IR", "p"],
+              ["Impuesto diferido generado", n_], ["Impuesto diferido revertido", n_], ["Efecto neto del año · cas 889", n_],
+              ["Saldo activo/(pasivo) por impuesto diferido", n_]], idiferido_rows, total_idf,
+             explica={
+                 "Año de devengo": "Año calendario del ejercicio: en el primer año del contrato toma el año de la fecha de comienzo "
+                     "(hoja 03) y en los siguientes suma uno al año de la fila anterior.",
+                 "Gasto NIIF 16 (depreciación + interés)": "Suma, por contrato y año de devengo, la depreciación del derecho de uso y el "
+                     "interés del pasivo de la tabla de amortización (hoja 09): es el gasto contable del arrendamiento.",
+                 "Canon deducible": "Suma, por contrato y año, el canon de la tabla de amortización (hoja 09): es el gasto que el fisco "
+                     "ecuatoriano admite como deducible (el pago del arriendo).",
+                 "Diferencia temporaria": "Gasto contable NIIF 16 menos canon deducible. Positiva cuando el gasto contable supera al "
+                     "deducible (primeros años, por el interés) y negativa cuando se revierte.",
+                 "Generación · cas 1114": "Suma solo las diferencias positivas del año (gasto no deducible temporario): genera un activo "
+                     "por impuesto diferido. Va al casillero 1114 del F-101.",
+                 "Reversión · cas 1115": "Suma solo las diferencias negativas del año: revierte el activo por impuesto diferido. Va al "
+                     "casillero 1115 del F-101.",
+                 "Tarifa IR": "Trae la tarifa de impuesto a la renta de la hoja 02 (Parámetros).",
+                 "Impuesto diferido generado": "Generación del año por la tarifa de impuesto a la renta.",
+                 "Impuesto diferido revertido": "Reversión del año por la tarifa de impuesto a la renta.",
+                 "Efecto neto del año · cas 889": "Impuesto diferido generado más revertido: el efecto neto del año en resultados "
+                     "(ingreso/gasto por impuesto diferido). Casillero 889 del F-101. Sobre la vida del contrato suma cero.",
+                 "Saldo activo/(pasivo) por impuesto diferido": "Diferencia temporaria acumulada hasta el año, por la tarifa: es el saldo "
+                     "del activo (o pasivo) por impuesto diferido en el balance al cierre de ese año.",
+             }),
+        hoja("20_Conciliacion_F101", "Conciliación F-101 y asiento",
+             [["Concepto", "t"], ["Casillero F-101", "t"], ["Importe", n_], ["Debe", n_], ["Haber", n_]], concil_rows,
+             explica={
+                 "Importe": "Para el año del corte (hoja 02): la generación (casillero 1114) y la reversión (casillero 1115) suman de la "
+                     "hoja 19 el impuesto diferido generado y revertido de ese año; el efecto neto (casillero 889) es su suma; y el saldo "
+                     "acumula el efecto neto de todos los años hasta el corte.",
+                 "Debe": "Asiento sugerido del ejercicio: si el efecto neto es una generación, debita el activo por impuesto diferido; si "
+                     "es una reversión, debita el gasto por impuesto a la renta diferido. Toma el importe del efecto neto del año.",
+                 "Haber": "Contrapartida del asiento: si es una generación, acredita el ingreso por impuesto a la renta diferido; si es "
+                     "una reversión, acredita el activo por impuesto diferido. Toma el importe del efecto neto del año.",
+             }),
     ]
 
 
