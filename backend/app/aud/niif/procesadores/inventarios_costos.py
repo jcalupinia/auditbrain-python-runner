@@ -1291,6 +1291,16 @@ EJEMPLO = {
             _dc("GR-502", "Venta", "2025-12-31", "2025-12-31", 800),
             _dc("FC-903", "Compra", "2026-01-05", "2026-01-06", 950),
         ],
+        # Libro Mayor de las cuentas de inventario (RQ-011). Σ Debe − Σ Haber = 41 300,
+        # que coincide con el parámetro «saldoMayor» del ejemplo: así la conciliación
+        # kardex–mayor queda consistente tanto si se fija el parámetro como si se deriva
+        # del mayor cargado.
+        "mayor": [
+            {"cuenta": "1.1.03.01.001", "nombre": "INVENTARIO DE MERCADERÍAS", "debe": 12000, "haber": 0, "saldo": 12000},
+            {"cuenta": "1.1.03.02.001", "nombre": "INVENTARIO DE MATERIA PRIMA", "debe": 14300, "haber": 0, "saldo": 14300},
+            {"cuenta": "1.1.03.03.001", "nombre": "INVENTARIO DE PRODUCTOS EN PROCESO", "debe": 4000, "haber": 0, "saldo": 4000},
+            {"cuenta": "1.1.03.04.001", "nombre": "INVENTARIO DE PRODUCTOS TERMINADOS", "debe": 11000, "haber": 0, "saldo": 11000},
+        ],
     },
 }
 

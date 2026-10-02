@@ -193,6 +193,7 @@ def test_faltantes_y_negativos():
     ds["produccion"][0]["capacidad_normal"] = ""
     ds["produccion"][1]["cif_fijo_capitalizado"] = ""
     del ds["movimiento"]
+    del ds["mayor"]  # el EJEMPLO ahora trae mayor (RQ-011); se quita para ejercitar SIN_MAYOR
     res = m.ejecutar(ds, {}, E["corte"])
     codes = {e["code"] for e in res["exceptions"]}
     assert {"KARDEX_NEGATIVO", "SIN_CAPACIDAD_NORMAL", "SIN_CIF_CAPITALIZADO", "SIN_MOVIMIENTO", "SIN_MAYOR",
