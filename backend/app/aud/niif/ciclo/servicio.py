@@ -316,13 +316,55 @@ def _con_politica_viva(requests: list, politica: dict) -> list:
     return out
 
 
+def _catalogo_requests_faltantes(p: Prueba, ids_existentes: set) -> list:
+    """Requerimientos de la definición viva del catálogo que NO están en la prueba ya
+    creada (p. ej. un anexo nuevo como RQ-011 «Libro Mayor» agregado al procesador
+    después de generar el encargo). Se devuelven con la misma forma que
+    `datos.create_requests` (status PENDIENTE), para que una prueba vieja muestre la
+    tarjeta de carga y acepte la subida sin re-generar el requerimiento. Solo aplica a
+    herramientas del catálogo (origen `proc:` con RUBRO)."""
+    origen = getattr(p, "origen", "") or ""
+    if not origen.startswith("proc:"):
+        return []
+    mod = procesadores.PROCESADORES.get(origen[5:])
+    if mod is None or not getattr(mod, "RUBRO", None):
+        return []
+    try:
+        reqs = mod.definicion().get("requests") or []
+    except Exception:
+        return []
+    cutoff = ((getattr(p, "registro", None) or {}).get("engagement") or {}).get("cutoff") or ""
+    out = []
+    for r in reqs:
+        rid = r.get("id")
+        if not rid or rid in ids_existentes:
+            continue
+        formats = list(r.get("formats") or [])
+        out.append({
+            "id": rid, "document": r.get("document") or rid, "period": cutoff,
+            "format": " / ".join(f.upper() for f in formats), "formats": formats,
+            "purpose": r.get("purpose") or "", "procedure": r.get("procedure") or "",
+            "required": r.get("required") is not False,
+            "components": list(r.get("components") or []), "group": r.get("group") or "",
+            "use": r.get("use") or "soporte", "report": r.get("report") or "", "timing": r.get("cutoff") or "",
+            "content": r.get("content") or "", "status": "PENDIENTE",
+            **({"dataset": r["dataset"]} if r.get("dataset") else {}),
+        })
+    return out
+
+
 def requests_vivos(p: Prueba) -> list:
     """Los requerimientos de la prueba con la política viva del catálogo superpuesta
-    (formatos aceptados y obligatorio/opcional). Único punto por el que debe leerse
-    `reg["requests"]` para la cobertura: así una prueba ya creada hereda que un anexo
-    pasó a ser opcional sin re-generar el requerimiento."""
+    (formatos aceptados y obligatorio/opcional) y, además, los requerimientos del
+    catálogo que se agregaron después de crear el encargo (p. ej. RQ-011 Libro Mayor).
+    Único punto por el que debe leerse `reg["requests"]` para la cobertura y la lectura:
+    así una prueba ya creada hereda que un anexo pasó a ser opcional y los anexos
+    nuevos del catálogo, sin re-generar el requerimiento."""
     reg = p.registro or {}
-    return _con_politica_viva(reg.get("requests") or [], _politica_catalogo_viva(p))
+    existentes = reg.get("requests") or []
+    ids = {r.get("id") for r in existentes if isinstance(r, dict)}
+    completos = list(existentes) + _catalogo_requests_faltantes(p, ids)
+    return _con_politica_viva(completos, _politica_catalogo_viva(p))
 
 
 def _t(p: Prueba) -> dict:
@@ -584,7 +626,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         recibidos_ = archivos(db, p.id)
         docs = [{"id": a.id, "requestId": a.requerimiento, "component": a.componente} for a in recibidos_]
         rechazados = [a.id for a in recibidos_ if a.estado == "rechazado"]
-        faltan = datos_mod.tool_gaps(_con_politica_viva(reg["requests"], _politica_catalogo_viva(p)), docs, rechazados)
+        faltan = datos_mod.tool_gaps(requests_vivos(p), docs, rechazados)
         if faltan:
             raise ReglaIncumplida("Cobertura incompleta. " + " · ".join(faltan))
         reg["rejectedFiles"] = rechazados
@@ -903,11 +945,12 @@ def subir_archivo(db: Session, p: Prueba, revision: int, requerimiento: str, com
     if p.estado not in ("REQUERIMIENTO_APROBADO", "DOCUMENTACION_RECIBIDA"):
         raise ReglaIncumplida("La carga no está habilitada en esta etapa.")
     reg = copy.deepcopy(p.registro)
-    if not any(r["id"] == requerimiento for r in reg["requests"]):
+    # Formatos aceptados y requerimientos vigentes del catálogo (una prueba vieja pudo
+    # congelar solo xlsx/csv antes de admitir PDF/JPG, o no traer un anexo nuevo como
+    # RQ-011): se validan contra la definición viva.
+    reqs_val = requests_vivos(p)
+    if not any(r["id"] == requerimiento for r in reqs_val):
         raise ReglaIncumplida("Vincule un requerimiento aprobado.")
-    # Formatos aceptados vigentes del catálogo (una prueba vieja pudo congelar solo
-    # xlsx/csv antes de que se admitieran PDF/JPG): se validan contra la definición viva.
-    reqs_val = _con_politica_viva(reg["requests"], _politica_catalogo_viva(p))
     try:
         check_upload(datos.requests_as_items(reqs_val), requerimiento, componente or None, nombre)
     except ValueError as e:

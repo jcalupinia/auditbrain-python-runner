@@ -142,8 +142,15 @@ def leer(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(req
     reqs = servicio.requests_vivos(p)
     docs = [{"id": a.id, "requestId": a.requerimiento, "component": a.componente} for a in lista]
     rechazados = [a.id for a in lista if a.estado == "rechazado"]
+    salida = _salida(p)
+    # Si la prueba ya tiene requerimientos generados, se entregan los VIVOS (con la
+    # política del catálogo y los anexos nuevos, p. ej. RQ-011 Libro Mayor), para que
+    # un encargo ya creado muestre la tarjeta de carga y acepte la subida.
+    _reg = p.registro or {}
+    if isinstance(_reg.get("requests"), list) and _reg["requests"]:
+        salida["registro"] = {**_reg, "requests": reqs}
     return {
-        **_salida(p),
+        **salida,
         "archivos": [
             {"id": a.id, "requerimiento": a.requerimiento, "componente": a.componente, "nombre": a.nombre,
              "tamano": a.tamano, "sha256": a.sha256, "estado": a.estado, "subido_por": a.subido_por,
