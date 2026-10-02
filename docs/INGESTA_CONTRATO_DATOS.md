@@ -291,7 +291,39 @@ nunca lanza), confianza autorreportada y `requiere_revision_humana`.
 Pruebas: `tests/test_ingesta_resolutor_ia.py` (13 pruebas, `chat_fn` falso; sin
 red). Total ingesta: **121 pruebas en verde** (26 + 19 + 35 + 12 + 16 + 13).
 
-## Qué viene (fases siguientes, aún no implementadas)
+## Fase 7 — API y activación en el Master Router
 
-- **Fase 7+** — API `/api/v1/ingesta/*` y target real en `master_router`.
+El motor **deja de ser inerte**: se expone por HTTP. Aditivo y montado de forma
+defensiva (como Forge), así que un fallo suyo no tumba `/api/v1`.
+
+- **`backend/app/api/ingesta.py`** — router REST con subida de archivos (como
+  `ict/router.py`). Acceso: admin (JWT) o `X-API-Key` (`require_runner_access`,
+  igual que `/python` y `/router`). Endpoints:
+  - `GET /api/v1/ingesta/tipos` — tipos de documento reconocidos.
+  - `POST /api/v1/ingesta/clasificar` — multipart (`file`, `tipo_declarado?`) →
+    `ResultadoClasificacion` (sin extraer; barato).
+  - `POST /api/v1/ingesta/ingerir` — multipart (`file`, `tipo_declarado?`,
+    `ocr=true`, `consolidar=true`) → `{dataset, cola_revision}`. La IA (Fase 6)
+    NO se dispara aquí. Límite de archivo: 25 MB.
+- **`master_router`** — nuevo target **operativo** `ingestion_engine` (no se tocó
+  ningún `future_*`): recibe `{filename, contenido_base64, tipo_declarado?, ocr?}`
+  y devuelve el dataset. Permite usar el motor por el Master Router además del
+  router REST.
+- **Montaje defensivo** en `api/__init__.py` (`_montar_ingesta`, flag
+  `ingesta_montado`): si el router no importa, `/api/v1` arranca sin ingesta y el
+  núcleo (auth, portal, ICT, AUD) queda intacto.
+
+Pruebas: `tests/test_ingesta_api.py` (9 pruebas: endpoints con una app FastAPI
+mínima y el target del master_router). Total ingesta: **130 pruebas en verde**.
+
+Nota: `api/ingesta.py` evita `from __future__ import annotations` a propósito,
+para que Pydantic resuelva `DatasetNormalizado`/`ItemRevision` en los modelos de
+respuesta sin `model_rebuild()`.
+
+## Qué viene
+
+- **Fase 8** — Integración en el Command Center (botón + vista en el frontend).
+- **Fase 9** — Migración de herramientas (NIIF/ICT consumen el dataset
+  normalizado) y unificación de duplicados (VNR, PCE).
+- **Fase 10** — QA integral.
 - **Fase 7+** — API `/api/v1/ingesta/*` y target real en `master_router`.
