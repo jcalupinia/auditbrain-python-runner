@@ -155,13 +155,16 @@ def _num_seguro(v) -> float:
     return n or 0.0
 
 
-def _auto_extraer_ia(db: Session, p: Prueba, reg: dict, proc) -> list[str]:
-    """Al procesar: extrae por IA los documentos PDF/Word de los requerimientos
-    extraíbles (carta/informe/notas) que aún NO tengan extracción, y los deja en
+def _auto_extraer_ia(db: Session, p: Prueba, reg: dict, proc, ya_mapeados: set = frozenset()) -> list[str]:
+    """Al procesar: extrae por IA los documentos de los requerimientos extraíbles
+    (carta/informe/notas) que aún NO tengan extracción, y los deja en
     ``reg["extraccion"]`` marcados como automáticos y pendientes de revisión. Respeta
-    lo ya extraído/confirmado con el botón. Devuelve avisos legibles (uno por archivo).
-    Nunca crashea: si la IA no está disponible o falla, avisa y sigue (el requerimiento
-    es opcional; el auditor puede subir la tabla en Excel/CSV)."""
+    lo ya extraído/confirmado con el botón. Lee PDF, Word y también Excel/CSV: así una
+    nota (o carta/informe) subida en .xlsx cuyas columnas no se reconocen se LEE sola
+    en vez de pedir el mapeo manual. ``ya_mapeados`` son los archivos que ya viajaron
+    como tabla reconocida en ``datasets`` (no se vuelven a leer por IA, para no
+    duplicarlos). Devuelve avisos legibles (uno por archivo). Nunca crashea: si la IA
+    no está disponible o falla, avisa y sigue (el requerimiento es opcional)."""
     extdatasets = getattr(proc, "EXTRACCION_DATASETS", ())
     if not extdatasets:
         return []
@@ -172,9 +175,10 @@ def _auto_extraer_ia(db: Session, p: Prueba, reg: dict, proc) -> list[str]:
     corte = (reg.get("engagement") or {}).get("cutoff", "")
     avisos: list[str] = []
     for a in archivos(db, p.id):
-        if a.estado == "rechazado" or a.requerimiento not in por_req or str(a.id) in extraccion:
+        if (a.estado == "rechazado" or a.requerimiento not in por_req
+                or str(a.id) in extraccion or a.id in ya_mapeados):
             continue
-        if extraccion_ia._extension(a.nombre) not in ("pdf", "docx"):
+        if extraccion_ia._extension(a.nombre) not in ("pdf", "docx", "xlsx", "csv"):
             continue
         ds = por_req[a.requerimiento]["dataset"]
         campos = proc.CAMPOS[proc.kind(ds)]
@@ -533,7 +537,9 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             # requerimiento extraíble (carta/informe/notas) que aún no tiene extracción,
             # la IA lo lee AHORA y se usa (queda marcado como automático, pendiente de
             # revisión del auditor). Si ya se extrajo/confirmó con el botón, se respeta.
-            avisos += [{"row": None, "message": msg} for msg in _auto_extraer_ia(db, p, reg, proc)]
+            ya = {int(pt.get("fileId")) for partes in conjuntos.values() if isinstance(partes, list)
+                  for pt in partes if isinstance(pt, dict) and str(pt.get("fileId") or "").isdigit()}
+            avisos += [{"row": None, "message": msg} for msg in _auto_extraer_ia(db, p, reg, proc, ya)]
             # Filas extraídas por IA de la carta/informe/notas (PDF/Word), ya en
             # reg["extraccion"] (por el botón «Extraer con IA» o por la auto-extracción
             # de arriba). Se suman a su dataset.

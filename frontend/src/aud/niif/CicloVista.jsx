@@ -282,7 +282,8 @@ export function ChipDocumento({ prueba, req, cobertura, onSubido, habilitado, pr
 }
 
 // Extracción por IA de la carta de control interno / informe del año anterior:
-// por cada PDF/Word subido, se ofrece «Extraer con IA»; la tabla resultante se
+// por cada documento subido (PDF/Word, o Excel/CSV si el requerimiento admite IA), se
+// ofrece «Extraer con IA»; la tabla resultante se
 // muestra EDITABLE y solo alimenta la herramienta cuando el auditor la confirma
 // (la IA no decide sola). El respaldo Excel/CSV sigue disponible en el mismo chip.
 function ExtraccionIA({ prueba, req, habilitado, onSubido }) {
@@ -291,7 +292,7 @@ function ExtraccionIA({ prueba, req, habilitado, onSubido }) {
     const tipo = (d.tipos && d.tipos[req.dataset]) || req.dataset;
     return (d.campos && d.campos[tipo]) || [];
   }, [prueba.definicion, req.dataset]);
-  const archivos = archivosExtraibles(prueba, req.id);
+  const archivos = archivosExtraibles(prueba, req.id, req);
   if (!archivos.length || !campos.length) return null;
   return (
     <div className="nf-ia-extraccion">
