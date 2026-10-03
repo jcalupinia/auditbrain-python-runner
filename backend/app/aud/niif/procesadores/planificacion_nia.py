@@ -1786,6 +1786,7 @@ CEDULAS = [
     ("11_Materialidad", "Materialidad (NIA 320 y 450)"), ("12_Riesgos_CCI", "Matriz de riesgos de la carta de control interno"),
     ("13_Riesgos_Balance", "Posibles riesgos: NIA 240, empresa en funcionamiento, balances e informe anterior"),
     ("14_Perfil", "Perfil del encargo (NIA 315): identificación, entendimiento de la entidad y asuntos del informe anterior"),
+    ("15N_Notas_EEFF", "Notas a los estados financieros armadas del balance (comparativo anterior → corte)"),
     ("15_Notas", "Notas comparativas y saldos de apertura (NIA 510)"),
     ("15D_Notas_Detalle", "Notas: detalle comparativo por cuenta (anterior, corte y conciliación con la nota)"),
     ("15C_Composicion", "Notas: composición auditada del año anterior y su cuadre"),
@@ -2516,6 +2517,7 @@ def hojas(res: dict) -> list[dict]:
     no_conc = sum(1 for x in notas if abs(x["dif"]) >= 0.01)
     notas_det_h, est_d = _notas_detalle(notas, cu, d["sinNota"], d["umbrales"]["var"])
     comp, est_c = _composicion(notas, d["notasDet"])
+    notas_eeff_h, est_ne = _notas_balance(cu)   # notas a los EEFF armadas del balance (artefacto), independientes del documento
     n_comp = sum(1 for f in comp if isinstance(f[4], dict) and f[4].get("v") == "Revisar")
     n_jer = sum(1 for k in ("ant", "act") for x in fu[k] if abs(x["difsub"]) >= 0.01)
     fch_ = d["fechas"]
@@ -3079,6 +3081,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("14_Perfil", _ETQ["14_Perfil"], [["Tipo", "t"], ["Concepto", "t"], ["Detalle", "x"], ["Importe (USD)", "n"],
                                           ["Fuente o referencia", "t"], ["Efecto en la planificación", "t"], ["Origen", "t"]], perfil,
              explica=EXPLICA["14_Perfil"], estilos=estilos_p),
+        hoja("15N_Notas_EEFF", _ETQ["15N_Notas_EEFF"], COLS_NOTAS_EEFF, notas_eeff_h, explica=EXPLICA["15N_Notas_EEFF"], estilos=est_ne),
         hoja("15_Notas", _ETQ["15_Notas"], [["Nota", "t"], ["Título de la nota", "t"], ["Cuentas del balance (códigos)", "t"],
                                          ["Saldo auditado según la nota", "n"], ["Saldo del balance anterior", "n"], ["Diferencia", "n"],
                                          ["Saldo al corte", "n"], ["Variación", "n"], ["Variación %", "p"]], notas_h,
@@ -3221,6 +3224,68 @@ TXT_SUMA_COMP = "Suma de las líneas de saldo"
 TXT_TOTAL_COMP = "Total que presenta la nota"
 TXT_DIF_COMP = "Diferencia: suma de las líneas − saldo auditado de la nota"
 TXT_SIN_NOTA = "Rubros del balance sin nota del año anterior"
+
+# Notas a los EEFF armadas DEL BALANCE (como el artefacto HTML): una nota por rubro, con los códigos del balance que la
+# forman. No depende de un documento; se calcula del balance al cierre anterior y al corte. ref = número de nota.
+NOTAS_ESF = [
+    ("3", "Efectivo y equivalentes de efectivo", ["1101"]),
+    ("4", "Cuentas por cobrar comerciales y otras", ["1103", "1104", "1105", "1108", "1112"]),
+    ("5", "Inventarios", ["1113"]),
+    ("6 y 7", "Propiedad, planta y equipo y propiedades de inversión", ["1201"]),
+    ("8", "Activos por impuestos corrientes", ["1110"]),
+    ("8", "Activos por impuestos diferidos", ["1206"]),
+    ("—", "Otros activos no corrientes", ["1208"]),
+    ("10", "Obligaciones bancarias — corto plazo", ["2101"]),
+    ("12", "Cuentas y documentos por pagar", ["2102", "2201"]),
+    ("8", "Pasivos por impuestos corrientes", ["2103"]),
+    ("9", "Obligaciones por beneficios definidos", ["2104", "2206"]),
+    ("11", "Obligaciones bancarias — largo plazo", ["2202"]),
+]
+COLS_NOTAS_EEFF = [["Cuenta", "t"], ["Saldo al cierre anterior", "n"], ["Saldo al corte", "n"], ["Variación", "n"], ["Variación %", "p"]]
+TXT_TOTAL_NOTA_EEFF = "Total de la nota (según el balance)"
+
+
+def _notas_balance(cu: list) -> tuple[list, list]:
+    """Notas a los EEFF armadas del balance (artefacto `NOTES_ESF_MAP`): por cada rubro de `NOTAS_ESF`, el desglose de sus
+    subcuentas con saldo (hojas sin subcuentas; con saldo ≠ 0) y la fila Total, comparando el cierre anterior con el corte.
+    Todo por fórmula a la hoja 08 (Horizontal), para que recalcule en Excel. No depende de ningún documento del cliente."""
+    filas, est = [], []
+    idx = {x["codigo"]: i for i, x in enumerate(cu)}
+    by_code = {x["codigo"]: x for x in cu}
+    codes_all = [x["codigo"] for x in cu]
+
+    def tiene_hijos(c):
+        return any(o != c and len(o) > len(c) and _debajo(o, c) for o in codes_all)
+
+    for ref_, titulo, codes in NOTAS_ESF:
+        presentes = [c for c in codes if c in by_code]
+        if not presentes:
+            continue
+        filas.append([f"Nota {ref_} · {titulo}", None, None, None, None])
+        est.append({"tipo": "titulo"})
+        desc = [x for x in cu if any(x["codigo"] != c and _debajo(x["codigo"], c) for c in codes)]
+        con_saldo = [x for x in desc if abs(x["ant"]) >= 0.005 or abs(x["act"]) >= 0.005]
+        hojas_ = [x for x in con_saldo if not tiene_hijos(x["codigo"])]
+        if 0 < len(hojas_) <= 28:
+            rows = hojas_
+        else:   # demasiadas hojas: colapsar al primer nivel de subcuenta bajo cada código
+            rows = [x for x in con_saldo if any(c in by_code and x["codigo"] != c and _debajo(x["codigo"], c)
+                                                and x["nivel"] == by_code[c]["nivel"] + 1 for c in codes)] or hojas_
+        for x in rows:
+            r = FILA0 + len(filas)
+            r8 = FILA0 + idx[x["codigo"]]
+            filas.append([x["cuenta"], fx(f"{H8}G{r8}", n2(x["ant"])), fx(f"{H8}H{r8}", n2(x["act"])),
+                          fx(f"C{r}-B{r}", n2(x["act"] - x["ant"])),
+                          fx(f'IF(B{r}=0,"",D{r}/ABS(B{r}))', None if x["ant"] == 0 else (x["act"] - x["ant"]) / abs(x["ant"]))])
+            est.append({"sangria": 1, "col": "Cuenta"})
+        rt = FILA0 + len(filas)
+        tops = [(FILA0 + idx[c], by_code[c]) for c in presentes]
+        ta, tc = sum(x["ant"] for _, x in tops), sum(x["act"] for _, x in tops)
+        suma = lambda col: "+".join(f"{H8}{col}{r}" for r, _ in tops)  # noqa: E731
+        filas.append([f"{TXT_TOTAL_NOTA_EEFF}: {titulo}", fx(suma("G"), n2(ta)), fx(suma("H"), n2(tc)),
+                      fx(f"C{rt}-B{rt}", n2(tc - ta)), fx(f'IF(B{rt}=0,"",D{rt}/ABS(B{rt}))', None if ta == 0 else (tc - ta) / abs(ta))])
+        est.append({"tipo": "total"})
+    return filas, est
 
 
 def _cubre(codigo: str, pref: str) -> bool:
@@ -4144,6 +4209,12 @@ EXPLICA = {
         "¿Se presenta?": ("Evalúa la condición con el valor observado (capital de trabajo negativo, días de cartera ajustados "
                           "mayores a 90, aumento de días ajustado mayor al umbral de la hoja 02…); la presunción de "
                           "fraude en ingresos se presenta salvo que se refute en la hoja 02."),
+    },
+    "15N_Notas_EEFF": {
+        "Saldo al cierre anterior": "Saldo de la cuenta en el balance del cierre anterior (fórmula a la hoja 08, análisis horizontal).",
+        "Saldo al corte": "Saldo de la cuenta en el balance al corte que se audita (fórmula a la hoja 08).",
+        "Variación": "Saldo al corte menos saldo al cierre anterior.",
+        "Variación %": "Divide la variación para el saldo anterior sin signo; en blanco si el saldo anterior es cero.",
     },
     "15_Notas": {
         "Saldo del balance anterior": ("Suma el saldo presentado de las cuentas de detalle de la hoja 04 cuyos códigos empiezan "

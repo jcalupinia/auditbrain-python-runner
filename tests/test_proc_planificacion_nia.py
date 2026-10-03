@@ -793,6 +793,31 @@ def test_estructura_y_rollup_balance_mixto_con_codigos_con_punto():
     assert round(cu["1101"]["act"], 2) == 2100.00 and round(cu["11"]["act"], 2) == 2100.00
 
 
+def test_notas_eeff_armadas_del_balance():
+    """Las Notas a los EEFF se arman del balance (artefacto HTML `NOTES_ESF_MAP`), sin depender del documento RQ-006:
+    por cada rubro de `m.NOTAS_ESF`, el desglose de sus subcuentas con saldo y la fila Total comparando anterior → corte."""
+    def bal(key, caja):
+        filas = [("1", "ACTIVOS", ""), ("11", "ACTIVOS CORRIENTES", ""),
+                 ("1101", "EFECTIVO Y EQUIVALENTES", ""), ("110101", "CAJA", ""), ("11010101", "CAJA PRINCIPAL", caja),
+                 ("1103", "CUENTAS POR COBRAR CLIENTES", 50000), ("1113", "INVENTARIOS", 30000),
+                 ("2", "PASIVOS", ""), ("21", "PASIVOS CORRIENTES", ""), ("2101", "OBLIGACIONES BANCARIAS CP", -40000),
+                 ("3", "PATRIMONIO", ""), ("31", "CAPITAL", -50000),
+                 ("4", "INGRESOS", ""), ("41", "VENTAS", -120000), ("6", "COSTO DE VENTAS", ""), ("61", "COSTO", 70000),
+                 ("5", "GASTOS", ""), ("51", "GASTOS", 40000)]
+        return [{"codigo": c, "cuenta": n, key: v, "_row": i + 1} for i, (c, n, v) in enumerate(filas)]
+    ds = {"balance_anterior": bal("saldo_anterior", 800), "balance_actual": bal("saldo_actual", 1200)}
+    r = m.ejecutar(ds, {**m.EJEMPLO["parametros"], "tipoRevision": "Final"}, "2025-12-31")
+    hs = {h["name"]: h for h in m.hojas(r)}
+    assert "15N_Notas_EEFF" in hs
+    v = lambda c: c.get("v") if isinstance(c, dict) else c
+    tot = {str(f[0]).split(": ", 1)[1]: (v(f[1]), v(f[2])) for f in hs["15N_Notas_EEFF"]["rows"]
+           if str(f[0]).startswith("Total de la nota")}
+    # Nota de efectivo (código 1101): su subcuenta de caja comparada anterior → corte.
+    assert tot["Efectivo y equivalentes de efectivo"] == (800.0, 1200.0)
+    assert tot["Inventarios"] == (30000.0, 30000.0)   # código 1113
+    assert "Cuentas por cobrar comerciales y otras" in tot   # código 1103
+
+
 def test_ruc_alimenta_identificacion_conocimiento_y_leyes():
     """El certificado de RUC (RQ-008) se lee y alimenta la identificación del encargo (hoja 14 → manda sobre el informe por
     ser la fuente oficial del SRI), el conocimiento del negocio (hoja 47, que toma la identificación) y las leyes por sector
