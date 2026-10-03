@@ -77,10 +77,14 @@ def texto_de_documento(nombre: str, datos: bytes) -> str:
         raise ExtraccionError(
             "El formato .doc antiguo no se puede leer automáticamente; guárdelo como .docx o .pdf y vuelva a subirlo."
         )
-    elif ext in ("txt", "md"):
+    elif ext in ("txt", "md", "csv"):
         texto = datos.decode("utf-8", errors="replace")
+    elif ext == "xlsx":
+        texto = _texto_xlsx(datos)
     else:
-        raise ExtraccionError(f"Formato no soportado para extracción por IA: «.{ext}». Use PDF o Word (.docx).")
+        raise ExtraccionError(
+            f"Formato no soportado para extracción por IA: «.{ext}». Use PDF, Word (.docx) o Excel (.xlsx)."
+        )
     texto = (texto or "").strip()
     if not texto:
         raise ExtraccionError(
@@ -88,6 +92,39 @@ def texto_de_documento(nombre: str, datos: bytes) -> str:
             "o transcriba los datos en la plantilla Excel."
         )
     return texto
+
+
+def _texto_xlsx(datos: bytes) -> str:
+    """Convierte un .xlsx a texto plano (una línea por fila, celdas unidas por « | »)
+    para que la IA lea una carta/informe/notas transcritas en Excel igual que si fueran
+    un documento firmado. Así un requerimiento extraíble subido en Excel se lee solo en
+    vez de pedir el mapeo manual de columnas. Levanta :class:`ExtraccionError` si el
+    archivo no es un XLSX válido."""
+    import io
+
+    try:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(datos), read_only=True, data_only=True)
+    except Exception as e:
+        raise ExtraccionError(f"No se pudo leer el Excel para extracción por IA ({e}).") from e
+    partes: list[str] = []
+    try:
+        for ws in wb.worksheets:
+            filas: list[str] = []
+            for fila in ws.iter_rows(values_only=True):
+                celdas = ["" if c is None else str(c).strip() for c in fila]
+                while celdas and not celdas[-1]:   # recorta las celdas vacías finales (rango usado del ERP)
+                    celdas.pop()
+                if celdas:
+                    filas.append(" | ".join(celdas))
+                if len(filas) >= 2000:   # tope de seguridad; MAX_CHARS recorta aguas abajo
+                    break
+            if filas:
+                partes.append(f"# Hoja: {ws.title}\n" + "\n".join(filas))
+    finally:
+        wb.close()
+    return "\n\n".join(partes)
 
 
 def _texto_pdf(datos: bytes) -> str:
