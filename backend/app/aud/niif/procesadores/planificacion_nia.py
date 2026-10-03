@@ -543,7 +543,7 @@ def _rubro_indice(nombre: str, sec: str) -> str:
         if _busca(nombre, "inventario", "mercader", "existencia"):
             return "Inventarios"
     if sec == "Pasivo":
-        if _busca(nombre, "bancari", "financ", "préstamo", "prestamo", "sobregiro"):
+        if _busca(nombre, "bancari", "financ", "préstamo", "prestamo", "sobregiro", "obligacion", "obligación"):
             return "Obligaciones financieras"
         if _busca(nombre, "pagar", "proveedor") and not _busca(nombre, *NO_COMERCIAL_CXP):
             return "Cuentas por pagar"
@@ -585,7 +585,7 @@ def _fuente(filas, key) -> list[dict]:
         f["codigo"] = c
         v = a_num(f.get(key))
         out.append({"codigo": c, "cuenta": str(f.get("cuenta", "") or "").strip() or c,
-                    "saldo": float(v) if v is not None else 0.0, "_row": f.get("_row")})
+                    "saldo": float(v) if v is not None else 0.0, "posteado": v is not None, "_row": f.get("_row")})
     return out
 
 
@@ -794,11 +794,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         y si viene vacío (0), la suma de sus subcuentas de detalle. Muchos balances dejan los padres en blanco y
         solo llenan las hojas (p. ej. el balance al corte de LANSEY): sin esto, los totales de padre quedan en 0."""
         propio = [x for x in fuentes[k] if x["codigo"] == c]
-        if propio and (propio[0]["detalle"] == "Sí" or propio[0]["pres"] != 0):
-            return propio[0]["pres"]
-        # Padre sin saldo propio: suma la postación PROPIA de todos sus descendientes (no solo las hojas). Así una
-        # cuenta intermedia que postea y además tiene subcuentas (p. ej. «CAJA MENOR GESTIÓN HUMANA» 400 con dos
-        # subcajas .01/.02) cuenta su saldo y el de sus hijas, igual que el balance de comprobación de origen.
+        if not propio:
+            return 0.0                       # código ausente en este balance: vale 0 (no se infiere de sus hijas)
+        if propio[0]["detalle"] == "Sí" or propio[0]["posteado"]:
+            return propio[0]["pres"]          # hoja, o padre con saldo propio posteado (aunque sea 0 explícito)
+        # Padre SIN saldo propio (celda en blanco): suma la postación PROPIA de todos sus descendientes (no solo las
+        # hojas). Así una cuenta intermedia que postea y además tiene subcuentas (p. ej. «CAJA MENOR GESTIÓN HUMANA»
+        # 400 con dos subcajas .01/.02) cuenta su saldo y el de sus hijas, igual que el balance de comprobación.
         return sum(x["pres"] for x in fuentes[k] if x["codigo"] != c and _debajo(x["codigo"], c))
 
     cuentas = []
@@ -1249,6 +1251,10 @@ def _indices(e: dict, dias: float) -> dict:
     """Índices del período con el mismo redondeo (ROUND 2) que la hoja 10."""
     ac, pc, inv, cxc, cxp = e["Activo corriente"], e["Pasivo corriente"], e["Inventarios"], e["Cuentas por cobrar"], e["Cuentas por pagar"]
     act_, pas, pnc, patt, obl = e["TOTAL ACTIVO"], e["TOTAL PASIVO"], e["Pasivo no corriente"], e["PATRIMONIO TOTAL"], e["Obligaciones financieras"]
+    # Denominador patrimonial de los índices (endeudamiento financiero/patrimonial, apalancamiento, ROE y DuPont):
+    # patrimonio SIN resultado + la utilidad neta CALCULADA del período (ERI), como el artefacto HTML. En un corte
+    # preliminar el balance puede traer en el patrimonio un resultado distinto del que arroja el estado de resultados.
+    patg = e["PATRIMONIO (sin resultado del período)"] + e["Utilidad neta"]
     ven, cos, ub, uo, un = e["Ventas netas"], e["(−) Costo de ventas"], e["Utilidad bruta"], e["Utilidad operativa"], e["Utilidad neta"]
 
     def q(a, b, f=1.0):
@@ -1266,18 +1272,18 @@ def _indices(e: dict, dias: float) -> dict:
     i["rotacionActivo"] = q(ven, act_)
     i["endTotal"] = q(pas, act_, 100)
     i["endLP"] = q(pnc, act_, 100)
-    i["endFinanciero"] = q(obl, patt)
-    i["endPatrimonial"] = q(pas, patt)
-    i["multiplicador"] = q(act_, patt)
+    i["endFinanciero"] = q(obl, patg)
+    i["endPatrimonial"] = q(pas, patg)
+    i["multiplicador"] = q(act_, patg)
     i["margenBruto"] = q(ub, ven, 100)
     i["margenOperativo"] = q(uo, ven, 100)
     i["margenNeto"] = q(un, ven, 100)
     i["roi"] = q(uo, act_, 100)
-    i["roe"] = q(un, patt, 100)
+    i["roe"] = q(un, patg, 100)
     # R5: el margen operativo es utilidad operativa ÷ ventas para que el DuPont reproduzca el ROI.
     # Los componentes del DuPont se multiplican sin redondear, para que reproduzcan el ROI y el ROE.
     i["dupontRoi"] = None if not ven or not act_ else _xr(uo / ven * 100 * (ven / act_), 2)
-    i["dupont"] = None if not ven or not act_ or not patt else _xr(un / ven * 100 * (ven / act_) * (act_ / patt), 2)
+    i["dupont"] = None if not ven or not act_ or not patg else _xr(un / ven * 100 * (ven / act_) * (act_ / patg), 2)
     return i
 
 
@@ -2018,7 +2024,7 @@ def _f_rubro_ind(b: str, f: str) -> str:
     return (f'IF({f}="Activo",IF(AND({_s(b, "efectivo", "caja", "banco")},NOT({_s(b, "restringid")})),"Efectivo",'
             f'IF(AND({_s(b, "cobrar", "cliente")},NOT({_s(b, *NO_COMERCIAL_CXC)})),"Cuentas por cobrar",'
             f'IF({_s(b, "inventario", "mercader", "existencia")},"Inventarios",""))),'
-            f'IF({f}="Pasivo",IF({_s(b, "bancari", "financ", "préstamo", "prestamo", "sobregiro")},"Obligaciones financieras",'
+            f'IF({f}="Pasivo",IF({_s(b, "bancari", "financ", "préstamo", "prestamo", "sobregiro", "obligacion", "obligación")},"Obligaciones financieras",'
             f'IF(AND({_s(b, "pagar", "proveedor")},NOT({_s(b, *NO_COMERCIAL_CXP)})),"Cuentas por pagar","")),""))')
 
 
@@ -2237,7 +2243,9 @@ def hojas(res: dict) -> list[dict]:
         for c10, c9, q in (("D", "C", "ant"), ("E", "D", "act")):
             dd = f"${c10}${F10['dias']}"
             ac, pc, inv = e("Activo corriente", c9), e("Pasivo corriente", c9), e("Inventarios", c9)
-            ta_, tp, pnc, pt = e("TOTAL ACTIVO", c9), e("TOTAL PASIVO", c9), e("Pasivo no corriente", c9), e("PATRIMONIO TOTAL", c9)
+            ta_, tp, pnc = e("TOTAL ACTIVO", c9), e("TOTAL PASIVO", c9), e("Pasivo no corriente", c9)
+            # Denominador patrimonial de los índices: patrimonio sin resultado + utilidad neta del ERI (igual que _indices / el HTML).
+            pt = f'({e("PATRIMONIO (sin resultado del período)", c9)}+{e("Utilidad neta", c9)})'
             vn, cv = e("Ventas netas", c9), e("(−) Costo de ventas", c9)
 
             def q_(num, den):
