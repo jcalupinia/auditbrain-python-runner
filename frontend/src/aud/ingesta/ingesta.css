@@ -1,0 +1,116 @@
+/* Motor de Ingesta y Normalización — estilos propios (CSS plano, variables de
+   tema del Command Center). Dorado de marca como acento de título. */
+
+.ing-tool { display: flex; flex-direction: column; gap: 16px; }
+
+.ing-head h2 {
+  margin: 0 0 6px; font-size: 20px;
+  border-left: 3px solid var(--gold, #c7a83c); padding-left: 10px;
+}
+.ing-head p { margin: 4px 0; max-width: 820px; line-height: 1.5; }
+.ing-nota {
+  font-size: 13px; color: var(--text-soft);
+  background: var(--panel-2); border: 1px solid var(--line-soft);
+  border-radius: 8px; padding: 8px 12px;
+}
+
+/* --- Formulario --- */
+.ing-form {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px;
+}
+.ing-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+.ing-row > label { display: flex; flex-direction: column; gap: 4px; }
+.ing-row > label > span { font-size: 12px; color: var(--text-soft); }
+.ing-file { flex: 2 1 320px; }
+.ing-tipo { flex: 1 1 240px; }
+.ing-tipo select, .ing-file input {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 14px;
+}
+.ing-controls { justify-content: space-between; }
+.ing-check { flex-direction: row !important; align-items: center; gap: 8px; font-size: 13px; color: var(--text-soft); }
+.ing-actions { display: flex; gap: 10px; }
+.ing-filename { font-size: 12px; margin: 0; }
+
+/* --- Tarjetas de resultado --- */
+.ing-card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 16px;
+}
+.ing-card h3 { margin: 0 0 10px; font-size: 15px; }
+.ing-card h4 { margin: 0 0 4px; font-size: 12px; color: var(--text-soft); text-transform: uppercase; letter-spacing: .04em; }
+
+.ing-resumen-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.ing-resumen-head h3 { margin: 0; }
+
+/* --- Chips y niveles de confianza --- */
+.ing-chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.ing-dist { margin-top: 12px; }
+.ing-chip {
+  display: inline-flex; align-items: center; font-size: 12px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 999px; padding: 3px 10px; color: var(--text);
+}
+.ing-nivel {
+  display: inline-flex; align-items: center; font-size: 12px; font-weight: 600;
+  border-radius: 999px; padding: 3px 10px; border: 1px solid transparent;
+}
+.ing-nivel-alta   { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent-soft, var(--accent)); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.ing-nivel-media  { background: color-mix(in srgb, var(--warn) 22%, transparent);   color: var(--warn);   border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.ing-nivel-baja   { background: color-mix(in srgb, #e8803a 24%, transparent);       color: #f0a26a;       border-color: color-mix(in srgb, #e8803a 50%, transparent); }
+.ing-nivel-revisar{ background: color-mix(in srgb, var(--danger) 22%, transparent); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+
+.ing-razones { margin: 10px 0 0; padding-left: 18px; color: var(--text-soft); font-size: 13px; }
+.ing-razones li { margin: 2px 0; }
+
+/* --- Métricas --- */
+.ing-metricas { display: flex; gap: 12px; flex-wrap: wrap; }
+.ing-metrica {
+  flex: 1 1 120px; background: var(--panel-2); border: 1px solid var(--line-soft);
+  border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;
+}
+.ing-metrica.alerta { border-color: color-mix(in srgb, var(--danger) 50%, transparent); }
+.ing-metrica-l { font-size: 11px; color: var(--text-soft); text-transform: uppercase; letter-spacing: .04em; }
+.ing-metrica-v { font-size: 20px; font-weight: 700; }
+.ing-barra { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.ing-barra-fill { display: block; height: 100%; background: var(--gold, #c7a83c); }
+
+/* --- Esquema --- */
+.ing-esquema { display: flex; gap: 20px; flex-wrap: wrap; }
+.ing-esquema > div { flex: 1 1 240px; }
+.ing-cols { font-family: var(--mono); font-size: 12px; color: var(--text-soft); margin: 0; word-break: break-word; }
+
+/* --- Tablas --- */
+.ing-table-wrap { overflow-x: auto; }
+.ing-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ing-table th, .ing-table td {
+  text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top;
+}
+.ing-table th { color: var(--text-soft); font-weight: 600; font-size: 12px; }
+.ing-table .ing-valor { font-family: var(--mono); }
+.ing-origen { font-size: 12px; color: var(--text-soft); }
+.ing-row-rev td { background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.ing-map { margin-top: 12px; }
+
+/* --- Validaciones / excepciones --- */
+.ing-valid { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.ing-valid li { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
+.ing-valid-mark { font-weight: 700; }
+.ing-valid li.ok .ing-valid-mark { color: var(--accent); }
+.ing-valid li.fail .ing-valid-mark { color: var(--danger); }
+.ing-exc, .ing-warn { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+.ing-exc li { color: var(--danger); }
+.ing-warn li { color: var(--warn); }
+
+/* --- Cola de revisión --- */
+.ing-cola { list-style: none; margin: 10px 0 0; padding: 0; font-size: 13px; }
+.ing-cola li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--line-soft); flex-wrap: wrap; }
+
+/* --- Sello / disclaimer --- */
+.ing-sello { font-size: 12px; }
+.ing-sello code { font-family: var(--mono); }
+.ing-disclaimer {
+  font-size: 12px; font-style: italic; color: var(--text-soft);
+  border-top: 1px solid var(--line-soft); padding-top: 10px; margin: 4px 0 0;
+}
