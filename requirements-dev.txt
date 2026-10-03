@@ -10,3 +10,10 @@ httpx>=0.27.0
 # papeles de trabajo (scripts/verificar_papel_*.py), sin depender de Excel
 # ni de los filtros Calc de LibreOffice.
 formulas>=1.2
+# Fija numpy a la MISMA versión de producción (requirements-prod.txt). `formulas`
+# arrastra scipy y, al instalarse en un segundo `pip install` sobre prod, el
+# resolvedor ACTUALIZABA numpy a 2.x — rompiendo pandas 2.1.4 (compilado contra
+# numpy 1.x) con «numpy.dtype size changed … Expected 96 … got 88» en la
+# recolección de pytest (CI). Con este pin, numpy se queda en 1.26.4 y scipy
+# resuelve a una versión compatible. Mantener en sintonía con requirements-prod.txt.
+numpy==1.26.4
