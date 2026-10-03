@@ -707,12 +707,27 @@ def _imagenes_con_marco(datos: bytes) -> bytes:
         return (m.group(1) + f'<a:xfrm xmlns:a="{_A}"><a:off x="0" y="0"/>'
                 f'<a:ext cx="{m.group(2)}" cy="{m.group(3)}"/></a:xfrm>')
 
+    from xml.etree import ElementTree as ET
+
     ent, sal = io.BytesIO(datos), io.BytesIO()
     with zipfile.ZipFile(ent) as zin, zipfile.ZipFile(sal, "w", zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             contenido = zin.read(item.filename)
             if item.filename.startswith("xl/drawings/drawing") and item.filename.endswith(".xml"):
-                contenido = patron.sub(marco, contenido.decode("utf-8")).encode("utf-8")
+                original = contenido.decode("utf-8")
+                transformado = patron.sub(marco, original)
+                # NUNCA emitir un dibujo mal formado: si la cirugía por regex dejara XML
+                # inválido, Excel quitaría TODA la parte del dibujo al abrir (cuadro de
+                # «reparaciones», parte /xl/drawings/drawingN.xml). Validar que el resultado
+                # siga siendo XML bien formado; si no, conservar el original (en el peor caso
+                # los logos salen sin marco en algún visor —cosmético—, pero el Excel abre limpio).
+                if transformado != original:
+                    try:
+                        ET.fromstring(transformado)
+                        original = transformado
+                    except ET.ParseError:
+                        pass
+                contenido = original.encode("utf-8")
             zout.writestr(item, contenido)
     return sal.getvalue()
 
