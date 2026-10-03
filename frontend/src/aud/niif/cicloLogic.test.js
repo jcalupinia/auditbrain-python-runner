@@ -89,6 +89,20 @@ describe("extracción por IA (carta / informe en PDF/Word)", () => {
     expect(archivosExtraibles(p, "RQ-004").map((a) => a.id)).toEqual([1]);
   });
 
+  it("incluye el Excel/CSV cuando el requerimiento admite extracción por IA", () => {
+    // Una nota/carta/informe transcrita en Excel se lee por IA igual que el PDF/Word,
+    // en vez de ir al mapeo manual: con el req extraíble, el .xlsx también es candidato.
+    const p = { archivos: [
+      { id: 1, requerimiento: "RQ-006", estado: "recibido", nombre: "carta.pdf" },
+      { id: 3, requerimiento: "RQ-006", estado: "recibido", nombre: "NOTAS LANSEY 2025.xlsx" },
+      { id: 5, requerimiento: "RQ-006", estado: "rechazado", nombre: "vieja.xlsx" },
+    ] };
+    const req = { dataset: "notas_estados_financieros", formats: ["pdf", "docx", "xlsx", "csv"] };
+    expect(archivosExtraibles(p, "RQ-006", req).map((a) => a.id)).toEqual([1, 3]);
+    // Sin el req (compat) solo cuentan los PDF/Word.
+    expect(archivosExtraibles(p, "RQ-006").map((a) => a.id)).toEqual([1]);
+  });
+
   it("devuelve la extracción guardada de un archivo", () => {
     const p = { registro: { extraccion: { 7: { dataset: "carta_control_interno", rows: [{ id: "R01" }] } } } };
     expect(extraccionDe(p, 7).rows).toHaveLength(1);

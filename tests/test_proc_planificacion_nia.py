@@ -744,10 +744,107 @@ def test_sin_plantillas_manuales_ni_grupo():
     d = m.definicion()
     assert [r["id"] for r in d["requests"]] == ["RQ-001", "RQ-002", "RQ-003", "RQ-004", "RQ-005", "RQ-006", "RQ-009", "RQ-007", "RQ-008"]
     assert set(m.CAMPOS) == {"balance_anterior", "balance_actual", "resultados_mismo_corte", "carta_control_interno",
-                             "informe_anterior", "notas_estados_financieros", "notas_detalle"}
+                             "informe_anterior", "notas_estados_financieros", "notas_detalle", "ruc_certificado"}
     nombres = [n for n, _ in m.CEDULAS]
     assert not any("Grupo" in n for n in nombres) and enc.REG in nombres
     assert not {"rolGrupo", "materialidadAsignadaGrupo", "pctComponente", "umbralComponente"} & set(m.PARAMETROS)
+
+
+# Certificado de RUC real de LANSEY (datos del SRI; el ejemplo del repo es ficticio — estos datos NO se guardan en el repo,
+# solo sirven para la prueba de la lógica). `actividades` incluye el sector CIIU para ejercer las leyes por sector.
+RUC_LANSEY = {
+    "razon_social": "LANSEY S.A.", "ruc": "0991248021001", "representante_legal": "PACINI DE LA ROSA ORLANDO ALBERTO",
+    "actividad_principal": "FABRICACIÓN DE COSMÉTICOS",
+    "actividades": ("C20233102 Fabricación de cosméticos (industria química); G46492101 Venta al por mayor de perfumería; "
+                    "L68100101 Actividades inmobiliarias (compra-venta y alquiler de bienes inmuebles)"),
+    "obligado_contabilidad": "SI", "tipo_contribuyente": "SOCIEDADES", "agente_retencion": "SI", "contribuyente_especial": "SI",
+    "obligaciones_tributarias": "IVA mensual; Retenciones en la fuente; Renta sociedades; ATS; REBEFICS; ADI",
+    "establecimientos": "2 abiertos, 1 cerrado", "jurisdiccion": "ZONA 9 / PICHINCHA / QUITO",
+    "inicio_actividades": "12/11/1992", "estado_contribuyente": "ACTIVO", "_row": 1,
+}
+
+
+def test_estructura_y_rollup_balance_mixto_con_codigos_con_punto():
+    """Paridad con el motor del artefacto HTML en balances de comprobación reales (jerarquía profunda, códigos con
+    sufijo de punto y padres en blanco): (a) el nivel de un código como 11010104.01 anida bajo sus prefijos numéricos;
+    (b) un padre sin saldo propio toma la suma de TODAS las postaciones de sus descendientes, incluida una cuenta
+    intermedia que postea y además tiene subcuentas (CAJA MENOR 400 con dos subcajas .01/.02 = 900)."""
+    est = m._estructura(["1", "11", "1101", "110101", "11010104", "11010104.01", "11010104.02", "11010103.01"])
+    assert est["11010104.01"]["nivel"] == 6 and est["11010104"]["nivel"] == 5
+    assert est["11010103.01"]["nivel"] == 5 and est["11010103.01"]["detalle"] == "Sí"
+    assert est["11010104"]["detalle"] == "No"   # postea pero tiene subcuentas
+
+    def bal(key, saldo104):
+        filas = [("1", "ACTIVOS", ""), ("11", "ACTIVOS CORRIENTES", ""), ("1101", "EFECTIVO", ""),
+                 ("110101", "CAJA", ""), ("11010101", "CAJA PRINCIPAL", 0), ("11010103.01", "CAJA MENOR FINANZAS", 300),
+                 ("11010104", "CAJA MENOR GESTION HUMANA", saldo104), ("11010104.01", "CAJA MENOR (SEMINARIOS)", 300),
+                 ("11010104.02", "CAJA MENOR (MANTENIMIENTO)", 200), ("11010109", "CAJA SALAS TECNICAS", 900),
+                 ("2", "PASIVOS", ""), ("21", "PASIVOS CORRIENTES", ""), ("2101", "PROVEEDORES", -700),
+                 ("3", "PATRIMONIO", ""), ("31", "CAPITAL", -1000),
+                 ("4", "INGRESOS", ""), ("41", "VENTAS", -5000), ("6", "COSTO DE VENTAS", ""), ("61", "COSTO", 3000),
+                 ("5", "GASTOS", ""), ("51", "GASTOS ADMINISTRACION", 1200)]
+        return [{"codigo": c, "cuenta": n, key: v, "_row": i + 1} for i, (c, n, v) in enumerate(filas)]
+
+    ds = {"balance_anterior": bal("saldo_anterior", ""), "balance_actual": bal("saldo_actual", 400)}
+    r = m.ejecutar(ds, {**m.EJEMPLO["parametros"], "tipoRevision": "Final"}, "2025-12-31")
+    cu = {x["codigo"]: x for x in r["detalle"]["cuentas"]}
+    assert round(cu["11010104"]["act"], 2) == 400.00            # postea su propio saldo (no lo pisan sus hijas)
+    assert round(cu["110101"]["act"], 2) == 2100.00             # 300+400+300+200+900 (todas las postaciones del subárbol)
+    assert round(cu["1101"]["act"], 2) == 2100.00 and round(cu["11"]["act"], 2) == 2100.00
+
+
+def test_notas_eeff_armadas_del_balance():
+    """Las Notas a los EEFF se arman del balance (artefacto HTML `NOTES_ESF_MAP`), sin depender del documento RQ-006:
+    por cada rubro de `m.NOTAS_ESF`, el desglose de sus subcuentas con saldo y la fila Total comparando anterior → corte."""
+    def bal(key, caja):
+        filas = [("1", "ACTIVOS", ""), ("11", "ACTIVOS CORRIENTES", ""),
+                 ("1101", "EFECTIVO Y EQUIVALENTES", ""), ("110101", "CAJA", ""), ("11010101", "CAJA PRINCIPAL", caja),
+                 ("1103", "CUENTAS POR COBRAR CLIENTES", 50000), ("1113", "INVENTARIOS", 30000),
+                 ("2", "PASIVOS", ""), ("21", "PASIVOS CORRIENTES", ""), ("2101", "OBLIGACIONES BANCARIAS CP", -40000),
+                 ("3", "PATRIMONIO", ""), ("31", "CAPITAL", -50000),
+                 ("4", "INGRESOS", ""), ("41", "VENTAS", -120000), ("6", "COSTO DE VENTAS", ""), ("61", "COSTO", 70000),
+                 ("5", "GASTOS", ""), ("51", "GASTOS", 40000)]
+        return [{"codigo": c, "cuenta": n, key: v, "_row": i + 1} for i, (c, n, v) in enumerate(filas)]
+    ds = {"balance_anterior": bal("saldo_anterior", 800), "balance_actual": bal("saldo_actual", 1200)}
+    r = m.ejecutar(ds, {**m.EJEMPLO["parametros"], "tipoRevision": "Final"}, "2025-12-31")
+    hs = {h["name"]: h for h in m.hojas(r)}
+    assert "15N_Notas_EEFF" in hs
+    v = lambda c: c.get("v") if isinstance(c, dict) else c
+    tot = {str(f[0]).split(": ", 1)[1]: (v(f[1]), v(f[2])) for f in hs["15N_Notas_EEFF"]["rows"]
+           if str(f[0]).startswith("Total de la nota")}
+    # Nota de efectivo (código 1101): su subcuenta de caja comparada anterior → corte.
+    assert tot["Efectivo y equivalentes de efectivo"] == (800.0, 1200.0)
+    assert tot["Inventarios"] == (30000.0, 30000.0)   # código 1113
+    assert "Cuentas por cobrar comerciales y otras" in tot   # código 1103
+
+
+def test_ruc_alimenta_identificacion_conocimiento_y_leyes():
+    """El certificado de RUC (RQ-008) se lee y alimenta la identificación del encargo (hoja 14 → manda sobre el informe por
+    ser la fuente oficial del SRI), el conocimiento del negocio (hoja 47, que toma la identificación) y las leyes por sector
+    (hoja 39, NIA 250), según las actividades económicas (CIIU)."""
+    from backend.app.aud.niif.procesadores import planificacion_calidad as cal
+    from backend.app.aud.niif.procesadores import planificacion_enfoque as enf
+    datasets = {**m.EJEMPLO["datasets"], "ruc_certificado": [RUC_LANSEY]}
+    r = m.ejecutar(datasets, m.EJEMPLO["parametros"], m.EJEMPLO["corte"])
+    hs = {h["name"]: h for h in m.hojas(r)}
+    perfil = {f[1]: f for f in _filas(hs["14_Perfil"]) if f[1]}
+    # Identificación oficial desde el RUC (origen = certificado de RUC).
+    assert perfil["Entidad auditada"][2] == "LANSEY S.A." and perfil["Entidad auditada"][6] == m.ORIGEN_RUC
+    assert perfil["RUC"][2] == "0991248021001"
+    assert perfil["Representante legal"][2] == "PACINI DE LA ROSA ORLANDO ALBERTO"
+    assert perfil["Obligado a llevar contabilidad"][2] == "SI" and perfil["Contribuyente especial"][2] == "SI"
+    assert perfil["Agente de retención"][2] == "SI" and perfil["Establecimientos (abiertos/cerrados)"][2] == "2 abiertos, 1 cerrado"
+    # Conocimiento del negocio (hoja 47) refleja la identificación del RUC.
+    con = "\n".join(str(c) for f in _filas(hs[enf.H47]) for c in f)
+    assert "LANSEY S.A." in con
+    # Las actividades del RUC encienden las leyes por sector (NIA 250): ambiental (industria química) y UAFE (inmobiliaria).
+    leyes = {f[0]: f for f in _filas(hs[cal.H39])}
+    assert leyes["Normativa ambiental (licencias y remediación)"][4] == "Sí"
+    assert leyes["UAFE · prevención de lavado de activos"][4] == "Sí"
+    # Sin RUC, la identificación cae al informe o queda pendiente (comportamiento previo intacto).
+    r0 = _run()
+    perfil0 = {f[1]: f for f in _filas({h["name"]: h for h in m.hojas(r0)}["14_Perfil"]) if f[1]}
+    assert "Representante legal" not in perfil0 and perfil0["Entidad auditada"][6] != m.ORIGEN_RUC
 
 
 def test_registros_de_la_plataforma_en_00_registros_y_formulas():

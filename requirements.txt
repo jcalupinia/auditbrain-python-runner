@@ -11,12 +11,6 @@ requests==2.32.3
 # === Data Science / Machine Learning ===
 pandas==2.1.4
 numpy==1.26.4
-# scipy PINEADO: sin pin, pip instalaba la última serie (1.15+), que (a) elimina
-# scipy._lib._util._lazywhere y rompe statsmodels==0.14.3 al importar, y (b) en el
-# Python 3.12 del CI trae wheels con ABI de numpy 2.x → «numpy.dtype size changed.
-# Expected 96 from C header, got 88 from PyObject», tumbando la colección de pytest.
-# 1.13.1 es compatible con numpy 1.26.4 y con statsmodels/scikit-learn de abajo.
-scipy==1.13.1
 scikit-learn==1.5.2
 statsmodels==0.14.3
 pyod==2.0.6

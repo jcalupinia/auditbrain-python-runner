@@ -10,9 +10,10 @@ httpx>=0.27.0
 # papeles de trabajo (scripts/verificar_papel_*.py), sin depender de Excel
 # ni de los filtros Calc de LibreOffice.
 formulas>=1.2
-# scipy PINEADO (lo arrastra `formulas`). Sin pin, pip instala la última serie,
-# cuyos wheels en el Python 3.12 del CI usan la ABI de numpy 2.x: con numpy==1.26.4
-# (requirements-prod.txt) revienta al importar —«numpy.dtype size changed. Expected
-# 96 from C header, got 88 from PyObject»— y tumba la colección de pytest. 1.13.1 es
-# compatible con numpy 1.26.4. Validado en py3.12: formulas + scipy 1.13.1 importan OK.
-scipy==1.13.1
+# Fija numpy a la MISMA versión de producción (requirements-prod.txt). `formulas`
+# arrastra scipy y, al instalarse en un segundo `pip install` sobre prod, el
+# resolvedor ACTUALIZABA numpy a 2.x — rompiendo pandas 2.1.4 (compilado contra
+# numpy 1.x) con «numpy.dtype size changed … Expected 96 … got 88» en la
+# recolección de pytest (CI). Con este pin, numpy se queda en 1.26.4 y scipy
+# resuelve a una versión compatible. Mantener en sintonía con requirements-prod.txt.
+numpy==1.26.4

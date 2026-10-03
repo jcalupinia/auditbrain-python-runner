@@ -328,10 +328,16 @@ export function admiteExtraccionIA(req) {
   return !!req?.dataset && (req?.formats || []).some((f) => ["pdf", "docx"].includes(String(f).toLowerCase()));
 }
 
-// Documentos PDF/Word (no rechazados) subidos a un requerimiento, candidatos a extracción.
-export function archivosExtraibles(p, requerimiento) {
+// Documentos (no rechazados) subidos a un requerimiento, candidatos a extracción por
+// IA. Siempre los PDF/Word; además, si el requerimiento admite IA (`req`), también el
+// Excel/CSV —una nota/carta/informe transcrita en Excel se lee por IA igual que un
+// documento firmado, en vez de pedir el mapeo manual de columnas—. Sin `req` mantiene
+// el comportamiento clásico (solo PDF/Word).
+export function archivosExtraibles(p, requerimiento, req) {
+  const ia = admiteExtraccionIA(req);
   return (p.archivos || []).filter(
-    (a) => a.requerimiento === requerimiento && a.estado !== "rechazado" && esExtraibleIA(a.nombre),
+    (a) => a.requerimiento === requerimiento && a.estado !== "rechazado" &&
+      (esExtraibleIA(a.nombre) || (ia && esTabular(a.nombre))),
   );
 }
 

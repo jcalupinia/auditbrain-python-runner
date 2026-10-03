@@ -58,7 +58,26 @@ def test_texto_docx_incluye_parrafos_y_tablas():
 
 def test_texto_formato_no_soportado():
     with pytest.raises(ex.ExtraccionError):
-        ex.texto_de_documento("archivo.xlsx", b"cualquier cosa")
+        ex.texto_de_documento("imagen.png", b"cualquier cosa")
+
+
+def test_texto_xlsx_se_lee_como_tabla():
+    """Un requerimiento extraíble (carta/informe/notas) transcrito en Excel se lee por
+    IA igual que un documento firmado, en vez de pedir el mapeo manual de columnas."""
+    openpyxl = pytest.importorskip("openpyxl")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Nota", "Título", "Códigos", "Saldo auditado"])
+    ws.append(["13", "Beneficios a empleados", "2103", "222400.00"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    texto = ex.texto_de_documento("NOTAS LANSEY 2025.xlsx", buf.getvalue())
+    assert "Beneficios a empleados" in texto and "222400.00" in texto
+
+
+def test_texto_xlsx_invalido_falla():
+    with pytest.raises(ex.ExtraccionError):
+        ex.texto_de_documento("archivo.xlsx", b"no soy un xlsx")
 
 
 def test_texto_vacio_falla():
