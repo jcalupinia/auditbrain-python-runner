@@ -492,8 +492,11 @@ def _debajo(x: str, c: str) -> bool:
 
 
 def _ancestro(a: str, c: str) -> bool:
-    """a es una cuenta superior de c (regla del código de la fila c)."""
-    return len(a) < len(c) and ((c + ".").startswith(a + ".") if "." in c else c.startswith(a))
+    """a es una cuenta superior de c. Se decide con la MISMA regla que `_debajo` (la del código del
+    posible padre `a`): así un código con sufijo de punto como «11010103.01» sigue anidando bajo sus
+    prefijos numéricos (110101, 1101, 11, 1), no solo bajo «11010103». Antes se usaba el formato del
+    hijo, que al tener punto cambiaba a segmentos y rompía el nivel (quedaba en 1) y la cuadratura."""
+    return len(a) < len(c) and _debajo(c, a)
 
 
 def _estructura(codes: list[str]) -> dict:
@@ -787,11 +790,16 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     est = _estructura(codes)
 
     def psum(k, c):
-        """R1: el saldo propio de la cuenta en ese balance; si no está, la suma de sus subcuentas de detalle."""
-        propio = [x["pres"] for x in fuentes[k] if x["codigo"] == c]
-        if propio:
-            return propio[0]
-        return sum(x["pres"] for x in fuentes[k] if x["detalle"] == "Sí" and _debajo(x["codigo"], c))
+        """R1: el saldo propio de la cuenta de detalle; para una cuenta SUPERIOR, su saldo si el balance lo trae,
+        y si viene vacío (0), la suma de sus subcuentas de detalle. Muchos balances dejan los padres en blanco y
+        solo llenan las hojas (p. ej. el balance al corte de LANSEY): sin esto, los totales de padre quedan en 0."""
+        propio = [x for x in fuentes[k] if x["codigo"] == c]
+        if propio and (propio[0]["detalle"] == "Sí" or propio[0]["pres"] != 0):
+            return propio[0]["pres"]
+        # Padre sin saldo propio: suma la postación PROPIA de todos sus descendientes (no solo las hojas). Así una
+        # cuenta intermedia que postea y además tiene subcuentas (p. ej. «CAJA MENOR GESTIÓN HUMANA» 400 con dos
+        # subcajas .01/.02) cuenta su saldo y el de sus hijas, igual que el balance de comprobación de origen.
+        return sum(x["pres"] for x in fuentes[k] if x["codigo"] != c and _debajo(x["codigo"], c))
 
     cuentas = []
     for c in codes:

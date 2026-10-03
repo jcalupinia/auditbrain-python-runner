@@ -764,6 +764,35 @@ RUC_LANSEY = {
 }
 
 
+def test_estructura_y_rollup_balance_mixto_con_codigos_con_punto():
+    """Paridad con el motor del artefacto HTML en balances de comprobación reales (jerarquía profunda, códigos con
+    sufijo de punto y padres en blanco): (a) el nivel de un código como 11010104.01 anida bajo sus prefijos numéricos;
+    (b) un padre sin saldo propio toma la suma de TODAS las postaciones de sus descendientes, incluida una cuenta
+    intermedia que postea y además tiene subcuentas (CAJA MENOR 400 con dos subcajas .01/.02 = 900)."""
+    est = m._estructura(["1", "11", "1101", "110101", "11010104", "11010104.01", "11010104.02", "11010103.01"])
+    assert est["11010104.01"]["nivel"] == 6 and est["11010104"]["nivel"] == 5
+    assert est["11010103.01"]["nivel"] == 5 and est["11010103.01"]["detalle"] == "Sí"
+    assert est["11010104"]["detalle"] == "No"   # postea pero tiene subcuentas
+
+    def bal(key, saldo104):
+        filas = [("1", "ACTIVOS", ""), ("11", "ACTIVOS CORRIENTES", ""), ("1101", "EFECTIVO", ""),
+                 ("110101", "CAJA", ""), ("11010101", "CAJA PRINCIPAL", 0), ("11010103.01", "CAJA MENOR FINANZAS", 300),
+                 ("11010104", "CAJA MENOR GESTION HUMANA", saldo104), ("11010104.01", "CAJA MENOR (SEMINARIOS)", 300),
+                 ("11010104.02", "CAJA MENOR (MANTENIMIENTO)", 200), ("11010109", "CAJA SALAS TECNICAS", 900),
+                 ("2", "PASIVOS", ""), ("21", "PASIVOS CORRIENTES", ""), ("2101", "PROVEEDORES", -700),
+                 ("3", "PATRIMONIO", ""), ("31", "CAPITAL", -1000),
+                 ("4", "INGRESOS", ""), ("41", "VENTAS", -5000), ("6", "COSTO DE VENTAS", ""), ("61", "COSTO", 3000),
+                 ("5", "GASTOS", ""), ("51", "GASTOS ADMINISTRACION", 1200)]
+        return [{"codigo": c, "cuenta": n, key: v, "_row": i + 1} for i, (c, n, v) in enumerate(filas)]
+
+    ds = {"balance_anterior": bal("saldo_anterior", ""), "balance_actual": bal("saldo_actual", 400)}
+    r = m.ejecutar(ds, {**m.EJEMPLO["parametros"], "tipoRevision": "Final"}, "2025-12-31")
+    cu = {x["codigo"]: x for x in r["detalle"]["cuentas"]}
+    assert round(cu["11010104"]["act"], 2) == 400.00            # postea su propio saldo (no lo pisan sus hijas)
+    assert round(cu["110101"]["act"], 2) == 2100.00             # 300+400+300+200+900 (todas las postaciones del subárbol)
+    assert round(cu["1101"]["act"], 2) == 2100.00 and round(cu["11"]["act"], 2) == 2100.00
+
+
 def test_ruc_alimenta_identificacion_conocimiento_y_leyes():
     """El certificado de RUC (RQ-008) se lee y alimenta la identificación del encargo (hoja 14 → manda sobre el informe por
     ser la fuente oficial del SRI), el conocimiento del negocio (hoja 47, que toma la identificación) y las leyes por sector
