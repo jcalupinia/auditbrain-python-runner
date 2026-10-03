@@ -232,8 +232,35 @@ _NOTAS_DET = [
     campo("importe", "Importe auditado", "number", alias=("importe", "saldo", "valor", "monto", "saldo auditado"), ejemplo="690500.00"),
     campo("tipo", "Tipo de línea", requerido=False, alias=("tipo", "clase"), ejemplo="Saldo"),
 ]
+# Certificado del RUC (SRI): identificación oficial de la entidad, su actividad y obligaciones. Una sola fila.
+_RUC = [
+    campo("razon_social", "Razón social", requerido=False, alias=("razon social", "razón social", "entidad", "contribuyente", "nombre"),
+          ejemplo="LANSEY S.A."),
+    campo("ruc", "Número de RUC", requerido=False, alias=("ruc", "numero ruc", "número ruc", "nro ruc", "no ruc"), ejemplo="0991248021001"),
+    campo("representante_legal", "Representante legal", requerido=False, alias=("representante legal", "representante", "rep legal"),
+          ejemplo="PACINI DE LA ROSA ORLANDO ALBERTO"),
+    campo("actividad_principal", "Actividad económica principal", requerido=False,
+          alias=("actividad principal", "actividad economica principal", "actividad"), ejemplo="FABRICACIÓN DE COSMÉTICOS"),
+    campo("actividades", "Actividades económicas (todas)", requerido=False, alias=("actividades economicas", "actividades", "ciiu"),
+          ejemplo="C20233102 Fabricación de cosméticos; L68100101 Inmobiliaria"),
+    campo("obligado_contabilidad", "Obligado a llevar contabilidad", requerido=False,
+          alias=("obligado a llevar contabilidad", "obligado contabilidad", "lleva contabilidad"), ejemplo="SI"),
+    campo("tipo_contribuyente", "Tipo de contribuyente", requerido=False, alias=("tipo", "tipo contribuyente", "clase contribuyente"),
+          ejemplo="SOCIEDADES"),
+    campo("agente_retencion", "Agente de retención", requerido=False, alias=("agente de retencion", "agente retencion"), ejemplo="SI"),
+    campo("contribuyente_especial", "Contribuyente especial", requerido=False, alias=("contribuyente especial", "especial"), ejemplo="SI"),
+    campo("obligaciones_tributarias", "Obligaciones tributarias", requerido=False, alias=("obligaciones tributarias", "obligaciones"),
+          ejemplo="IVA mensual; Retenciones en la fuente; Renta sociedades; ATS; REBEFICS; ADI"),
+    campo("establecimientos", "Establecimientos (abiertos/cerrados)", requerido=False,
+          alias=("establecimientos", "establecimientos abiertos"), ejemplo="2 abiertos, 1 cerrado"),
+    campo("jurisdiccion", "Jurisdicción / domicilio tributario", requerido=False,
+          alias=("jurisdiccion", "jurisdicción", "domicilio", "domicilio tributario", "ubicacion"), ejemplo="ZONA 9 / PICHINCHA / QUITO"),
+    campo("inicio_actividades", "Inicio de actividades", requerido=False, alias=("inicio de actividades", "inicio actividades"),
+          ejemplo="12/11/1992"),
+    campo("estado_contribuyente", "Estado del contribuyente", requerido=False, alias=("estado", "estado contribuyente"), ejemplo="ACTIVO"),
+]
 CAMPOS = {"balance_anterior": _BAL_ANT, "balance_actual": _BAL_ACT, "resultados_mismo_corte": _ERI_ANT, "carta_control_interno": _CARTA,
-          "informe_anterior": _INFORME, "notas_estados_financieros": _NOTAS, "notas_detalle": _NOTAS_DET}
+          "informe_anterior": _INFORME, "notas_estados_financieros": _NOTAS, "notas_detalle": _NOTAS_DET, "ruc_certificado": _RUC}
 TIPOS = {k: k for k in CAMPOS}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "balance_actual"
@@ -243,7 +270,7 @@ CONTROL = "saldo_actual"
 # por IA desde el documento firmado (PDF/Word): la carta de control interno y el
 # informe del año anterior. El auditor revisa y confirma la tabla extraída antes de
 # que alimente la herramienta (la IA no decide sola). Lo usa ciclo/servicio.py.
-EXTRACCION_DATASETS = ("carta_control_interno", "informe_anterior", "notas_estados_financieros")
+EXTRACCION_DATASETS = ("carta_control_interno", "informe_anterior", "notas_estados_financieros", "ruc_certificado")
 # Valores permitidos por campo, para forzar el esquema de la extracción (el tipo del
 # informe debe caer en TIPOS_INFORME; la carta no tiene enumerados).
 EXTRACCION_ENUMS = {"informe_anterior": {"tipo": list(TIPOS_INFORME)}}
@@ -261,6 +288,13 @@ EXTRACCION_INSTRUCCIONES = {
         "El documento son las NOTAS a los estados financieros del año anterior. Genera una fila por cada nota de balance: "
         "número de nota, título, los códigos de cuenta del balance que la forman (separados por coma) y el saldo auditado "
         "total de la nota. Solo notas de rubros del balance con su total; no incluyas notas de políticas contables.",
+    "ruc_certificado":
+        "El documento es el CERTIFICADO del Registro Único de Contribuyentes (RUC) del SRI (Ecuador). Genera UNA sola fila con: "
+        "razón social, número de RUC, representante legal, actividad económica principal y TODAS las actividades económicas (con su "
+        "código CIIU, separadas por «; »), si está obligado a llevar contabilidad (SI/NO), el tipo de contribuyente, si es agente de "
+        "retención (SI/NO), si es contribuyente especial (SI/NO), las obligaciones tributarias (separadas por «; »), los "
+        "establecimientos (abiertos/cerrados), la jurisdicción o domicilio tributario, la fecha de inicio de actividades y el estado. "
+        "Transcribe solo lo que el certificado dice; lo que no conste, déjalo vacío.",
 }
 
 # --- parámetros ---------------------------------------------------------------------------------------------------
@@ -944,6 +978,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         n["suma"] = sum(x["importe"] for x in ls if x["tipo"] == "Saldo")
         n["difDet"] = n["suma"] - n["auditado"] if ls else 0.0
 
+    # Certificado de RUC (RQ-008): identificación oficial de la entidad, su actividad (CIIU) y obligaciones (SRI).
+    ruc = (datasets.get("ruc_certificado") or [{}])[0] or {}
+
     # 9 · posibles riesgos (NIA 240, 570, balances e informe anterior) — mismo orden que la hoja 13
     ia, ip = ind["act"], est9["act"]
     # A2: en un corte parcial los días sobre 365 salen mayores; los umbrales se comparan con días × meses ÷ 12.
@@ -1189,7 +1226,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                "sino": sino, "fechas": fechas, "fuentes": fuentes, "hayEri": hay_eri, "bruto": bruto, "signo": signo, "sec7": sec7,
                "cuentas": cuentas, "est9": est9, "ind": ind,
                "materialidad": {"base": base_valor, "global": mat, "desempeno": desemp, "trivial": triv},
-               "justificacion": justif, "carta": carta, "informe": informe, "notas": notas, "notasDet": notas_det,
+               "justificacion": justif, "carta": carta, "informe": informe, "notas": notas, "notasDet": notas_det, "ruc": ruc,
                "sinNota": _sin_nota(cuentas, notas), "riesgos": riesgos, "reg": reg, "evals": evals, "eqEst": eq_est, "pe": pe, "difs": difs, "dres": dres,
                "anomalias": anomalias, "revisar": revisar, "nivelRevisar": lvl, "parametros": p,
                "origenes": origenes, "puente": puente, "archivos": archivos, "arch_plat": arch_plat, "fac": fac,
@@ -2020,6 +2057,7 @@ def hojas(res: dict) -> list[dict]:
     p, fu, cu, e9, ind = d["parametros"], d["fuentes"], d["cuentas"], d["est9"], d["ind"]
     nm, n4, n5, n6, n8 = len(d["mapa"]), len(fu["ant"]), len(fu["act"]), len(fu["eri"]), len(cu)
     carta, informe, notas, riesgos, anom, rev = d["carta"], d["informe"], d["notas"], d["riesgos"], d["anomalias"], d["revisar"]
+    ruc = d.get("ruc") or {}
     mt = d["materialidad"]
     pv = lambda k: None if p.get(k) in (None, "") else p.get(k)  # noqa: E731
 
@@ -2338,7 +2376,7 @@ def hojas(res: dict) -> list[dict]:
                           f'"{DEF_OTRA}"))', _clase_def(x)), SEGUIMIENTO])
 
     # 14 · perfil del encargo (se arma antes de la 13, que remite a sus importes)
-    perfil, estilos_p, fila14 = _perfil(informe, d, pv)
+    perfil, estilos_p, fila14 = _perfil(informe, d, pv, ruc)
 
     # 13 · posibles riesgos
     fila8 = {x["codigo"]: FILA0 + i for i, x in enumerate(cu)}
@@ -2440,7 +2478,8 @@ def hojas(res: dict) -> list[dict]:
     stand_h = cal_m.filas_stand_back(rev, notas, c_cal)
     an_h = cal_m.filas_analiticos(d["an"], c_cal)
     est_h = cal_m.filas_estimaciones(d["est"], c_cal)
-    act_txt = " ".join([str(ficha.get("activity") or "")] + [x["detalle"] for x in informe if cal_m._hay(x["concepto"], ("actividad",))])
+    act_txt = " ".join([str(ficha.get("activity") or "")] + [x["detalle"] for x in informe if cal_m._hay(x["concepto"], ("actividad",))]
+                       + [str(ruc.get("actividades") or ""), str(ruc.get("actividad_principal") or "")])
     leyes_h = cal_m.filas_leyes(cu, act_txt, c_cal)
     partes_h = cal_m.filas_partes(d["partes"], cal_m.partes_textos(informe, notas), c_cal)
     assert len(partes_h) == d["n40"]
@@ -3502,6 +3541,7 @@ def _justif_cifras(d: dict, mt: dict, propia) -> str:
 ORIGEN_INFORME = "Informe del año anterior (RQ-005)"
 ORIGEN_PARAMETROS = "Parámetros del encargo (hoja 02)"
 ORIGEN_PENDIENTE = "Sin soporte documental"
+ORIGEN_RUC = "Certificado de RUC (RQ-008)"
 PENDIENTE = "[PENDIENTE]"
 MARCO_AUDITORIA = "Normas Internacionales de Auditoría (NIA)"
 # Identificación mínima del encargo (artefacto: «Identificación del encargo»): concepto y cómo se obtiene. Lo que no tiene
@@ -3515,9 +3555,12 @@ TXT_ENTENDIMIENTO_PEND = ("Documente el entendimiento de la entidad y su entorno
                           "relacionadas, sistema de información y marco normativo (NIA 315 párr. 19).")
 
 
-def _perfil(informe: list, d: dict, pv) -> tuple[list, list, dict]:
+def _perfil(informe: list, d: dict, pv, ruc: dict | None = None) -> tuple[list, list, dict]:
     """Hoja 14 (artefacto: «Perfil del encargo»): identificación del encargo, entendimiento de la entidad y su entorno,
-    contexto y asuntos del informe anterior. Devuelve las filas, sus estilos y la fila de cada dato del informe."""
+    contexto y asuntos del informe anterior. La identificación prioriza el certificado de RUC (RQ-008) cuando está, por ser
+    la fuente oficial del SRI; si no hay RUC, cae al informe o queda [PENDIENTE]. Devuelve las filas, sus estilos y la fila
+    de cada dato del informe."""
+    ruc = ruc or {}
     filas, estilos, fila = [], [], {}
 
     def titulo(txt):
@@ -3530,11 +3573,24 @@ def _perfil(informe: list, d: dict, pv) -> tuple[list, list, dict]:
                       x["enfoque"] or EFECTO_INFORME[x["tipo"]], ORIGEN_INFORME])
         estilos.append(None)
 
+    def de_ruc(concepto, valor):
+        filas.append(["Identificación", concepto, str(valor).strip() or PENDIENTE, None, "Certificado de RUC (SRI)",
+                      EFECTO_INFORME["Identificación"], ORIGEN_RUC])
+        estilos.append(None)
+
     usados = set()
     titulo("Identificación del encargo")
+    # El RUC es la fuente oficial de entidad, RUC y actividad: si lo trae, manda sobre el informe.
+    _ruc_ident = {"Entidad auditada": ruc.get("razon_social"), "RUC": ruc.get("ruc"),
+                  "Actividad": ruc.get("actividad_principal") or ruc.get("actividades")}
     for concepto, claves in IDENT_INFORME:
         j = next((j for j, x in enumerate(informe) if j not in usados and x["tipo"] == "Identificación"
                   and any(k in norm(x["concepto"]) for k in claves)), None)
+        if str(_ruc_ident.get(concepto, "") or "").strip():
+            if j is not None:          # el RUC manda: marca la fila equivalente del informe para no duplicarla
+                usados.add(j)
+            de_ruc(concepto, _ruc_ident[concepto])
+            continue
         if j is None:
             filas.append(["Identificación", concepto, PENDIENTE, None, "No se completa por inferencia",
                           EFECTO_INFORME["Identificación"], ORIGEN_PENDIENTE])
@@ -3558,6 +3614,18 @@ def _perfil(informe: list, d: dict, pv) -> tuple[list, list, dict]:
     filas.append(["Identificación", "Marco de auditoría", MARCO_AUDITORIA, None, "Política de la firma",
                   EFECTO_INFORME["Identificación"], ORIGEN_PARAMETROS])
     estilos.append(None)
+    # Datos adicionales del certificado de RUC (NIA 315): solo las filas que el certificado trae.
+    for concepto, clave in (("Representante legal", "representante_legal"),
+                            ("Obligado a llevar contabilidad", "obligado_contabilidad"),
+                            ("Tipo de contribuyente", "tipo_contribuyente"),
+                            ("Agente de retención", "agente_retencion"),
+                            ("Contribuyente especial", "contribuyente_especial"),
+                            ("Establecimientos (abiertos/cerrados)", "establecimientos"),
+                            ("Jurisdicción / domicilio tributario", "jurisdiccion"),
+                            ("Inicio de actividades", "inicio_actividades"),
+                            ("Obligaciones tributarias", "obligaciones_tributarias")):
+        if str(ruc.get(clave, "") or "").strip():
+            de_ruc(concepto, ruc.get(clave))
     for j, x in enumerate(informe):              # otros datos de identificación del informe
         if x["tipo"] == "Identificación" and j not in usados:
             usados.add(j)
@@ -4400,8 +4468,13 @@ def definicion() -> dict:
                         "importe y tipo (Saldo si forma el saldo, Movimiento si es la conciliación del año, Total si es el total)."),
             req("RQ-007", "Informe de auditoría, notas y carta de control interno del año anterior (documentos firmados)", None, "PLA-01",
                 "Respaldo de los datos transcritos en RQ-004 a RQ-006", formats=("pdf", "docx"), use="soporte", required=False),
-            req("RQ-008", "RUC actualizado de la entidad", None, "PLA-01", "Identificación de la entidad y su actividad",
-                formats=("pdf",), use="soporte", required=False),
+            req("RQ-008", "RUC actualizado de la entidad", "ruc_certificado", "PLA-01",
+                "Identificación de la entidad, su actividad económica (CIIU) y sus obligaciones tributarias", required=False,
+                formats=("pdf", "docx", "xlsx", "csv"),
+                content="Datos del certificado del RUC (SRI): razón social, número de RUC, representante legal, actividades "
+                        "económicas (CIIU), si está obligado a llevar contabilidad, tipo de contribuyente, agente de retención, "
+                        "contribuyente especial, obligaciones tributarias, establecimientos y jurisdicción. Suba el certificado en "
+                        "PDF (la IA lo lee y usted revisa) o transcríbalo en Excel/CSV."),
         ],
     }
 

@@ -744,10 +744,53 @@ def test_sin_plantillas_manuales_ni_grupo():
     d = m.definicion()
     assert [r["id"] for r in d["requests"]] == ["RQ-001", "RQ-002", "RQ-003", "RQ-004", "RQ-005", "RQ-006", "RQ-009", "RQ-007", "RQ-008"]
     assert set(m.CAMPOS) == {"balance_anterior", "balance_actual", "resultados_mismo_corte", "carta_control_interno",
-                             "informe_anterior", "notas_estados_financieros", "notas_detalle"}
+                             "informe_anterior", "notas_estados_financieros", "notas_detalle", "ruc_certificado"}
     nombres = [n for n, _ in m.CEDULAS]
     assert not any("Grupo" in n for n in nombres) and enc.REG in nombres
     assert not {"rolGrupo", "materialidadAsignadaGrupo", "pctComponente", "umbralComponente"} & set(m.PARAMETROS)
+
+
+# Certificado de RUC real de LANSEY (datos del SRI; el ejemplo del repo es ficticio — estos datos NO se guardan en el repo,
+# solo sirven para la prueba de la lógica). `actividades` incluye el sector CIIU para ejercer las leyes por sector.
+RUC_LANSEY = {
+    "razon_social": "LANSEY S.A.", "ruc": "0991248021001", "representante_legal": "PACINI DE LA ROSA ORLANDO ALBERTO",
+    "actividad_principal": "FABRICACIÓN DE COSMÉTICOS",
+    "actividades": ("C20233102 Fabricación de cosméticos (industria química); G46492101 Venta al por mayor de perfumería; "
+                    "L68100101 Actividades inmobiliarias (compra-venta y alquiler de bienes inmuebles)"),
+    "obligado_contabilidad": "SI", "tipo_contribuyente": "SOCIEDADES", "agente_retencion": "SI", "contribuyente_especial": "SI",
+    "obligaciones_tributarias": "IVA mensual; Retenciones en la fuente; Renta sociedades; ATS; REBEFICS; ADI",
+    "establecimientos": "2 abiertos, 1 cerrado", "jurisdiccion": "ZONA 9 / PICHINCHA / QUITO",
+    "inicio_actividades": "12/11/1992", "estado_contribuyente": "ACTIVO", "_row": 1,
+}
+
+
+def test_ruc_alimenta_identificacion_conocimiento_y_leyes():
+    """El certificado de RUC (RQ-008) se lee y alimenta la identificación del encargo (hoja 14 → manda sobre el informe por
+    ser la fuente oficial del SRI), el conocimiento del negocio (hoja 47, que toma la identificación) y las leyes por sector
+    (hoja 39, NIA 250), según las actividades económicas (CIIU)."""
+    from backend.app.aud.niif.procesadores import planificacion_calidad as cal
+    from backend.app.aud.niif.procesadores import planificacion_enfoque as enf
+    datasets = {**m.EJEMPLO["datasets"], "ruc_certificado": [RUC_LANSEY]}
+    r = m.ejecutar(datasets, m.EJEMPLO["parametros"], m.EJEMPLO["corte"])
+    hs = {h["name"]: h for h in m.hojas(r)}
+    perfil = {f[1]: f for f in _filas(hs["14_Perfil"]) if f[1]}
+    # Identificación oficial desde el RUC (origen = certificado de RUC).
+    assert perfil["Entidad auditada"][2] == "LANSEY S.A." and perfil["Entidad auditada"][6] == m.ORIGEN_RUC
+    assert perfil["RUC"][2] == "0991248021001"
+    assert perfil["Representante legal"][2] == "PACINI DE LA ROSA ORLANDO ALBERTO"
+    assert perfil["Obligado a llevar contabilidad"][2] == "SI" and perfil["Contribuyente especial"][2] == "SI"
+    assert perfil["Agente de retención"][2] == "SI" and perfil["Establecimientos (abiertos/cerrados)"][2] == "2 abiertos, 1 cerrado"
+    # Conocimiento del negocio (hoja 47) refleja la identificación del RUC.
+    con = "\n".join(str(c) for f in _filas(hs[enf.H47]) for c in f)
+    assert "LANSEY S.A." in con
+    # Las actividades del RUC encienden las leyes por sector (NIA 250): ambiental (industria química) y UAFE (inmobiliaria).
+    leyes = {f[0]: f for f in _filas(hs[cal.H39])}
+    assert leyes["Normativa ambiental (licencias y remediación)"][4] == "Sí"
+    assert leyes["UAFE · prevención de lavado de activos"][4] == "Sí"
+    # Sin RUC, la identificación cae al informe o queda pendiente (comportamiento previo intacto).
+    r0 = _run()
+    perfil0 = {f[1]: f for f in _filas({h["name"]: h for h in m.hojas(r0)}["14_Perfil"]) if f[1]}
+    assert "Representante legal" not in perfil0 and perfil0["Entidad auditada"][6] != m.ORIGEN_RUC
 
 
 def test_registros_de_la_plataforma_en_00_registros_y_formulas():
