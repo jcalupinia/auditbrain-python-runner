@@ -222,9 +222,23 @@ def _max_tokens() -> int:
     # (el modelo se detiene cuando termina). Ajustable por env si algún
     # proveedor gratuito lo limita: AUDITBRAIN_LLM_MAX_TOKENS.
     try:
-        return int(os.getenv("AUDITBRAIN_LLM_MAX_TOKENS", "8192"))
+        base = int(os.getenv("AUDITBRAIN_LLM_MAX_TOKENS", "8192"))
     except ValueError:
-        return 8192
+        base = 8192
+    # EXTRACCIÓN: los modelos de razonamiento del servidor local (gpt-oss) gastan
+    # su presupuesto de tokens "pensando" ANTES de escribir el JSON. Con un techo
+    # chico se quedan sin margen y devuelven contenido vacío → el JSON no parsea
+    # («Expecting value: line 1 column 1»). Por eso la lectura de documentos usa un
+    # PISO amplio propio (AUDITBRAIN_LLM_MAX_TOKENS_EXTRACCION, default 16384) para
+    # dejarle espacio a razonar Y responder; nunca queda por debajo del techo
+    # general. Es un techo: no encarece las respuestas cortas.
+    if _EN_EXTRACCION.get():
+        try:
+            piso = int(os.getenv("AUDITBRAIN_LLM_MAX_TOKENS_EXTRACCION", "16384"))
+        except ValueError:
+            piso = 16384
+        return max(base, piso)
+    return base
 
 
 def _providers_with_keys() -> list[str]:

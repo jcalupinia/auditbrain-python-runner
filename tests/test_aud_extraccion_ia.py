@@ -235,6 +235,30 @@ def test_respuesta_no_json_falla():
         ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t", chat=_ChatFalso(content="no soy json"))
 
 
+def test_respuesta_vacia_da_error_accionable():
+    """Incidente de producción con la carta: el modelo de razonamiento local
+    devolvió contenido vacío (todo el presupuesto de tokens en el razonamiento) y
+    el usuario veía el críptico «Expecting value: line 1 column 1». Ahora el error
+    es accionable y menciona la env var del techo de tokens."""
+    with pytest.raises(ex.ExtraccionError) as exc:
+        ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t", chat=_ChatFalso(content="   "))
+    msg = str(exc.value)
+    assert "respuesta vacía" in msg
+    assert "AUDITBRAIN_LLM_MAX_TOKENS_EXTRACCION" in msg
+    assert "Expecting value" not in msg
+
+
+def test_placeholder_de_proveedor_vacio_da_error_accionable():
+    """El literal que pone providers cuando el modelo contesta vacío tampoco debe
+    llegar al parser JSON: se traduce al mismo error accionable."""
+    with pytest.raises(ex.ExtraccionError) as exc:
+        ex.extraer_filas(
+            m.CAMPOS["carta_control_interno"], "t",
+            chat=_ChatFalso(content=ex._RESPUESTA_VACIA_PROVEEDOR),
+        )
+    assert "respuesta vacía" in str(exc.value)
+
+
 # --------------------------------------------------------------------------- #
 #  Rescate de JSON mal formado (modelo local)                                  #
 # --------------------------------------------------------------------------- #
