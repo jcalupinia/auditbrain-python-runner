@@ -54,6 +54,18 @@ class Settings:
         os.getenv("AUD_OF_CLEANUP_INTERVAL_SECONDS", "300")
     )
 
+    # --- Retención de pruebas del ciclo AUD (Command Center = lugar de paso) ---
+    # Decisión del dueño (2026-10-04): las pruebas no quedan grabadas; el auditor
+    # las descarga y las archiva en su propia base. El servidor las borra solas:
+    # al descargar el papel (tras una breve gracia para bajar varios formatos) y,
+    # en todo caso, nunca pasan de 8 h desde que se crearon. Aplica a TODAS las
+    # pruebas, aprobadas incluidas (el borrado automático levanta la regla
+    # APROBADA_NO_SE_TOCA, que sigue protegiendo el borrado MANUAL).
+    AUD_CICLO_RETENCION_ENABLED: bool = os.getenv("AUD_CICLO_RETENCION_ENABLED", "true").lower() == "true"
+    AUD_CICLO_PRUEBA_TTL_HORAS: int = int(os.getenv("AUD_CICLO_PRUEBA_TTL_HORAS", "8"))
+    AUD_CICLO_POST_DOWNLOAD_TTL_MINUTES: int = int(os.getenv("AUD_CICLO_POST_DOWNLOAD_TTL_MINUTES", "30"))
+    AUD_CICLO_CLEANUP_INTERVAL_SECONDS: int = int(os.getenv("AUD_CICLO_CLEANUP_INTERVAL_SECONDS", "300"))
+
     @property
     def aud_of_tmp_dir_path(self):
         from pathlib import Path
