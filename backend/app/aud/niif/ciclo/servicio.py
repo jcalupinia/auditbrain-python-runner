@@ -371,6 +371,27 @@ def requests_vivos(p: Prueba) -> list:
     return _con_politica_viva(completos, _politica_catalogo_viva(p))
 
 
+def _definicion_viva(p: Prueba) -> dict:
+    """La definición de la prueba con los requerimientos VIVOS del catálogo. La
+    definición se congela al crear la prueba; para una herramienta del catálogo
+    (`proc:` con RUBRO) eso deja fuera los anexos que el catálogo agregó después
+    (p. ej. RQ-011 «Libro Mayor»). Devolver los requerimientos vivos hace que el
+    preview previo a generar y la generación de requerimientos los incluyan, sin
+    re-crear la prueba. Para fichas que no son del catálogo, la definición congelada."""
+    d = p.definicion or {}
+    origen = getattr(p, "origen", "") or ""
+    if not origen.startswith("proc:"):
+        return d
+    mod = procesadores.PROCESADORES.get(origen[5:])
+    if mod is None or not getattr(mod, "RUBRO", None):
+        return d
+    try:
+        reqs = mod.definicion().get("requests")
+    except Exception:
+        return d
+    return {**d, "requests": list(reqs)} if reqs else d
+
+
 def _t(p: Prueba) -> dict:
     """El registro con la forma que esperan las reglas del sitio."""
     politica = _politica_catalogo_viva(p)
@@ -439,7 +460,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             reg["program"] = aprobado
     elif accion == "generate_request":
         p.estado = reglas.transicion(t, accion)
-        reg["requests"] = datos_mod.create_requests(reg["program"], reg["engagement"]["cutoff"], p.definicion)
+        reg["requests"] = datos_mod.create_requests(reg["program"], reg["engagement"]["cutoff"], _definicion_viva(p))
 
     elif accion in ("save_request", "approve_request"):
         if p.estado != "REQUERIMIENTO_GENERADO":

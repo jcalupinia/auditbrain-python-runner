@@ -123,3 +123,25 @@ def test_requests_vivos_no_agrega_nada_si_no_es_del_catalogo():
         definicion={"requests": [dict(r) for r in viejos]},
     )
     assert [r["id"] for r in servicio.requests_vivos(p)] == ["RQ-001"]
+
+
+def test_definicion_viva_incluye_anexos_nuevos_del_catalogo():
+    """La definición se congela al crear la prueba; para herramientas del catálogo el
+    preview y la generación deben usar la definición VIVA (incluye RQ-011 Libro Mayor)."""
+    p = SimpleNamespace(
+        origen="proc:inventarios_costos", estado="PRUEBA_SELECCIONADA",
+        registro={"engagement": {"cutoff": "2025-12-31"}},
+        definicion={"processor": "inventarios_costos",
+                    "requests": [{"id": "RQ-001", "document": "Inventario valorado", "formats": ["xlsx", "csv"]}]},
+    )
+    viva = servicio._definicion_viva(p)
+    ids = {r["id"] for r in viva["requests"]}
+    assert "RQ-011" in ids and "RQ-001" in ids  # la definición viva trae todos los anexos del catálogo
+
+
+def test_definicion_viva_no_toca_fichas_que_no_son_del_catalogo():
+    p = SimpleNamespace(
+        origen="ficha:9", estado="PRUEBA_SELECCIONADA", registro={},
+        definicion={"requests": [{"id": "RQ-001", "document": "X", "formats": ["xlsx"]}]},
+    )
+    assert servicio._definicion_viva(p)["requests"] == [{"id": "RQ-001", "document": "X", "formats": ["xlsx"]}]
