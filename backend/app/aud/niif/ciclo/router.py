@@ -143,9 +143,13 @@ def leer(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(req
     docs = [{"id": a.id, "requestId": a.requerimiento, "component": a.componente} for a in lista]
     rechazados = [a.id for a in lista if a.estado == "rechazado"]
     salida = _salida(p)
+    # Definición VIVA del catálogo: el preview previo a generar (la pantalla usa
+    # definicion.requests) muestra los anexos nuevos del catálogo (p. ej. RQ-011
+    # Libro Mayor) aunque la prueba se haya creado antes de que existieran.
+    salida["definicion"] = servicio._definicion_viva(p)
     # Si la prueba ya tiene requerimientos generados, se entregan los VIVOS (con la
-    # política del catálogo y los anexos nuevos, p. ej. RQ-011 Libro Mayor), para que
-    # un encargo ya creado muestre la tarjeta de carga y acepte la subida.
+    # política del catálogo y los anexos nuevos), para que un encargo ya creado
+    # muestre la tarjeta de carga y acepte la subida.
     _reg = p.registro or {}
     if isinstance(_reg.get("requests"), list) and _reg["requests"]:
         salida["registro"] = {**_reg, "requests": reqs}
