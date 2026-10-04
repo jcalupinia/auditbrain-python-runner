@@ -528,7 +528,18 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
         # Los tableros van en su propia lámina: ningún color se repite con los gráficos del panel.
         secciones.append(("s-tableros", "Tableros",
                           f'<div class="cedula-cab"><h2>Tableros del análisis</h2>{boton_pdf("s-tableros")}</div>{_tableros(p, hex_)}'))
-    for i, h in enumerate(hojas):
+    # Si la definición declara qué cédulas se muestran como PESTAÑA en el HTML
+    # (``hojas_html``), solo esas aparecen —en ese orden—; el resto queda interno
+    # (sigue en el Excel y en «Cómo se calcula», pero no estorba la vista). Así el
+    # papel HTML presenta las secciones de los «botones» y no las 55 cédulas. Sin
+    # ``hojas_html`` se muestran todas (comportamiento de siempre del resto).
+    visibles = definicion.get("hojas_html")
+    if visibles:
+        orden = {n: k for k, n in enumerate(visibles)}
+        hojas_tab = sorted((h for h in hojas if h.get("name") in orden), key=lambda h: orden[h["name"]])
+    else:
+        hojas_tab = hojas
+    for i, h in enumerate(hojas_tab):
         sid = f"s-{i}"
         cuerpo = (f'<div class="cedula-cab"><h2>{E(h["label"])}</h2>{boton_pdf(sid)}</div>'
                   f'<div class="panel">{_guia(h)}{_calc(como_se_calcula(h, hojas), para_pdf)}{_tabla(h, celda)}</div>')

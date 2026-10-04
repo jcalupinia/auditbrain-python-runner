@@ -4415,6 +4415,25 @@ REF_PROBLEMAS = {
 
 # --- definición --------------------------------------------------------------------------------------------------
 
+# Pestañas visibles del papel HTML (los «botones» de la vista de ejecución), en su
+# orden. El resto de las ~55 cédulas quedan INTERNAS (en el Excel y en «Cómo se
+# calcula»), no como pestaña. El Tablero Ejecutivo es el panel/tableros, que el HTML
+# muestra siempre aparte.
+HOJAS_HTML = [
+    "14_Perfil",            # Perfil del Encargo
+    "08A_ESF_Detalle",      # Situación Financiera
+    "08B_ERI_Detalle",      # Estado de Resultados
+    "08_Horizontal",        # Analítico Preliminar
+    "10_Indices",           # Índices Financieros
+    "11_Materialidad",      # Materialidad
+    "46_Matriz_Riesgos",    # Matriz de Riesgos
+    "15N_Notas_EEFF",       # Notas a los EEFF
+    "17_Anomalias",         # Control & Anomalías
+    "19_Programa",          # Programa
+    "47_Conocimiento_Negocio",  # Conocimiento del Negocio (agregado)
+]
+
+
 def definicion() -> dict:
     bc = ("Una fila por cuenta, tal como lo exporta el sistema contable, con TODOS los niveles (sección, grupo, cuenta y "
           "subcuentas): código, nombre y saldo. Los saldos acreedores pueden venir negativos: la herramienta detecta el signo "
@@ -4473,6 +4492,12 @@ def definicion() -> dict:
         "fields": _BAL_ACT, "rules": [], "control": CONTROL, "primary": "materialidad",
         "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
         "cedulas": [[n, etq] for n, etq in CEDULAS],
+        # Pestañas visibles del papel HTML (los «botones» de la vista): solo estas
+        # cédulas se muestran como sección en el HTML/Word/PowerPoint, en este orden;
+        # las otras 40+ quedan INTERNAS (siguen en el Excel y en «Cómo se calcula»,
+        # pero no estorban la vista ejecutiva). El Tablero es el panel/tableros
+        # (siempre visible aparte). Si se quiere mostrar/ocultar otra, editar aquí.
+        "hojas_html": HOJAS_HTML,
         # A4 (NIA 230): cédulas clave con su preparó y revisó tomados de la bitácora (hoja 00_Firmas del libro).
         "firmas": ["11_Materialidad", "12_Riesgos_CCI", "13_Riesgos_Balance", "19_Programa", "21_Estrategia", enc_m.H24, enc_m.H25,
                    enc_m.H28, enc_m.H32],
