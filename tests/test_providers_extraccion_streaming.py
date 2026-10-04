@@ -122,3 +122,52 @@ def test_extraccion_usa_completar_para_extraccion_por_defecto(monkeypatch):
     monkeypatch.setattr(extraccion_ia, "EXTRACCION_ENABLED", True)
     chat = extraccion_ia._chat_por_defecto()
     assert chat is providers.completar_para_extraccion
+
+
+# --------------------------------------------------------------------------- #
+#  5 · Un timeout de CHAT corto NO estrangula la extracción (piso propio)      #
+# --------------------------------------------------------------------------- #
+def test_timeout_local_normal_respeta_la_env_var(monkeypatch):
+    """Fuera de extracción, el timeout local es LOCAL_LLM_TIMEOUT_SECONDS tal cual."""
+    monkeypatch.setenv("LOCAL_LLM_TIMEOUT_SECONDS", "15")  # failover veloz del chat
+    assert not providers._EN_EXTRACCION.get()
+    assert providers._local_timeout() == 15
+
+
+def test_extraccion_aplica_piso_amplio_aunque_el_chat_use_timeout_corto(monkeypatch):
+    """ESTE es el arreglo del incidente de producción: un operador bajó el
+    timeout del chat a 15s para failover veloz a la nube. Esa env var NO debe
+    cortar la lectura del documento en el servidor local (gratis + privado):
+    dentro de la extracción rige un piso amplio propio (300s por defecto)."""
+    monkeypatch.setenv("LOCAL_LLM_TIMEOUT_SECONDS", "15")
+
+    timeouts_vistos: list[int] = []
+
+    def _stream_captura(messages, system=None, *, temperature=None):
+        # Lo que ve el gateway local al abrir el stream: el timeout vigente.
+        timeouts_vistos.append(providers._local_timeout())
+        yield {"type": "token", "text": "{}"}
+        yield {"type": "done", "model": "auditia-rutina"}
+
+    monkeypatch.setattr(providers, "stream_chat_complete", _stream_captura)
+    providers.completar_para_extraccion([{"role": "user", "content": "doc largo"}])
+
+    assert timeouts_vistos == [300], (
+        "durante la extracción el timeout local debe subir al piso (300s), no "
+        "quedarse en los 15s del failover de chat"
+    )
+    # Y al salir, la bandera queda limpia (no contamina requests de chat).
+    assert not providers._EN_EXTRACCION.get()
+    assert providers._local_timeout() == 15
+
+
+def test_piso_de_extraccion_es_configurable_y_nunca_baja_del_general(monkeypatch):
+    """El piso se puede subir por env; y si el timeout general ya es mayor,
+    manda el mayor (nunca recorta)."""
+    monkeypatch.setenv("LOCAL_LLM_TIMEOUT_SECONDS", "600")  # general alto
+    monkeypatch.setenv("LOCAL_LLM_TIMEOUT_EXTRACCION_SECONDS", "300")
+    tok = providers._EN_EXTRACCION.set(True)
+    try:
+        assert providers._local_timeout() == 600  # el mayor de ambos
+    finally:
+        providers._EN_EXTRACCION.reset(tok)
