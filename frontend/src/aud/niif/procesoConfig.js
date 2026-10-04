@@ -85,33 +85,34 @@ const PLANIFICACION = {
   ],
   // 11 tarjetas de ejecución (paso 3) del mockup aprobado, con subtítulo, ícono y
   // requerimientos relacionados. Sin reproceso (es exclusivo de efectivo).
-  // `seccion`: ancla (#id) de la sección del papel HTML que abre cada botón
-  // (deep-link). Debe coincidir con los ids del HTML: "s-panel" (Tablero) y
-  // "sec-<nombre de cédula>" (ver HOJAS_HTML en planificacion_nia.py y los ids
-  // estables de html_ejecutivo.render).
+  // `seccion`: pestaña (#data-tab) del papel HTML que abre cada botón (deep-link).
+  // El HTML de Planificación lo pinta el MOTOR DEL ARTEFACTO AuditBrain, cuyas
+  // pestañas son: dashboard · perfil · situacion · resultados · analitico ·
+  // ratios · materia · riesgos · notas · control · programa (ver artefacto_html.py
+  // y el manejador de #hash de la plantilla).
   ejecuciones: [
     { clave: "tablero", titulo: "Tablero Ejecutivo", subtitulo: "Resumen general del análisis.",
-      icono: "dashboard", color: "blue", relacionados: "todos", seccion: "s-panel" },
+      icono: "dashboard", color: "blue", relacionados: "todos", seccion: "dashboard" },
     { clave: "perfil", titulo: "Perfil del Encargo", subtitulo: "Información del cliente y del encargo.",
-      icono: "doc", color: "gold", relacionados: ["RQ-005", "RQ-008", "RQ-004"], seccion: "sec-14_Perfil" },
+      icono: "doc", color: "gold", relacionados: ["RQ-005", "RQ-008", "RQ-004"], seccion: "perfil" },
     { clave: "situacion", titulo: "Situación Financiera", subtitulo: "Análisis del estado de situación financiera.",
-      icono: "chart", color: "teal", relacionados: ["RQ-001", "RQ-002"], seccion: "sec-08A_ESF_Detalle" },
+      icono: "chart", color: "teal", relacionados: ["RQ-001", "RQ-002"], seccion: "situacion" },
     { clave: "resultados", titulo: "Estado de Resultados", subtitulo: "Análisis del estado de resultados.",
-      icono: "line", color: "green", relacionados: ["RQ-002", "RQ-003"], seccion: "sec-08B_ERI_Detalle" },
+      icono: "line", color: "green", relacionados: ["RQ-002", "RQ-003"], seccion: "resultados" },
     { clave: "analitico", titulo: "Analítico Preliminar", subtitulo: "Análisis comparativo y variaciones.",
-      icono: "chart", color: "purple", relacionados: ["RQ-001", "RQ-002"], seccion: "sec-08_Horizontal" },
+      icono: "chart", color: "purple", relacionados: ["RQ-001", "RQ-002"], seccion: "analitico" },
     { clave: "indices", titulo: "Índices Financieros", subtitulo: "Cálculo y análisis de indicadores.",
-      icono: "pie", color: "gold", relacionados: ["RQ-001", "RQ-002"], seccion: "sec-10_Indices" },
+      icono: "pie", color: "gold", relacionados: ["RQ-001", "RQ-002"], seccion: "ratios" },
     { clave: "materialidad", titulo: "Materialidad", subtitulo: "Cálculo de materialidad y umbrales.",
-      icono: "calc", color: "blue", relacionados: ["RQ-001", "RQ-002"], seccion: "sec-11_Materialidad" },
+      icono: "calc", color: "blue", relacionados: ["RQ-001", "RQ-002"], seccion: "materia" },
     { clave: "riesgos", titulo: "Matriz de Riesgos", subtitulo: "Identificación y evaluación de riesgos.",
-      icono: "warning", color: "red", relacionados: ["RQ-004", "RQ-005"], seccion: "sec-46_Matriz_Riesgos" },
+      icono: "warning", color: "red", relacionados: ["RQ-004", "RQ-005"], seccion: "riesgos" },
     { clave: "notas", titulo: "Notas a los EEFF", subtitulo: "Revisión y análisis de notas.",
-      icono: "doc", color: "gold", relacionados: ["RQ-006", "RQ-009"], seccion: "sec-15N_Notas_EEFF" },
+      icono: "doc", color: "gold", relacionados: ["RQ-006", "RQ-009"], seccion: "notas" },
     { clave: "control", titulo: "Control & Anomalías", subtitulo: "Evaluación de controles y anomalías.",
-      icono: "gears", color: "purple", relacionados: ["RQ-004"], seccion: "sec-17_Anomalias" },
+      icono: "gears", color: "purple", relacionados: ["RQ-004"], seccion: "control" },
     { clave: "programa", titulo: "Programa", subtitulo: "Programa de auditoría planificación.",
-      icono: "list", color: "blue", relacionados: "todos", seccion: "sec-19_Programa" },
+      icono: "list", color: "blue", relacionados: "todos", seccion: "programa" },
   ],
 };
 

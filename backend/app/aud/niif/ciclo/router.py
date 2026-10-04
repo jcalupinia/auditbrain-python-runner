@@ -439,7 +439,12 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends
     if not p.definicion.get("processor") or not (p.registro.get("run") or {}).get("hojas"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Procese la prueba antes de descargar su papel.")
     try:
-        contenido = getattr(libro, funcion)(*servicio.args_papel(db, p))
+        # Planificación: el HTML sale del MOTOR DEL ARTEFACTO AuditBrain (idéntico al
+        # artefacto de referencia). Los demás formatos y las demás herramientas usan `libro`.
+        if formato == "html" and p.definicion.get("processor") == "planificacion_nia":
+            contenido = servicio.papel_artefacto_html(db, p)
+        else:
+            contenido = getattr(libro, funcion)(*servicio.args_papel(db, p))
     except libro.PDFNoDisponible as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
     return Response(contenido, media_type=mime,
