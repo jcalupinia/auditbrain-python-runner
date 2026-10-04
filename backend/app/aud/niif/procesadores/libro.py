@@ -683,6 +683,19 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     tec = wb.create_sheet(HOJA_ANEXO, pos)
     tec.sheet_properties.tabColor = SECCIONES[3][1]
     _anexo_tecnico(tec, S, anexo, titulo_prueba)
+
+    # Si la definición declara `hojas_visibles` (p. ej. planificación: las pestañas de los
+    # botones), el resto de las cédulas y el anexo técnico viajan OCULTOS (sheet_state=
+    # "hidden"), NUNCA borrados: las fórmulas de las visibles los referencian (mismo criterio
+    # que el ICT, donde ocultar —no borrar— evita romper las referencias con #REF!). 00_Inicio
+    # (Tablero) queda visible y activo. El papel de trabajo NO se protege con contraseña.
+    visibles = definicion.get("hojas_visibles")
+    if visibles:
+        permit = set(visibles)
+        for h, t in zip(hojas, titulos):
+            if h.get("name") not in permit:
+                wb[t].sheet_state = "hidden"
+        tec.sheet_state = "hidden"
     wb.active = 0
     wb.calculation.fullCalcOnLoad = True  # el gráfico y las fórmulas se calculan al abrir
     salida = io.BytesIO()

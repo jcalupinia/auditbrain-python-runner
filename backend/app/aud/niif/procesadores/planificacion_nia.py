@@ -4444,6 +4444,13 @@ HOJAS_HTML = [
     "47_Conocimiento_Negocio",  # Conocimiento del Negocio (agregado)
 ]
 
+# Hojas que se ven como PESTAÑA en el Excel entregable: las mismas de los botones de
+# ejecución (00_Inicio = Tablero + estas 10 cédulas). El resto de las cédulas viaja
+# OCULTO (sheet_state="hidden"), nunca borrado: las fórmulas de las visibles las
+# referencian (mismo criterio que el ICT). `libro.xlsx` lo aplica si la definición trae
+# `hojas_visibles`.
+HOJAS_PESTANA = [h for h in HOJAS_HTML if h != "47_Conocimiento_Negocio"]
+
 
 def definicion() -> dict:
     bc = ("Una fila por cuenta, tal como lo exporta el sistema contable, con TODOS los niveles (sección, grupo, cuenta y "
@@ -4509,6 +4516,8 @@ def definicion() -> dict:
         # pero no estorban la vista ejecutiva). El Tablero es el panel/tableros
         # (siempre visible aparte). Si se quiere mostrar/ocultar otra, editar aquí.
         "hojas_html": HOJAS_HTML,
+        # Pestañas visibles del Excel entregable = las de los botones (el resto va oculto en el libro).
+        "hojas_visibles": HOJAS_PESTANA,
         # A4 (NIA 230): cédulas clave con su preparó y revisó tomados de la bitácora (hoja 00_Firmas del libro).
         "firmas": ["11_Materialidad", "12_Riesgos_CCI", "13_Riesgos_Balance", "19_Programa", "21_Estrategia", enc_m.H24, enc_m.H25,
                    enc_m.H28, enc_m.H32],

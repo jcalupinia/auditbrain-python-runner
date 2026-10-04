@@ -29,6 +29,7 @@ Verificación: `scripts/verificar_artefacto_identico.py`.
 from __future__ import annotations
 
 import base64
+import html as _html
 import json
 import os
 
@@ -123,7 +124,9 @@ def render(files: dict, engagement: dict, parametros: dict, datasets: dict | Non
 
     with open(_TMPL, encoding="utf-8") as fh:
         tmpl = fh.read()
+    titulo = (cfg.get("company") or "Planificación").replace("<", "").replace(">", "")
     html = (tmpl
+            .replace("__AUDITIA_TITLE__", _html.escape(titulo))
             .replace("__AUDITIA_CFG__", json.dumps(cfg, ensure_ascii=False))
             .replace("__AUDITIA_LANSEY__", lansey))
     return html.encode("utf-8")
