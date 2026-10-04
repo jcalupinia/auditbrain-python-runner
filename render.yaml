@@ -308,7 +308,13 @@ services:
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
-    pullRequestPreviewsEnabled: false
+    # Previews por PR ACTIVADOS: cada pull request genera una URL de preview
+    # (auditbrain-frontend-pr-<n>.onrender.com) con la consola corriendo sobre
+    # esa rama, para revisar en vivo ANTES de mergear. No toca producción ni el
+    # dominio propio (consola.audit-ia.ec sigue sirviendo solo main). El preview
+    # apunta al backend de producción (VITE_API_BASE); para revisar cambios de
+    # backend, usar el preview de backend o el archivo que genera la herramienta.
+    pullRequestPreviewsEnabled: true
     autoDeploy: true
     # Dominio propio de la consola principal (Command Center). Para activarlo:
     #   1) En el DNS de audit-ia.ec, apuntar 'consola' con un CNAME a

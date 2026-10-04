@@ -12,12 +12,19 @@ concurrency:
 
 jobs:
   pytest:
-    name: pytest (python 3.12)
+    # La suite completa (~2.900 tests, papeles NIIF de las 20 herramientas y la planificación
+    # NIA en todos los formatos) tardaba ~17-20 min en UN runner. Ahora se reparte en 4 grupos
+    # con pytest-split: cada grupo corre en su PROPIO runner (checkout, base SQLite y /tmp
+    # aislados → sin colisión de estado), con COBERTURA COMPLETA, y el tiempo de pared baja a
+    # ~5 min. El reparto es por conteo (determinista); si algún día se sube un `.test_durations`
+    # al repo, pytest-split lo usa para balancear por tiempo.
+    name: pytest (python 3.12) · grupo ${{ matrix.group }}/4
     runs-on: ubuntu-latest
-    # La suite completa ya tarda ~19-20 min en el runner (2368 tests, papeles NIIF de las
-    # 20 herramientas y la planificación NIA en todos los formatos). Con 20 min se cancelaba
-    # justo al terminar (PR #171: 2368 pasaron en 19:16 y el trabajo se canceló igual).
-    timeout-minutes: 35
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4]
 
     steps:
       - uses: actions/checkout@v4
@@ -38,5 +45,5 @@ jobs:
       - name: Install test deps
         run: pip install -r requirements-dev.txt
 
-      - name: Run pytest
-        run: pytest tests/ -q --tb=short
+      - name: Run pytest (grupo ${{ matrix.group }} de 4)
+        run: pytest tests/ -q --tb=short --splits 4 --group ${{ matrix.group }}
