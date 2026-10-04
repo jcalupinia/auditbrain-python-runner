@@ -622,8 +622,18 @@ a.btn { text-decoration: none; display: inline-block; }
 
 /* Los chips de ChipDocumento heredan las clases pc-chip/.nf-req del sitio; aquí
    solo se asegura que se vean sobre el fondo oscuro de la tarjeta. */
-.nf-ef-card .nf-vista-doc, .nf-ef-soporte-item .nf-vista-doc { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.nf-ef-card .nf-vista-doc, .nf-ef-soporte-item .nf-vista-doc { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%; }
 .nf-ef-card .nf-doc-formatos, .nf-ef-soporte-item .nf-doc-formatos { color: #9db3c9; }
+/* La tarjeta vive en una grilla de 240px y la etiqueta del requerimiento puede
+   ser larga («Carta de control interno (hallazgos) con su calificación»). Sin
+   acotar, el chip crece a su ancho de contenido en UNA línea, desborda la tarjeta
+   y tapa la lista de archivos con su «✕» (no se puede borrar) — el «rectángulo muy
+   largo». Con min-width:0 + max-width:100% el chip se encoge al ancho de la
+   tarjeta y la etiqueta ajusta en varias líneas. */
+.nf-ef-card .nf-vista-doc > .pc-chip.nf-req,
+.nf-ef-soporte-item .nf-vista-doc > .pc-chip.nf-req { min-width: 0; max-width: 100%; }
+.nf-ef-card .nf-req-txt, .nf-ef-soporte-item .nf-req-txt { overflow-wrap: anywhere; }
+.nf-ef-card .nf-doc-archivos, .nf-ef-soporte-item .nf-doc-archivos { max-width: 100%; }
 
 .nf-ef-preparar {
   background: #0A2342; border: 1px dashed rgba(199, 168, 60, 0.4);
