@@ -352,6 +352,13 @@ function ExtraccionArchivo({ prueba, campos, archivo, habilitado, onSubido }) {
             La IA transcribió lo que leyó del documento. <strong>Revise y corrija</strong> cada fila antes de confirmar;
             la IA no decide sola.
           </p>
+          {typeof guardada.segundos === "number" && (
+            <p className="nf-ia-tiempo muted">
+              ⏱️ Extraído en <strong>{guardada.segundos.toFixed(1)} s</strong>
+              {guardada.trozos ? ` · ${guardada.trozos} llamada(s) al modelo` : ""}
+              {guardada.modelo ? ` · modelo ${guardada.modelo}` : ""}
+            </p>
+          )}
           <div className="nf-ia-tabla-wrap">
             <table className="nf-ia-tabla">
               <thead>
