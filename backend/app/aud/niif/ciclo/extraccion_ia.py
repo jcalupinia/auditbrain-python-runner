@@ -43,6 +43,13 @@ log = logging.getLogger(__name__)
 # Recorte del texto que se manda al modelo (los documentos del año anterior son
 # cortos; este tope evita costos/lentitud si alguien sube un PDF gigante por error).
 MAX_CHARS = int(os.getenv("NIIF_EXTRACCION_MAX_CHARS", "60000"))
+# Tamaño de cada TROZO que se le manda al modelo. Los modelos del servidor local
+# (gpt-oss vía LiteLLM) tienen una ventana de contexto chica (~24.576 tokens): un
+# documento largo de una sola vez la excede («Input length … exceeds model's
+# maximum context length») y la extracción falla. Por eso el documento se parte en
+# trozos que entran holgados (input + prompt + salida) y se unen las filas. ~14.000
+# caracteres ≈ 7.000 tokens de entrada, dejando sitio para el razonamiento y el JSON.
+CHARS_POR_LLAMADA = int(os.getenv("NIIF_EXTRACCION_CHARS_POR_LLAMADA", "14000"))
 MAX_RETRIES = int(os.getenv("NIIF_EXTRACCION_MAX_RETRIES", "2"))
 EXTRACCION_ENABLED = os.getenv("NIIF_EXTRACCION_ENABLED", "true").lower() in ("true", "1", "yes")
 
@@ -392,43 +399,82 @@ def extraer_filas(
     enums = enums or {}
     chat = chat or _chat_por_defecto()
     texto = texto[:MAX_CHARS]
-    prompt = _prompt(campos, instrucciones, contexto, enums, texto)
     claves = {c["key"] for c in campos}
     numericos = {c["key"] for c in campos if c.get("type") == "number"}
 
-    error: Optional[Exception] = None
-    for intento in range(MAX_RETRIES):
-        try:
-            resp = chat([{"role": "user", "content": prompt}], system=_SISTEMA)
-            contenido = (getattr(resp, "content", "") or "").strip()
-            # Respuesta vacía del modelo: un modelo de razonamiento (gpt-oss del
-            # servidor local) a veces gasta todo su presupuesto de tokens pensando
-            # y no llega a escribir el JSON; el proveedor devuelve "" o el literal
-            # placeholder. En vez del críptico «Expecting value: line 1 column 1»,
-            # damos un mensaje accionable (se reintenta igual con backoff).
-            if not contenido or contenido == _RESPUESTA_VACIA_PROVEEDOR:
-                raise ExtraccionError(
-                    "El modelo de IA devolvió una respuesta vacía (no transcribió nada). "
-                    "Suele pasar cuando el modelo de razonamiento del servidor local agota "
-                    "su presupuesto de tokens razonando sin llegar a responder. Opciones: "
-                    "reintente; suba AUDITBRAIN_LLM_MAX_TOKENS_EXTRACCION en Render; o cargue "
-                    "la carta como tabla en Excel/CSV con la plantilla del requerimiento."
-                )
-            datos = _json_de_texto(contenido)
-            filas = datos.get("filas") if isinstance(datos, dict) else datos
-            if not isinstance(filas, list):
-                raise ExtraccionError("La IA no devolvió una lista de filas.")
-            rows = [_normalizar_fila(f, claves, numericos, i) for i, f in enumerate(filas, start=1)
-                    if isinstance(f, dict)]
-            return {"rows": rows, "modelo": getattr(resp, "model", "") or "", "n": len(rows)}
-        except ExtraccionNoDisponible:
-            raise
-        except Exception as e:  # reintento con backoff exponencial 1s/2s/...
-            error = e
-            log.warning("Extracción IA falló (intento %d/%d): %s", intento + 1, MAX_RETRIES, e)
-            if intento < MAX_RETRIES - 1:
-                time.sleep(2 ** intento)
-    raise ExtraccionError(f"No se pudo extraer la información con la IA: {error}")
+    # Documento largo → se parte en trozos que entran en la ventana de contexto del
+    # modelo local y se unen las filas de todos (un documento corto = un solo trozo).
+    trozos = _trozos(texto, CHARS_POR_LLAMADA)
+    todas: list[dict] = []
+    modelo = ""
+    fallos: list[str] = []
+    for ti, trozo in enumerate(trozos, start=1):
+        prompt = _prompt(campos, instrucciones, contexto, enums, trozo)
+        error: Optional[Exception] = None
+        for intento in range(MAX_RETRIES):
+            try:
+                resp = chat([{"role": "user", "content": prompt}], system=_SISTEMA)
+                contenido = (getattr(resp, "content", "") or "").strip()
+                # Respuesta vacía del modelo: un modelo de razonamiento (gpt-oss del
+                # servidor local) a veces gasta todo su presupuesto de tokens pensando
+                # y no llega a escribir el JSON; el proveedor devuelve "" o el literal
+                # placeholder. En vez del críptico «Expecting value: line 1 column 1»,
+                # damos un mensaje accionable (se reintenta igual con backoff).
+                if not contenido or contenido == _RESPUESTA_VACIA_PROVEEDOR:
+                    raise ExtraccionError(
+                        "El modelo de IA devolvió una respuesta vacía (no transcribió nada). "
+                        "Suele pasar cuando el modelo de razonamiento del servidor local agota "
+                        "su presupuesto de tokens razonando sin llegar a responder. Opciones: "
+                        "reintente; suba AUDITBRAIN_LLM_MAX_TOKENS_EXTRACCION en Render; o cargue "
+                        "el documento como tabla en Excel/CSV con la plantilla del requerimiento."
+                    )
+                datos = _json_de_texto(contenido)
+                filas = datos.get("filas") if isinstance(datos, dict) else datos
+                if not isinstance(filas, list):
+                    raise ExtraccionError("La IA no devolvió una lista de filas.")
+                todas.extend(f for f in filas if isinstance(f, dict))
+                modelo = getattr(resp, "model", "") or modelo
+                error = None
+                break
+            except ExtraccionNoDisponible:
+                raise
+            except Exception as e:  # reintento con backoff exponencial 1s/2s/...
+                error = e
+                etq = f" (trozo {ti}/{len(trozos)})" if len(trozos) > 1 else ""
+                log.warning("Extracción IA falló%s (intento %d/%d): %s", etq, intento + 1, MAX_RETRIES, e)
+                if intento < MAX_RETRIES - 1:
+                    time.sleep(2 ** intento)
+        if error is not None:
+            fallos.append(f"trozo {ti}/{len(trozos)}: {error}")
+    # Si ningún trozo entregó filas, se propaga el error; si al menos uno funcionó,
+    # se devuelven las filas obtenidas (un trozo caído no pierde toda la extracción).
+    if not todas and fallos:
+        raise ExtraccionError("No se pudo extraer la información con la IA: " + "; ".join(fallos))
+    rows = [_normalizar_fila(f, claves, numericos, i) for i, f in enumerate(todas, start=1)]
+    return {"rows": rows, "modelo": modelo or "", "n": len(rows)}
+
+
+def _trozos(texto: str, limite: int) -> list[str]:
+    """Parte ``texto`` en trozos de a lo sumo ``limite`` caracteres, cortando en los
+    saltos de línea para no partir una fila por la mitad. Un texto corto devuelve un
+    único trozo (comportamiento idéntico al de antes de trocear)."""
+    if len(texto) <= limite:
+        return [texto]
+    trozos: list[str] = []
+    actual: list[str] = []
+    n = 0
+    for linea in texto.split("\n"):
+        # Una línea más larga que el límite se parte en crudo.
+        while len(linea) > limite:
+            if actual:
+                trozos.append("\n".join(actual)); actual, n = [], 0
+            trozos.append(linea[:limite]); linea = linea[limite:]
+        if actual and n + len(linea) + 1 > limite:
+            trozos.append("\n".join(actual)); actual, n = [], 0
+        actual.append(linea); n += len(linea) + 1
+    if actual:
+        trozos.append("\n".join(actual))
+    return [t for t in trozos if t.strip()]
 
 
 def _normalizar_fila(fila: dict, claves: set, numericos: set, n: int) -> dict:
