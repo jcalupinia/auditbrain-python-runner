@@ -52,7 +52,7 @@ def _oscuro(bg, card, card2, borde, texto, texto2, muted):
 
 
 TEMAS = {
-    "ejecutivo": ("Ejecutivo", _oscuro("#071B2F", "#0A2342", "#0E2C50", "#1B3A60", "#EAF1FB", "#A6BBD6", "#6F87A6")),
+    "ejecutivo": ("Firma", _oscuro("#071B2F", "#0A2342", "#0E2C50", "#1B3A60", "#EAF1FB", "#A6BBD6", "#6F87A6")),
     "medianoche": ("Medianoche", _oscuro("#04060A", "#0D1320", "#121A2A", "#1E2838", "#E8EDF4", "#8B97A8", "#5A6575")),
     "esmeralda": ("Esmeralda", _oscuro("#03201A", "#0A342B", "#0E4034", "#1A5546", "#E6F4EF", "#9CC9B8", "#6F9C8C")),
     "grafito": ("Grafito", _oscuro("#1B1F24", "#252A31", "#2D333B", "#3A424D", "#ECEFF3", "#ABB4C0", "#79828F")),
@@ -418,6 +418,10 @@ function muestra(id){document.querySelectorAll('.seccion').forEach(function(s){s
   tabs.forEach(function(t){var on=t.getAttribute('data-s')===id;t.classList.toggle('on',on);t.setAttribute('aria-selected',on?'true':'false');});
   window.scrollTo(0,0);}
 tabs.forEach(function(t){t.addEventListener('click',function(){muestra(t.getAttribute('data-s'));});});
+// Deep-link: si la URL trae #sec-<cedula> (al abrir desde la app en una sección
+// concreta), mostrar esa sección; y seguir el hash si cambia.
+function _hash(){var h=(location.hash||'').slice(1);if(h&&document.getElementById(h))muestra(h);}
+window.addEventListener('hashchange',_hash);_hash();
 function imprime(una){if(una){b.classList.add('imprime-una');document.querySelectorAll('.seccion').forEach(function(s){s.classList.toggle('imprimir',s.id===una)});}
   window.print();}
 window.addEventListener('afterprint',function(){b.classList.remove('imprime-una');});
@@ -540,7 +544,11 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
     else:
         hojas_tab = hojas
     for i, h in enumerate(hojas_tab):
-        sid = f"s-{i}"
+        # ID ESTABLE por cédula (no posicional): permite deep-link desde la app
+        # (abrir el HTML directo en «Materialidad», «Matriz de Riesgos», etc. con
+        # #sec-<name>). Si el nombre tuviera algo raro, cae al posicional.
+        nombre_id = "".join(ch for ch in str(h.get("name", "")) if ch.isalnum() or ch in "_-")
+        sid = f"sec-{nombre_id}" if nombre_id else f"s-{i}"
         cuerpo = (f'<div class="cedula-cab"><h2>{E(h["label"])}</h2>{boton_pdf(sid)}</div>'
                   f'<div class="panel">{_guia(h)}{_calc(como_se_calcula(h, hojas), para_pdf)}{_tabla(h, celda)}</div>')
         secciones.append((sid, h["label"], cuerpo))

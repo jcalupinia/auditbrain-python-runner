@@ -815,6 +815,17 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         cuentas.append({"codigo": c, "cuenta": nombres[c], "nivel": est[c]["nivel"], "detalle": est[c]["detalle"], "clas": clas,
                         "sec": sec, "ant": ant, "act": s_act, "rubro": _rubro_eri(c, nombres[c], sec),
                         "rind": _rubro_indice(nombres[c], sec)})
+    # No listar cuentas en cero en TODOS los períodos comparados (decisión del dueño, 2026-10-04): se conservan las
+    # que tienen saldo en algún período (anterior o corte) y los ancestros de las conservadas. Omitir una cuenta con
+    # valor en un período —o un padre de su jerarquía— rompería la comparación y la cuadratura con el otro período.
+    # Quitar una cuenta en cero en todos los períodos no altera ningún total (aporta 0) ni el cuadre (sale de `fuentes`).
+    _tol = 0.005
+    _keep = {x["codigo"] for x in cuentas if abs(x["ant"]) >= _tol or abs(x["act"]) >= _tol}
+    _ancestros = {y["codigo"] for x in cuentas if x["codigo"] in _keep
+                  for y in cuentas if y["codigo"] != x["codigo"] and _debajo(x["codigo"], y["codigo"])}
+    _keep |= _ancestros
+    cuentas = [x for x in cuentas if x["codigo"] in _keep]
+
     for x in cuentas:
         x["pind"] = "" if not x["rind"] else _superior(x, cuentas, "rind")
         x["supsec"], x["supclas"] = _superior(x, cuentas, "sec"), _superior(x, cuentas, "clas")

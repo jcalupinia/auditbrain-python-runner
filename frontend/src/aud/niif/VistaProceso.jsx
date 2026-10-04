@@ -326,27 +326,36 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   // descargas de Excel/Word/PowerPoint) en una PESTAÑA NUEVA, al frente —no tablas
   // abajo—. La ventana se abre sincrónicamente dentro del clic (si se abre tras el
   // await, el bloqueador de pop-ups la corta) y luego se le carga el HTML ya armado.
-  async function abrirTableroHTML() {
+  async function abrirTableroHTML(seccion) {
+    // La ventana se abre SINCRÓNICA dentro del clic (si se abre tras el await, el
+    // bloqueador de pop-ups la corta). Si el navegador la bloqueó, avisamos.
     const win = window.open("", "_blank");
-    if (win) win.document.write("<!doctype html><title>Generando…</title><body style='font-family:sans-serif;padding:2rem'>Generando el tablero…</body>");
+    if (!win) {
+      setError("El navegador bloqueó la ventana nueva. Habilitá las ventanas emergentes (pop-ups) para este sitio y volvé a intentar.");
+      return;
+    }
+    win.document.write("<!doctype html><title>Generando…</title><body style='font-family:sans-serif;padding:2rem'>Generando el tablero…</body>");
     try {
       const bytes = await api.cicloBajarLibro(prueba.id, "html");
       const url = URL.createObjectURL(new Blob([bytes], { type: "text/html;charset=utf-8" }));
-      if (win) win.location = url; else window.open(url, "_blank");
+      // Deep-link: abre el HTML directo en la sección del botón (#sec-…).
+      win.location = seccion ? `${url}#${seccion}` : url;
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
-      if (win) win.close();
+      win.close();
       setError(e.message || String(e));
     }
   }
 
   // Al aplastar una tarjeta de ejecución:
-  // - Prueba con procesador (Planificación, etc.): abre el HTML del papel al frente.
+  // - Planificación (procesador planificacion_nia): abre el papel HTML al frente,
+  //   directo en la sección del botón. Solo esta herramienta: las demás conservan
+  //   su vista de trabajo detallada (con sus chips de descarga).
   // - Efectivo (reproceso) y declarativas: la vista de trabajo detallada de siempre.
   async function abrirEjecucion(item) {
     if (!procesada) return;
-    if (config.processor && !item.reproceso) {
-      await abrirTableroHTML();
+    if (config.processor === "planificacion_nia" && !item.reproceso) {
+      await abrirTableroHTML(item.seccion);
       return;
     }
     setVerDetalle(true);

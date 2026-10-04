@@ -85,29 +85,33 @@ const PLANIFICACION = {
   ],
   // 11 tarjetas de ejecución (paso 3) del mockup aprobado, con subtítulo, ícono y
   // requerimientos relacionados. Sin reproceso (es exclusivo de efectivo).
+  // `seccion`: ancla (#id) de la sección del papel HTML que abre cada botón
+  // (deep-link). Debe coincidir con los ids del HTML: "s-panel" (Tablero) y
+  // "sec-<nombre de cédula>" (ver HOJAS_HTML en planificacion_nia.py y los ids
+  // estables de html_ejecutivo.render).
   ejecuciones: [
     { clave: "tablero", titulo: "Tablero Ejecutivo", subtitulo: "Resumen general del análisis.",
-      icono: "dashboard", color: "blue", relacionados: "todos" },
+      icono: "dashboard", color: "blue", relacionados: "todos", seccion: "s-panel" },
     { clave: "perfil", titulo: "Perfil del Encargo", subtitulo: "Información del cliente y del encargo.",
-      icono: "doc", color: "gold", relacionados: ["RQ-005", "RQ-008", "RQ-004"] },
+      icono: "doc", color: "gold", relacionados: ["RQ-005", "RQ-008", "RQ-004"], seccion: "sec-14_Perfil" },
     { clave: "situacion", titulo: "Situación Financiera", subtitulo: "Análisis del estado de situación financiera.",
-      icono: "chart", color: "teal", relacionados: ["RQ-001", "RQ-002"] },
+      icono: "chart", color: "teal", relacionados: ["RQ-001", "RQ-002"], seccion: "sec-08A_ESF_Detalle" },
     { clave: "resultados", titulo: "Estado de Resultados", subtitulo: "Análisis del estado de resultados.",
-      icono: "line", color: "green", relacionados: ["RQ-002", "RQ-003"] },
+      icono: "line", color: "green", relacionados: ["RQ-002", "RQ-003"], seccion: "sec-08B_ERI_Detalle" },
     { clave: "analitico", titulo: "Analítico Preliminar", subtitulo: "Análisis comparativo y variaciones.",
-      icono: "chart", color: "purple", relacionados: ["RQ-001", "RQ-002"] },
+      icono: "chart", color: "purple", relacionados: ["RQ-001", "RQ-002"], seccion: "sec-08_Horizontal" },
     { clave: "indices", titulo: "Índices Financieros", subtitulo: "Cálculo y análisis de indicadores.",
-      icono: "pie", color: "gold", relacionados: ["RQ-001", "RQ-002"] },
+      icono: "pie", color: "gold", relacionados: ["RQ-001", "RQ-002"], seccion: "sec-10_Indices" },
     { clave: "materialidad", titulo: "Materialidad", subtitulo: "Cálculo de materialidad y umbrales.",
-      icono: "calc", color: "blue", relacionados: ["RQ-001", "RQ-002"] },
+      icono: "calc", color: "blue", relacionados: ["RQ-001", "RQ-002"], seccion: "sec-11_Materialidad" },
     { clave: "riesgos", titulo: "Matriz de Riesgos", subtitulo: "Identificación y evaluación de riesgos.",
-      icono: "warning", color: "red", relacionados: ["RQ-004", "RQ-005"] },
+      icono: "warning", color: "red", relacionados: ["RQ-004", "RQ-005"], seccion: "sec-46_Matriz_Riesgos" },
     { clave: "notas", titulo: "Notas a los EEFF", subtitulo: "Revisión y análisis de notas.",
-      icono: "doc", color: "gold", relacionados: ["RQ-006", "RQ-009"] },
+      icono: "doc", color: "gold", relacionados: ["RQ-006", "RQ-009"], seccion: "sec-15N_Notas_EEFF" },
     { clave: "control", titulo: "Control & Anomalías", subtitulo: "Evaluación de controles y anomalías.",
-      icono: "gears", color: "purple", relacionados: ["RQ-004"] },
+      icono: "gears", color: "purple", relacionados: ["RQ-004"], seccion: "sec-17_Anomalias" },
     { clave: "programa", titulo: "Programa", subtitulo: "Programa de auditoría planificación.",
-      icono: "list", color: "blue", relacionados: "todos" },
+      icono: "list", color: "blue", relacionados: "todos", seccion: "sec-19_Programa" },
   ],
 };
 

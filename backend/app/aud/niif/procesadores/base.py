@@ -31,7 +31,10 @@ def validar_campos(campos: list, filas: list, unico: str | None = "id") -> dict:
     for f in filas:
         fila = f.get("_row")
         for c in campos:
-            v = str(f.get(c["key"], "") or "").strip()
+            # Un 0 numérico es un valor PRESENTE, no un campo vacío: ``0 or ""`` lo colapsaba a "" y marcaba
+            # «Falta …» en saldos legítimamente en cero (decisión del dueño, 2026-10-04). Solo None/ausente es vacío.
+            raw = f.get(c["key"], "")
+            v = "" if raw is None else str(raw).strip()
             if c.get("required") and not v:
                 errores.append({"row": fila, "field": c["key"], "message": f"Falta {c['label']}."})
             elif v and c["type"] == "number" and a_num(v) is None:
