@@ -226,6 +226,25 @@ def test_anexos_obligatorios_y_validaciones():
     assert m._cod("1101.0") == "1101" and m._cod(" 1.1.01 ") == "1.1.01"
 
 
+def test_carta_sin_codigo_se_autonumera():
+    """La carta del cliente no siempre numera sus hallazgos: el «Código del hallazgo» ya no es obligatorio
+    y se autonumera (H-01, H-02…) sin bloquear la validación, respetando los códigos que el documento sí trae."""
+    # Todas las filas sin código: pasan la validación y reciben H-01, H-02 (regla «cero invención»: la IA no
+    # inventa el código, lo pone la plataforma).
+    filas = [{"proceso": "Cuentas por cobrar", "hallazgo": "Sin conciliar", "_row": 1},
+             {"proceso": "Inventario", "hallazgo": "Sin toma física", "_row": 2}]
+    v = m.validar_filas("carta_control_interno", filas)
+    assert v["ok"], v["errors"]
+    assert [f["id"] for f in filas] == ["H-01", "H-02"]
+    # Mezcla: respeta el código que trae el documento y numera solo los que faltan, sin colisión con "H-01".
+    mix = [{"id": "R01", "proceso": "a", "hallazgo": "x", "_row": 1},
+           {"proceso": "b", "hallazgo": "y", "_row": 2},
+           {"id": "H-01", "proceso": "c", "hallazgo": "z", "_row": 3}]
+    assert m.validar_filas("carta_control_interno", mix)["ok"]
+    ids = [f["id"] for f in mix]
+    assert ids[0] == "R01" and ids[2] == "H-01" and ids[1] == "H-02"
+
+
 def test_hojas_con_las_cedulas_y_el_ancho_de_columnas():
     r = _run()
     hs = m.hojas(r)

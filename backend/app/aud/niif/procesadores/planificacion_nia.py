@@ -178,7 +178,10 @@ _BAL_ACT = _balance("saldo_actual", "Saldo al corte",
 _ERI_ANT = _balance("saldo_eri", "Saldo al mismo corte del año anterior",
                     ("saldo", "saldo final", "saldo al mismo corte", "saldo año anterior", "saldo ano anterior"), "-2980000.00")
 _CARTA = [
-    campo("id", "Código del hallazgo", alias=("codigo", "código", "id", "n°", "no", "numero", "número", "ref"), ejemplo="R01"),
+    # Opcional: la carta del cliente no siempre numera sus hallazgos (regla «cero invención»: la IA no
+    # inventa un código que el documento no trae). Si llega sin código, ``_autonumerar_carta`` le asigna
+    # uno correlativo (H-01, H-02…) para amarrarlo a la matriz de riesgos y a su procedimiento del programa.
+    campo("id", "Código del hallazgo", requerido=False, alias=("codigo", "código", "id", "n°", "no", "numero", "número", "ref"), ejemplo="R01"),
     campo("proceso", "Proceso o área", alias=("proceso", "area", "área", "ciclo", "rubro"), ejemplo="Inventarios"),
     campo("hallazgo", "Hallazgo o riesgo", alias=("hallazgo", "riesgo", "condicion", "condición", "descripcion", "descripción",
                                                   "observacion", "observación"),
@@ -421,7 +424,31 @@ def _opinion_modificada(detalle) -> str | None:
     return None
 
 
+def _autonumerar_carta(filas: list) -> None:
+    """Asigna un «Código del hallazgo» correlativo (H-01, H-02…) a las filas de la carta de control
+    interno que llegan SIN código. La carta del cliente no siempre numera sus hallazgos y la regla de
+    «cero invención» impide que la IA invente un código que el documento no trae; pero cada hallazgo
+    necesita un identificador estable para amarrarse a la matriz de riesgos (hojas 12/46) y a su
+    procedimiento del programa (hoja 19). Respeta los códigos que el documento sí trae (p. ej. R01) y
+    evita colisiones. Muta ``filas`` in situ: como es el mismo objeto que luego se guarda y consume,
+    el código aparece tanto en la vista previa de la extracción como en el papel de trabajo final."""
+    usados = {str(f.get("id") or "").strip().lower() for f in filas if str(f.get("id") or "").strip()}
+    k = 0
+    for f in filas:
+        if str(f.get("id") or "").strip():
+            continue
+        k += 1
+        cod = f"H-{k:02d}"
+        while cod.lower() in usados:   # no chocar con un R01/H-01 que ya venga en el documento
+            k += 1
+            cod = f"H-{k:02d}"
+        f["id"] = cod
+        usados.add(cod.lower())
+
+
 def validar_filas(tipo: str, filas: list) -> dict:
+    if tipo == "carta_control_interno":
+        _autonumerar_carta(filas)
     unico = {"carta_control_interno": "id", "notas_estados_financieros": "nota"}.get(tipo)
     out = validar_campos(CAMPOS[tipo], filas, unico=unico)
     if tipo in ("balance_anterior", "balance_actual", "resultados_mismo_corte"):
