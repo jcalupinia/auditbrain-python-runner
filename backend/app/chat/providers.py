@@ -8,6 +8,7 @@ de inventar respuestas.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -16,6 +17,23 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+
+
+# --- Modo EXTRACCIÓN (lectura de documentos por IA) ------------------------
+# La extracción de la carta/informe/notas (RQ-004/005/006) y la planificación
+# le piden al modelo local un JSON grande a partir de un documento largo. Eso
+# tarda MUCHO más que un turno de chat, y el modelo de razonamiento (gpt-oss)
+# gasta decenas de segundos "pensando" antes del primer token. Si el operador
+# bajó LOCAL_LLM_TIMEOUT_SECONDS para que el CHAT haga failover rápido a la
+# nube, ese mismo recorte NO debe estrangular la extracción: el servidor local
+# es justo el que queremos usar (gratis + privado) para leer los documentos.
+#
+# Esta bandera (contextvar, segura entre requests) la activa
+# `completar_para_extraccion` mientras dura la llamada; `_local_timeout()` la
+# lee para devolver un timeout amplio propio de extracción.
+_EN_EXTRACCION: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "auditbrain_en_extraccion", default=False
+)
 
 
 # --- Forzar IPv4 en la resolución de nombres (stdlib) ----------------------
@@ -177,10 +195,24 @@ def _local_timeout() -> int:
     # cadena caía a la nube sin saldo. 180s da margen a que el local complete.
     # Ajustable por env var LOCAL_LLM_TIMEOUT_SECONDS (bajarlo si se quiere un
     # failover más rápido en el chat interactivo).
+    #
+    # EXTRACCIÓN: si estamos leyendo un documento por IA (bandera _EN_EXTRACCION),
+    # se aplica un PISO amplio propio para que un operador que bajó el timeout del
+    # CHAT (failover veloz a la nube) NO estrangule la lectura del documento en el
+    # servidor local — que es justo el proveedor gratis/privado que queremos usar.
+    # El piso es configurable con LOCAL_LLM_TIMEOUT_EXTRACCION_SECONDS (default
+    # 300s); nunca queda por debajo del timeout general.
     try:
-        return int(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", "180"))
+        base = int(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", "180"))
     except ValueError:
-        return 180
+        base = 180
+    if _EN_EXTRACCION.get():
+        try:
+            piso = int(os.getenv("LOCAL_LLM_TIMEOUT_EXTRACCION_SECONDS", "300"))
+        except ValueError:
+            piso = 300
+        return max(base, piso)
+    return base
 
 
 def _max_tokens() -> int:
@@ -411,24 +443,32 @@ def completar_para_extraccion(messages, system=None) -> LLMResponse:
 
     Si el streaming no está disponible (primario no streameable, o falla antes de
     emitir), cae al ``chat_complete`` no-streaming (también con ``temperature=0``),
-    que recorre toda la cadena de failover."""
+    que recorre toda la cadena de failover.
+
+    Durante toda la llamada se activa ``_EN_EXTRACCION`` para que el proveedor
+    local reciba su timeout amplio de extracción (ver ``_local_timeout``): un
+    documento largo tarda y no debe cortarse aunque el chat use failover veloz."""
+    _tok = _EN_EXTRACCION.set(True)
     try:
-        partes: list[str] = []
-        modelo = ""
-        for delta in stream_chat_complete(messages, system, temperature=0):
-            tipo = delta.get("type")
-            if tipo == "token":
-                partes.append(delta.get("text", ""))
-            elif tipo == "done":
-                modelo = delta.get("model") or modelo
-        texto = "".join(partes).strip()
-        if texto:
-            return LLMResponse(content=texto, model=modelo or "local", tokens_in=None, tokens_out=None)
-        # Stream vacío (p. ej. solo reasoning sin content): se reintenta no-stream.
-    except ProviderUnavailable:
-        # Primario no streameable o fallo antes/durante el stream → no-stream.
-        pass
-    return chat_complete(messages, system, temperature=0)
+        try:
+            partes: list[str] = []
+            modelo = ""
+            for delta in stream_chat_complete(messages, system, temperature=0):
+                tipo = delta.get("type")
+                if tipo == "token":
+                    partes.append(delta.get("text", ""))
+                elif tipo == "done":
+                    modelo = delta.get("model") or modelo
+            texto = "".join(partes).strip()
+            if texto:
+                return LLMResponse(content=texto, model=modelo or "local", tokens_in=None, tokens_out=None)
+            # Stream vacío (p. ej. solo reasoning sin content): se reintenta no-stream.
+        except ProviderUnavailable:
+            # Primario no streameable o fallo antes/durante el stream → no-stream.
+            pass
+        return chat_complete(messages, system, temperature=0)
+    finally:
+        _EN_EXTRACCION.reset(_tok)
 
 
 def _http_post(url: str, headers: dict[str, str], payload: dict, timeout: int = 60) -> dict:
