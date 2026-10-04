@@ -390,7 +390,9 @@ def extraer_filas(
     """Extrae filas estructuradas del ``texto`` según los ``campos`` del procesador,
     usando el servidor de IA local primero (cadena de proveedores compartida).
 
-    Devuelve ``{"rows": [...], "modelo": str, "n": int}``. Cada fila es un dict con
+    Devuelve ``{"rows": [...], "modelo": str, "n": int, "segundos": float, "trozos": int}``
+    (``segundos`` = tiempo real de las llamadas al proveedor de IA; ``trozos`` = número de
+    llamadas en que se partió el documento). Cada fila es un dict con
     las mismas claves que produciría la transcripción en Excel (más ``_row``,
     el número de fila 1-based que usa la validación). Levanta
     :class:`ExtraccionNoDisponible` si la IA no está disponible, o
@@ -405,6 +407,7 @@ def extraer_filas(
     # Documento largo → se parte en trozos que entran en la ventana de contexto del
     # modelo local y se unen las filas de todos (un documento corto = un solo trozo).
     trozos = _trozos(texto, CHARS_POR_LLAMADA)
+    t0 = time.perf_counter()   # tiempo real de la IA (llamadas al proveedor), para medir en producción
     todas: list[dict] = []
     modelo = ""
     fallos: list[str] = []
@@ -451,7 +454,9 @@ def extraer_filas(
     if not todas and fallos:
         raise ExtraccionError("No se pudo extraer la información con la IA: " + "; ".join(fallos))
     rows = [_normalizar_fila(f, claves, numericos, i) for i, f in enumerate(todas, start=1)]
-    return {"rows": rows, "modelo": modelo or "", "n": len(rows)}
+    segundos = round(time.perf_counter() - t0, 1)
+    log.info("Extracción IA: %d fila(s) de %d trozo(s) con el modelo «%s» en %.1fs.", len(rows), len(trozos), modelo or "?", segundos)
+    return {"rows": rows, "modelo": modelo or "", "n": len(rows), "segundos": segundos, "trozos": len(trozos)}
 
 
 def _trozos(texto: str, limite: int) -> list[str]:

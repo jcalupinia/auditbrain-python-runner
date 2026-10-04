@@ -195,8 +195,10 @@ def _auto_extraer_ia(db: Session, p: Prueba, reg: dict, proc, ya_mapeados: set =
         v = proc.validar_filas(proc.kind(ds), res["rows"])
         extraccion[str(a.id)] = {"dataset": ds, "requestId": a.requerimiento, "file": a.nombre, "rows": res["rows"],
                                  "modelo": res["modelo"], "validation": v, "auto": True, "revisado": False,
-                                 "at": _ahora_iso()}
-        avisos.append(f"{a.requerimiento} · {len(res['rows'])} fila(s) extraídas por IA de «{a.nombre}» al procesar; "
+                                 "segundos": res.get("segundos"), "trozos": res.get("trozos"), "at": _ahora_iso()}
+        seg = res.get("segundos")
+        t_txt = f" en {seg:.1f}s ({res.get('trozos')} llamada(s) al modelo)" if seg is not None else ""
+        avisos.append(f"{a.requerimiento} · {len(res['rows'])} fila(s) extraídas por IA de «{a.nombre}»{t_txt} al procesar; "
                       "revíselas (la IA solo transcribe lo que leyó).")
     reg["extraccion"] = extraccion
     return avisos
@@ -916,6 +918,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             except extraccion_ia.ExtraccionError as e:
                 raise ReglaIncumplida(str(e))
             rows, modelo = res["rows"], res["modelo"]
+            segundos, trozos = res.get("segundos"), res.get("trozos")
         else:  # guardar_extraccion: la tabla que el auditor revisó y editó
             crudas = datos.get("rows")
             if not isinstance(crudas, list) or len(crudas) > datos_mod.MAX_ROWS:
@@ -923,13 +926,16 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             claves = [c["key"] for c in campos]
             rows = [{**{k: (f.get(k) if isinstance(f, dict) else "") for k in claves}, "_row": i}
                     for i, f in enumerate(crudas, start=1)]
-            modelo = (extraccion.get(str(a.id)) or {}).get("modelo", "")
+            prev = extraccion.get(str(a.id)) or {}
+            modelo = prev.get("modelo", "")
+            segundos, trozos = prev.get("segundos"), prev.get("trozos")   # conserva el tiempo de la extracción al confirmar
         v = proc.validar_filas(proc.kind(ds), rows)
         extraccion[str(a.id)] = {"dataset": ds, "requestId": a.requerimiento, "file": a.nombre, "rows": rows,
-                                 "modelo": modelo, "validation": v, "at": _ahora_iso()}
+                                 "modelo": modelo, "validation": v, "segundos": segundos, "trozos": trozos, "at": _ahora_iso()}
         reg["extraccion"] = extraccion
+        t_txt = f" en {segundos:.1f}s ({trozos} llamada(s) al modelo)" if accion == "extraer_ia" and segundos is not None else ""
         datos = {**datos, "comment": f"{a.requerimiento}: {len(rows)} fila(s) "
-                 + ("extraídas por IA de " if accion == "extraer_ia" else "confirmadas de ") + a.nombre
+                 + ("extraídas por IA de " if accion == "extraer_ia" else "confirmadas de ") + a.nombre + t_txt
                  + ("" if v["ok"] else " (revisar avisos de validación)")}
 
     else:

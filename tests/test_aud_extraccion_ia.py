@@ -189,6 +189,20 @@ def test_extraer_carta_produce_filas_validas():
     assert v["ok"], v["errors"]
 
 
+def test_extraer_reporta_segundos_y_trozos():
+    """La extracción mide el tiempo real de la IA y el número de llamadas al modelo,
+    para que el aviso y el log de producción muestren cuánto tardó cada documento."""
+    out = ex.extraer_filas(m.CAMPOS["carta_control_interno"], "texto de la carta",
+                           chat=_ChatFalso([{"id": "R01", "proceso": "X", "hallazgo": "Y"}]))
+    assert isinstance(out["segundos"], float) and out["segundos"] >= 0
+    assert out["trozos"] == 1          # documento corto = una sola llamada
+    # Documento largo → varios trozos = varias llamadas al modelo (medidas por separado).
+    largo = "\n".join(f"linea {i} con texto de relleno para superar el tope por llamada" for i in range(1, 1200))
+    out2 = ex.extraer_filas(m.CAMPOS["carta_control_interno"], largo,
+                            chat=_ChatFalso([{"id": "R01", "proceso": "X", "hallazgo": "Y"}]))
+    assert out2["trozos"] >= 2
+
+
 def test_extraer_informe_incluye_enums_en_el_prompt():
     filas = [
         {"concepto": "Jubilación patronal", "tipo": "Salvedad",
