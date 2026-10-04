@@ -82,7 +82,9 @@ def _regla(fn):
     except ReglaIncumplida as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     except servicio.Conflicto as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(e))
+        # Algunos conflictos llevan detalle estructurado (p. ej. PRUEBA_ABIERTA_EXISTE,
+        # con el id de la prueba a MODIFICAR) para que el frontend ofrezca la acción.
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=getattr(e, "detalle", None) or str(e))
 
 
 @router.get("/proyectos/{project_id}/ficha")
@@ -447,6 +449,7 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends
             contenido = getattr(libro, funcion)(*servicio.args_papel(db, p))
     except libro.PDFNoDisponible as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    servicio.marcar_descargada(db, p)  # retención: el servidor es lugar de paso; se borra tras la descarga (gracia) y a las 8 h
     return Response(contenido, media_type=mime,
                     headers={"Content-Disposition": f'attachment; filename="Papel_v{p.version}.{ext}"'})
 

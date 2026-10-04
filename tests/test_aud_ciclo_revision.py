@@ -218,9 +218,10 @@ def test_editar_la_ficha_con_alcance(client):
     tok, a = _validada(client)
     pid = a["project_id"]
     # Las pruebas creadas con la ficha compartida («all») reciben los cambios de alcance «todas».
+    # `a` ya es una VNR; la segunda prueba debe ser de OTRA herramienta (PCE): no se permite
+    # crear dos pruebas abiertas de la misma herramienta en el mismo ejercicio (control de duplicados).
     assert client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok), json={**FICHA, "reuseScope": "all"}).status_code == 200
-    b = client.post(f"{BASE}/proyectos/{pid}/pruebas", headers=_h(tok), json={"origen": "vnr"}).json()
-    c = client.post(f"{BASE}/proyectos/{pid}/pruebas", headers=_h(tok), json={"origen": "pce"}).json()
+    b = client.post(f"{BASE}/proyectos/{pid}/pruebas", headers=_h(tok), json={"origen": "pce"}).json()
     nueva = {**FICHA, "preparer": "Carla Nueva", "reuseScope": "one"}
 
     # Solo esta: vuelve a empezar; las demás no cambian.
@@ -236,9 +237,9 @@ def test_editar_la_ficha_con_alcance(client):
     assert r.status_code == 400 and "esta prueba y las adicionales" in r.json()["detail"]
     r = _accion(client, tok, a, "edit_context", {"context": nueva, "scope": "selected", "toolIds": [a["id"], 999999]})
     assert r.status_code == 400 and "de este encargo" in r.json()["detail"]
-    # Una PCE no admite PYMES.
+    # Una PCE no admite PYMES (b es la prueba PCE).
     pymes = {**nueva, "framework": "NIIF para las PYMES"}
-    r = _accion(client, tok, a, "edit_context", {"context": pymes, "scope": "selected", "toolIds": [a["id"], c["id"]]})
+    r = _accion(client, tok, a, "edit_context", {"context": pymes, "scope": "selected", "toolIds": [a["id"], b["id"]]})
     assert r.status_code == 400 and "PCE" in r.json()["detail"]
 
     # Todas: incluye las que no tienen ficha propia y actualiza la ficha del proyecto.

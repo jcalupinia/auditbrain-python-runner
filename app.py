@@ -732,6 +732,48 @@ try:
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await task
 
+    #: Retención de pruebas del ciclo AUD: el Command Center es un lugar de paso;
+    #: las pruebas se borran solas tras la descarga (gracia) y a las 8 h de creadas.
+    _AUD_CICLO_RETENCION_TASK = None
+
+    @app.on_event("startup")
+    async def _aud_ciclo_retencion_startup():
+        """Arranca el loop de retención de pruebas AUD. Defensivo: si falla la
+        importación, el resto del servicio sigue."""
+        global _AUD_CICLO_RETENCION_TASK
+        try:
+            import asyncio
+
+            from backend.app.aud.niif.ciclo import retencion as _aud_ciclo_retencion
+
+            if _AUD_CICLO_RETENCION_TASK is not None and not _AUD_CICLO_RETENCION_TASK.done():
+                return  # ya hay un loop vivo: nunca duplicar
+
+            _AUD_CICLO_RETENCION_TASK = asyncio.create_task(
+                _aud_ciclo_retencion.purgar_loop(), name="aud_ciclo_retencion_loop"
+            )
+        except Exception as _ret_exc:  # pragma: no cover
+            import logging
+
+            logging.getLogger("auditbrain").warning(
+                "AUD ciclo retención loop no iniciado: %s", _ret_exc
+            )
+
+    @app.on_event("shutdown")
+    async def _aud_ciclo_retencion_shutdown():
+        """Cancela el loop de retención al apagar."""
+        global _AUD_CICLO_RETENCION_TASK
+        task = _AUD_CICLO_RETENCION_TASK
+        _AUD_CICLO_RETENCION_TASK = None
+        if task is None or task.done():
+            return
+        import asyncio
+        import contextlib
+
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
+
 except Exception as _platform_exc:  # pragma: no cover
     import logging
 

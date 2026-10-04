@@ -464,6 +464,17 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
       await recargar();
       setAbierta(p.id);
     } catch (e) {
+      // Control de duplicados: ya hay una prueba ABIERTA de esta herramienta en el
+      // mismo ejercicio. No se crea otra; se abre la existente para MODIFICARLA.
+      const det = e && e.detail;
+      if (det && typeof det === "object" && det.code === "PRUEBA_ABIERTA_EXISTE" && det.pruebaId) {
+        setOrigen("");
+        setTributario(false);
+        await recargar();
+        setAbierta(det.pruebaId);
+        setError(det.message || "Ya existe una prueba abierta de esta herramienta en este ejercicio: modifíquela.");
+        return;
+      }
       setError(e.message || String(e));
     }
   }

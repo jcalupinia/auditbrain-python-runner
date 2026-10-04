@@ -91,7 +91,13 @@ async function parse(res) {
     }
     const detail =
       (data && data.detail) || res.statusText || `HTTP ${res.status}`;
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    const esObj = detail && typeof detail === "object";
+    const err = new Error(esObj ? (detail.message || JSON.stringify(detail)) : detail);
+    // Conservar el detalle estructurado y el status para que el caller pueda reaccionar
+    // (p. ej. 409 PRUEBA_ABIERTA_EXISTE → ofrecer «Modificar» la prueba existente).
+    err.detail = detail;
+    err.status = res.status;
+    throw err;
   }
   return data;
 }

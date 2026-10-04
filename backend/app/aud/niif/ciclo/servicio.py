@@ -225,6 +225,36 @@ def crear_prueba(db: Session, project_id: int, origen: str, tributario: bool, ac
     pais = encargo.get("country") or ""
     if not 2 <= len(pais) <= 80:
         raise ReglaIncumplida("Seleccione el país del encargo.")
+    # No se permite crear una prueba nueva si ya hay una ABIERTA (no aprobada) de la
+    # MISMA herramienta en el MISMO ejercicio económico (mismo corte): el usuario debe
+    # MODIFICAR la existente, no volver a crearla (evita el apilamiento de duplicados).
+    # Las APROBADAS no bloquean: corregirlas es, por diseño, una versión nueva.
+    corte = encargo.get("cutoff")
+    abiertas = db.execute(
+        select(Prueba).where(
+            Prueba.project_id == project_id,
+            Prueba.origen == origen,
+            Prueba.estado != "APROBADO",
+        ).order_by(Prueba.creada_en.desc())
+    ).scalars().all()
+    existente = next(
+        (x for x in abiertas if ((x.registro or {}).get("engagement") or {}).get("cutoff") == corte),
+        None,
+    )
+    if existente is not None:
+        nombre = (existente.definicion or {}).get("name") or "la prueba"
+        exc = Conflicto(
+            f"Ya tiene abierta «{nombre}» en este ejercicio. Modifíquela en vez de crear otra "
+            "(no se permiten duplicados de la misma prueba en el mismo ejercicio)."
+        )
+        exc.detalle = {
+            "code": "PRUEBA_ABIERTA_EXISTE",
+            "message": str(exc),
+            "pruebaId": existente.id,
+            "estado": existente.estado,
+            "version": existente.version,
+        }
+        raise exc
     registro = {
         "methodologyVersion": VERSIONES["methodologyVersion"],
         "contextOverride": encargo.get("reuseScope") in ("one", "selected"),
@@ -904,6 +934,18 @@ def _eventos_papel(db: Session, p: Prueba) -> list[dict]:
 
 def args_papel(db: Session, p: Prueba) -> tuple:
     return (p.definicion, p.registro, _eventos_papel(db, p), p.version, p.estado)
+
+
+def marcar_descargada(db: Session, p: Prueba) -> None:
+    """Registra que el usuario descargó el papel. La retención borra la prueba una
+    breve gracia después (y en todo caso a las 8 h de creada): el Command Center es
+    un lugar de paso y el auditor archiva lo descargado en su propia base. Marcar en
+    cada descarga reinicia la gracia, para poder bajar varios formatos sin perderla."""
+    reg = dict(p.registro or {})
+    reg["descargada_en"] = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
+    p.registro = reg
+    db.add(p)
+    db.commit()
 
 
 def papel_procesador(db: Session, p: Prueba) -> tuple[bytes, bytes]:
