@@ -322,10 +322,33 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
     }
   }
 
-  // Abre la vista de trabajo detallada, desplazándose a esa sección. La tarjeta de
-  // reproceso además consulta el endpoint y muestra la matriz.
+  // Abre el papel en HTML (el artefacto autónomo: tablero, cédulas y, dentro, las
+  // descargas de Excel/Word/PowerPoint) en una PESTAÑA NUEVA, al frente —no tablas
+  // abajo—. La ventana se abre sincrónicamente dentro del clic (si se abre tras el
+  // await, el bloqueador de pop-ups la corta) y luego se le carga el HTML ya armado.
+  async function abrirTableroHTML() {
+    const win = window.open("", "_blank");
+    if (win) win.document.write("<!doctype html><title>Generando…</title><body style='font-family:sans-serif;padding:2rem'>Generando el tablero…</body>");
+    try {
+      const bytes = await api.cicloBajarLibro(prueba.id, "html");
+      const url = URL.createObjectURL(new Blob([bytes], { type: "text/html;charset=utf-8" }));
+      if (win) win.location = url; else window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      if (win) win.close();
+      setError(e.message || String(e));
+    }
+  }
+
+  // Al aplastar una tarjeta de ejecución:
+  // - Prueba con procesador (Planificación, etc.): abre el HTML del papel al frente.
+  // - Efectivo (reproceso) y declarativas: la vista de trabajo detallada de siempre.
   async function abrirEjecucion(item) {
     if (!procesada) return;
+    if (config.processor && !item.reproceso) {
+      await abrirTableroHTML();
+      return;
+    }
     setVerDetalle(true);
     if (item.reproceso) {
       setReproceso(null);
