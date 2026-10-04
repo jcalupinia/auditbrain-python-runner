@@ -46,6 +46,11 @@ MAX_CHARS = int(os.getenv("NIIF_EXTRACCION_MAX_CHARS", "60000"))
 MAX_RETRIES = int(os.getenv("NIIF_EXTRACCION_MAX_RETRIES", "2"))
 EXTRACCION_ENABLED = os.getenv("NIIF_EXTRACCION_ENABLED", "true").lower() in ("true", "1", "yes")
 
+# Literal que `providers._call_openai_compatible`/`_call_anthropic` ponen cuando el
+# modelo contesta con contenido vacío. Lo espejamos aquí para detectar esa respuesta
+# vacía y dar un error accionable en vez del críptico «Expecting value» del JSON.
+_RESPUESTA_VACIA_PROVEEDOR = "(respuesta vacía del proveedor)"
+
 
 class ExtraccionError(Exception):
     """La extracción no se pudo completar (texto ilegible, respuesta inválida...)."""
@@ -395,7 +400,21 @@ def extraer_filas(
     for intento in range(MAX_RETRIES):
         try:
             resp = chat([{"role": "user", "content": prompt}], system=_SISTEMA)
-            datos = _json_de_texto(getattr(resp, "content", "") or "")
+            contenido = (getattr(resp, "content", "") or "").strip()
+            # Respuesta vacía del modelo: un modelo de razonamiento (gpt-oss del
+            # servidor local) a veces gasta todo su presupuesto de tokens pensando
+            # y no llega a escribir el JSON; el proveedor devuelve "" o el literal
+            # placeholder. En vez del críptico «Expecting value: line 1 column 1»,
+            # damos un mensaje accionable (se reintenta igual con backoff).
+            if not contenido or contenido == _RESPUESTA_VACIA_PROVEEDOR:
+                raise ExtraccionError(
+                    "El modelo de IA devolvió una respuesta vacía (no transcribió nada). "
+                    "Suele pasar cuando el modelo de razonamiento del servidor local agota "
+                    "su presupuesto de tokens razonando sin llegar a responder. Opciones: "
+                    "reintente; suba AUDITBRAIN_LLM_MAX_TOKENS_EXTRACCION en Render; o cargue "
+                    "la carta como tabla en Excel/CSV con la plantilla del requerimiento."
+                )
+            datos = _json_de_texto(contenido)
             filas = datos.get("filas") if isinstance(datos, dict) else datos
             if not isinstance(filas, list):
                 raise ExtraccionError("La IA no devolvió una lista de filas.")

@@ -171,3 +171,38 @@ def test_piso_de_extraccion_es_configurable_y_nunca_baja_del_general(monkeypatch
         assert providers._local_timeout() == 600  # el mayor de ambos
     finally:
         providers._EN_EXTRACCION.reset(tok)
+
+
+# --------------------------------------------------------------------------- #
+#  6 · Techo de tokens: la extracción da más margen al modelo de razonamiento #
+# --------------------------------------------------------------------------- #
+def test_max_tokens_normal_respeta_la_env_var(monkeypatch):
+    """Fuera de extracción, el techo es AUDITBRAIN_LLM_MAX_TOKENS tal cual."""
+    monkeypatch.setenv("AUDITBRAIN_LLM_MAX_TOKENS", "8192")
+    assert not providers._EN_EXTRACCION.get()
+    assert providers._max_tokens() == 8192
+
+
+def test_extraccion_sube_el_techo_de_tokens_para_que_el_modelo_responda(monkeypatch):
+    """Incidente de la carta: el modelo de razonamiento local gastaba los 8192
+    tokens pensando y devolvía contenido vacío. En extracción el techo sube a un
+    piso propio (16384 por defecto) para dejarle espacio a razonar Y responder."""
+    monkeypatch.setenv("AUDITBRAIN_LLM_MAX_TOKENS", "8192")
+    tok = providers._EN_EXTRACCION.set(True)
+    try:
+        assert providers._max_tokens() == 16384
+    finally:
+        providers._EN_EXTRACCION.reset(tok)
+    # Fuera del contexto de extracción, vuelve al techo normal.
+    assert providers._max_tokens() == 8192
+
+
+def test_techo_de_extraccion_nunca_baja_del_general(monkeypatch):
+    """Si el techo general ya es mayor que el piso de extracción, manda el mayor."""
+    monkeypatch.setenv("AUDITBRAIN_LLM_MAX_TOKENS", "32000")
+    monkeypatch.setenv("AUDITBRAIN_LLM_MAX_TOKENS_EXTRACCION", "16384")
+    tok = providers._EN_EXTRACCION.set(True)
+    try:
+        assert providers._max_tokens() == 32000
+    finally:
+        providers._EN_EXTRACCION.reset(tok)
