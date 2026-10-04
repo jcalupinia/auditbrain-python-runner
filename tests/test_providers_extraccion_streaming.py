@@ -134,11 +134,10 @@ def test_timeout_local_normal_respeta_la_env_var(monkeypatch):
     assert providers._local_timeout() == 15
 
 
-def test_extraccion_aplica_piso_amplio_aunque_el_chat_use_timeout_corto(monkeypatch):
-    """ESTE es el arreglo del incidente de producción: un operador bajó el
-    timeout del chat a 15s para failover veloz a la nube. Esa env var NO debe
-    cortar la lectura del documento en el servidor local (gratis + privado):
-    dentro de la extracción rige un piso amplio propio (300s por defecto)."""
+def test_extraccion_usa_timeout_dedicado_no_el_corto_del_chat(monkeypatch):
+    """Un operador bajó el timeout del chat a 15s para failover veloz a la nube.
+    Esa env var NO debe cortar la lectura del documento en el servidor local: la
+    extracción usa su timeout DEDICADO (150s por defecto), independiente del chat."""
     monkeypatch.setenv("LOCAL_LLM_TIMEOUT_SECONDS", "15")
 
     timeouts_vistos: list[int] = []
@@ -152,25 +151,60 @@ def test_extraccion_aplica_piso_amplio_aunque_el_chat_use_timeout_corto(monkeypa
     monkeypatch.setattr(providers, "stream_chat_complete", _stream_captura)
     providers.completar_para_extraccion([{"role": "user", "content": "doc largo"}])
 
-    assert timeouts_vistos == [300], (
-        "durante la extracción el timeout local debe subir al piso (300s), no "
-        "quedarse en los 15s del failover de chat"
+    assert timeouts_vistos == [150], (
+        "durante la extracción el timeout local debe ser el dedicado (150s), no "
+        "los 15s del failover de chat"
     )
     # Y al salir, la bandera queda limpia (no contamina requests de chat).
     assert not providers._EN_EXTRACCION.get()
     assert providers._local_timeout() == 15
 
 
-def test_piso_de_extraccion_es_configurable_y_nunca_baja_del_general(monkeypatch):
-    """El piso se puede subir por env; y si el timeout general ya es mayor,
-    manda el mayor (nunca recorta)."""
-    monkeypatch.setenv("LOCAL_LLM_TIMEOUT_SECONDS", "600")  # general alto
-    monkeypatch.setenv("LOCAL_LLM_TIMEOUT_EXTRACCION_SECONDS", "300")
+def test_timeout_de_extraccion_es_dedicado_e_independiente_del_general(monkeypatch):
+    """El timeout de extracción es configurable y ACOTADO: no hereda un timeout de
+    chat alto (así el failover a la nube ocurre a tiempo cuando el local va lento)."""
+    monkeypatch.setenv("LOCAL_LLM_TIMEOUT_SECONDS", "600")  # chat general alto
+    monkeypatch.setenv("LOCAL_LLM_TIMEOUT_EXTRACCION_SECONDS", "200")
     tok = providers._EN_EXTRACCION.set(True)
     try:
-        assert providers._local_timeout() == 600  # el mayor de ambos
+        assert providers._local_timeout() == 200  # el dedicado, no el 600 del chat
     finally:
         providers._EN_EXTRACCION.reset(tok)
+
+
+def test_extraccion_failover_a_la_nube_si_el_local_excede_el_presupuesto(monkeypatch):
+    """Local LENTO (streamea despacio y se pasa del presupuesto wall-clock): se
+    descarta su intento y la extracción cae a un proveedor de nube rápido. Además,
+    queda STICKY: el siguiente bloque del documento va directo a la nube."""
+    monkeypatch.setenv("LOCAL_LLM_EXTRACCION_BUDGET_SECONDS", "30")
+    monkeypatch.setattr(providers, "_extraccion_budget", lambda: 0)  # fuerza "excedido" al primer delta
+
+    def _stream_lento(messages, system=None, *, temperature=None):
+        yield {"type": "token", "text": "{"}   # emite algo, pero ya pasó el presupuesto
+        yield {"type": "token", "text": "}"}
+
+    nube = {"llamadas": 0}
+
+    def _no_stream(messages, system=None, *, temperature=None, exclude=()):
+        nube["llamadas"] += 1
+        assert "local" in exclude      # el failover salta el local lento
+        return providers.LLMResponse(content='{"filas": []}', model="gemini", tokens_in=None, tokens_out=None)
+
+    monkeypatch.setattr(providers, "stream_chat_complete", _stream_lento)
+    monkeypatch.setattr(providers, "chat_complete", _no_stream)
+    _reset = providers._EXTRACCION_SKIP_LOCAL.set(False)
+    try:
+        r1 = providers.completar_para_extraccion([{"role": "user", "content": "bloque 1"}])
+        assert r1.model == "gemini" and providers._EXTRACCION_SKIP_LOCAL.get() is True
+        # Sticky: el segundo bloque NI SIQUIERA intenta el stream local.
+        def _stream_no_debe_llamarse(*a, **k):
+            raise AssertionError("no debe intentarse el local tras marcarse lento")
+            yield  # pragma: no cover
+        monkeypatch.setattr(providers, "stream_chat_complete", _stream_no_debe_llamarse)
+        r2 = providers.completar_para_extraccion([{"role": "user", "content": "bloque 2"}])
+        assert r2.model == "gemini" and nube["llamadas"] == 2
+    finally:
+        providers._EXTRACCION_SKIP_LOCAL.reset(_reset)
 
 
 # --------------------------------------------------------------------------- #

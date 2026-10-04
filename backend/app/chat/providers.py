@@ -35,6 +35,34 @@ _EN_EXTRACCION: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "auditbrain_en_extraccion", default=False
 )
 
+# Failover de extracción cuando el servidor local es LENTO (no caído): el local
+# puede ir emitiendo tokens despacio y nunca disparar el timeout de lectura, así
+# que la extracción de un documento pesado (p. ej. el informe = 5 llamadas) se
+# alarga hasta que el frontend aborta. Para evitarlo, cada llamada del local en
+# extracción tiene un PRESUPUESTO de tiempo total (wall-clock); si lo excede, se
+# descarta el intento local y se recurre a un proveedor de nube RÁPIDO. Y es
+# STICKY: una vez que el local demostró ser lento en este documento, los bloques
+# restantes van directo a la nube (no se vuelve a esperar al local bloque a
+# bloque). La bandera es un contextvar por request, así que se limpia sola entre
+# peticiones (y entre documentos basta con que una vez lento = nube el resto).
+_EXTRACCION_SKIP_LOCAL: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "auditbrain_extraccion_skip_local", default=False
+)
+
+
+class _ExtraccionLocalLenta(Exception):
+    """El servidor local excedió el presupuesto de tiempo de extracción."""
+
+
+def _extraccion_budget() -> int:
+    """Presupuesto de tiempo total (segundos) para el intento del servidor local
+    en una llamada de extracción, antes de recurrir a la nube. Configurable con
+    LOCAL_LLM_EXTRACCION_BUDGET_SECONDS (default 150)."""
+    try:
+        return max(30, int(os.getenv("LOCAL_LLM_EXTRACCION_BUDGET_SECONDS", "150")))
+    except ValueError:
+        return 150
+
 
 # --- Forzar IPv4 en la resolución de nombres (stdlib) ----------------------
 # El gateway de IA LOCAL (Funnel de Tailscale, *.ts.net) es dual-stack (A+AAAA)
@@ -196,22 +224,24 @@ def _local_timeout() -> int:
     # Ajustable por env var LOCAL_LLM_TIMEOUT_SECONDS (bajarlo si se quiere un
     # failover más rápido en el chat interactivo).
     #
-    # EXTRACCIÓN: si estamos leyendo un documento por IA (bandera _EN_EXTRACCION),
-    # se aplica un PISO amplio propio para que un operador que bajó el timeout del
-    # CHAT (failover veloz a la nube) NO estrangule la lectura del documento en el
-    # servidor local — que es justo el proveedor gratis/privado que queremos usar.
-    # El piso es configurable con LOCAL_LLM_TIMEOUT_EXTRACCION_SECONDS (default
-    # 300s); nunca queda por debajo del timeout general.
+    # EXTRACCIÓN: al leer un documento por IA (bandera _EN_EXTRACCION) rige un
+    # timeout de lectura DEDICADO e independiente del timeout del chat, para dos
+    # cosas a la vez: (a) que un operador que bajó LOCAL_LLM_TIMEOUT_SECONDS para
+    # failover veloz del chat NO estrangule la lectura del documento; y (b) que el
+    # intento local quede ACOTADO, de modo que si el servidor local no responde a
+    # tiempo, la extracción caiga a un proveedor de nube rápido en vez de esperar
+    # indefinidamente (el informe pesa 5 llamadas y el frontend aborta a los pocos
+    # minutos). Configurable con LOCAL_LLM_TIMEOUT_EXTRACCION_SECONDS (default
+    # 150s); se complementa con el presupuesto wall-clock de `_extraccion_budget`.
     try:
         base = int(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", "180"))
     except ValueError:
         base = 180
     if _EN_EXTRACCION.get():
         try:
-            piso = int(os.getenv("LOCAL_LLM_TIMEOUT_EXTRACCION_SECONDS", "300"))
+            return max(30, int(os.getenv("LOCAL_LLM_TIMEOUT_EXTRACCION_SECONDS", "150")))
         except ValueError:
-            piso = 300
-        return max(base, piso)
+            return 150
     return base
 
 
@@ -409,6 +439,7 @@ def chat_complete(
     system: str | None = None,
     *,
     temperature: float | None = None,
+    exclude: tuple[str, ...] = (),
 ) -> LLMResponse:
     """Envía una conversación al proveedor activo y devuelve la respuesta.
 
@@ -416,11 +447,18 @@ def chat_complete(
     timeout puntual, etc.), reintenta con el siguiente proveedor configurado.
     Se prioriza la lista calculada en ``_providers_with_keys()``.
 
+    ``exclude`` salta esos proveedores de la cadena (lo usa la extracción para ir
+    directo a la nube cuando el servidor local ya demostró ser lento). Si excluir
+    deja la cadena vacía, se ignora el filtro (mejor intentar con lo que haya que
+    no intentar con nada).
+
     Si NINGÚN proveedor responde con éxito, propaga un error accionable (o la
     última excepción real) para que la UI muestre el problema al usuario (no se
     inventa respuesta).
     """
     chain = _providers_with_keys()
+    if exclude:
+        chain = [p for p in chain if p not in exclude] or chain
     if not chain:
         raise ProviderUnavailable(
             "No hay proveedor LLM configurado en el servidor. Define una de: "
@@ -460,25 +498,47 @@ def completar_para_extraccion(messages, system=None) -> LLMResponse:
     que recorre toda la cadena de failover.
 
     Durante toda la llamada se activa ``_EN_EXTRACCION`` para que el proveedor
-    local reciba su timeout amplio de extracción (ver ``_local_timeout``): un
-    documento largo tarda y no debe cortarse aunque el chat use failover veloz."""
+    local reciba su timeout de extracción (ver ``_local_timeout``).
+
+    Failover por lentitud: el intento local tiene un PRESUPUESTO wall-clock
+    (``_extraccion_budget``); si lo excede (un local lento que streamea despacio
+    y nunca dispara el timeout de lectura), se descarta y se recurre a la nube.
+    Y queda STICKY (``_EXTRACCION_SKIP_LOCAL``): los bloques siguientes del mismo
+    documento van directo a la nube, para no esperar al local bloque a bloque."""
     _tok = _EN_EXTRACCION.set(True)
     try:
+        # El local ya demostró ser lento en este documento: directo a la nube.
+        if _EXTRACCION_SKIP_LOCAL.get():
+            return chat_complete(messages, system, temperature=0, exclude=("local",))
         try:
             partes: list[str] = []
             modelo = ""
+            inicio = time.monotonic()
+            presupuesto = _extraccion_budget()
             for delta in stream_chat_complete(messages, system, temperature=0):
                 tipo = delta.get("type")
                 if tipo == "token":
                     partes.append(delta.get("text", ""))
                 elif tipo == "done":
                     modelo = delta.get("model") or modelo
+                if time.monotonic() - inicio > presupuesto:
+                    raise _ExtraccionLocalLenta()
             texto = "".join(partes).strip()
             if texto:
                 return LLMResponse(content=texto, model=modelo or "local", tokens_in=None, tokens_out=None)
             # Stream vacío (p. ej. solo reasoning sin content): se reintenta no-stream.
+        except _ExtraccionLocalLenta:
+            # Local demasiado lento: descartar su salida parcial, marcar el skip
+            # sticky y recurrir a la nube para este y los siguientes bloques.
+            _EXTRACCION_SKIP_LOCAL.set(True)
+            _LOG.warning(
+                "Extracción: el servidor local excedió el presupuesto de %ss; failover a la nube para el resto del documento.",
+                presupuesto,
+            )
+            return chat_complete(messages, system, temperature=0, exclude=("local",))
         except ProviderUnavailable:
-            # Primario no streameable o fallo antes/durante el stream → no-stream.
+            # Primario no streameable o fallo antes/durante el stream → no-stream
+            # (la cadena completa, que ya hace su propio failover a la nube).
             pass
         return chat_complete(messages, system, temperature=0)
     finally:
