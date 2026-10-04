@@ -181,6 +181,8 @@ def _cmp_cuentas(gold_rows, cu, tol):
         x = cu.get(row[0])
         if x and abs(round(x["ant"], 2) - a) <= tol + 0.01 and abs(round(x["act"], 2) - b) <= tol + 0.01:
             ok += 1
+        elif x is None and abs(a) <= tol + 0.01 and abs(b) <= tol + 0.01:
+            ok += 1   # la herramienta omite a propósito las cuentas en cero en todos los períodos (decisión del dueño, 2026-10-04)
         else:
             dif += 1
             if len(ejemplos) < 6:

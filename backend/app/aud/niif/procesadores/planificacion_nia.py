@@ -815,6 +815,17 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         cuentas.append({"codigo": c, "cuenta": nombres[c], "nivel": est[c]["nivel"], "detalle": est[c]["detalle"], "clas": clas,
                         "sec": sec, "ant": ant, "act": s_act, "rubro": _rubro_eri(c, nombres[c], sec),
                         "rind": _rubro_indice(nombres[c], sec)})
+    # No listar cuentas en cero en TODOS los períodos comparados (decisión del dueño, 2026-10-04): se conservan las
+    # que tienen saldo en algún período (anterior o corte) y los ancestros de las conservadas. Omitir una cuenta con
+    # valor en un período —o un padre de su jerarquía— rompería la comparación y la cuadratura con el otro período.
+    # Quitar una cuenta en cero en todos los períodos no altera ningún total (aporta 0) ni el cuadre (sale de `fuentes`).
+    _tol = 0.005
+    _keep = {x["codigo"] for x in cuentas if abs(x["ant"]) >= _tol or abs(x["act"]) >= _tol}
+    _ancestros = {y["codigo"] for x in cuentas if x["codigo"] in _keep
+                  for y in cuentas if y["codigo"] != x["codigo"] and _debajo(x["codigo"], y["codigo"])}
+    _keep |= _ancestros
+    cuentas = [x for x in cuentas if x["codigo"] in _keep]
+
     for x in cuentas:
         x["pind"] = "" if not x["rind"] else _superior(x, cuentas, "rind")
         x["supsec"], x["supclas"] = _superior(x, cuentas, "sec"), _superior(x, cuentas, "clas")
@@ -4415,6 +4426,32 @@ REF_PROBLEMAS = {
 
 # --- definición --------------------------------------------------------------------------------------------------
 
+# Pestañas visibles del papel HTML (los «botones» de la vista de ejecución), en su
+# orden. El resto de las ~55 cédulas quedan INTERNAS (en el Excel y en «Cómo se
+# calcula»), no como pestaña. El Tablero Ejecutivo es el panel/tableros, que el HTML
+# muestra siempre aparte.
+HOJAS_HTML = [
+    "14_Perfil",            # Perfil del Encargo
+    "08A_ESF_Detalle",      # Situación Financiera
+    "08B_ERI_Detalle",      # Estado de Resultados
+    "08_Horizontal",        # Analítico Preliminar
+    "10_Indices",           # Índices Financieros
+    "11_Materialidad",      # Materialidad
+    "46_Matriz_Riesgos",    # Matriz de Riesgos
+    "15N_Notas_EEFF",       # Notas a los EEFF
+    "17_Anomalias",         # Control & Anomalías
+    "19_Programa",          # Programa
+    "47_Conocimiento_Negocio",  # Conocimiento del Negocio (agregado)
+]
+
+# Hojas que se ven como PESTAÑA en el Excel entregable: las mismas de los botones de
+# ejecución (00_Inicio = Tablero + estas 10 cédulas). El resto de las cédulas viaja
+# OCULTO (sheet_state="hidden"), nunca borrado: las fórmulas de las visibles las
+# referencian (mismo criterio que el ICT). `libro.xlsx` lo aplica si la definición trae
+# `hojas_visibles`.
+HOJAS_PESTANA = [h for h in HOJAS_HTML if h != "47_Conocimiento_Negocio"]
+
+
 def definicion() -> dict:
     bc = ("Una fila por cuenta, tal como lo exporta el sistema contable, con TODOS los niveles (sección, grupo, cuenta y "
           "subcuentas): código, nombre y saldo. Los saldos acreedores pueden venir negativos: la herramienta detecta el signo "
@@ -4473,6 +4510,14 @@ def definicion() -> dict:
         "fields": _BAL_ACT, "rules": [], "control": CONTROL, "primary": "materialidad",
         "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
         "cedulas": [[n, etq] for n, etq in CEDULAS],
+        # Pestañas visibles del papel HTML (los «botones» de la vista): solo estas
+        # cédulas se muestran como sección en el HTML/Word/PowerPoint, en este orden;
+        # las otras 40+ quedan INTERNAS (siguen en el Excel y en «Cómo se calcula»,
+        # pero no estorban la vista ejecutiva). El Tablero es el panel/tableros
+        # (siempre visible aparte). Si se quiere mostrar/ocultar otra, editar aquí.
+        "hojas_html": HOJAS_HTML,
+        # Pestañas visibles del Excel entregable = las de los botones (el resto va oculto en el libro).
+        "hojas_visibles": HOJAS_PESTANA,
         # A4 (NIA 230): cédulas clave con su preparó y revisó tomados de la bitácora (hoja 00_Firmas del libro).
         "firmas": ["11_Materialidad", "12_Riesgos_CCI", "13_Riesgos_Balance", "19_Programa", "21_Estrategia", enc_m.H24, enc_m.H25,
                    enc_m.H28, enc_m.H32],

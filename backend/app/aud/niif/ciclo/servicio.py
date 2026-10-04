@@ -908,7 +908,71 @@ def args_papel(db: Session, p: Prueba) -> tuple:
 
 def papel_procesador(db: Session, p: Prueba) -> tuple[bytes, bytes]:
     args = args_papel(db, p)
+    # Planificación: el HTML es el del motor del artefacto (idéntico al de referencia);
+    # el Excel con fórmulas sigue saliendo del motor propio.
+    if (p.definicion or {}).get("processor") == "planificacion_nia":
+        return libro.xlsx(*args), papel_artefacto_html(db, p)
     return libro.xlsx(*args), libro.html(*args)
+
+
+_MES_ES = ("", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre",
+           "Octubre", "Noviembre", "Diciembre")
+
+
+def _periodos_planificacion(engagement: dict, parametros: dict) -> dict:
+    """Etiquetas de período para el HTML del artefacto, derivadas del corte y el modo.
+
+    Preliminar: «Diciembre {A-1}» (cierre anterior) → «{Mes} {A}» (corte) y
+    «{Mes} {A-1}» (mismo corte del año anterior). Final: «Diciembre {A-1}» → «Diciembre {A}».
+    """
+    import re as _re
+    corte = str((engagement or {}).get("cutoff") or (parametros or {}).get("cutoff") or "")
+    m = _re.match(r"(\d{4})-(\d{2})", corte)
+    prelim = str((parametros or {}).get("tipoRevision") or "").strip().lower().startswith("prelim")
+    if not m:
+        return {"periodoAnterior": "Cierre anterior", "periodoCorte": "Corte", "periodoEri": "Mismo corte anterior"}
+    anio, mes = int(m.group(1)), int(m.group(2))
+    etq_corte = f"{_MES_ES[mes]} {anio}"
+    return {
+        "periodoAnterior": f"Diciembre {anio - 1}",
+        "periodoCorte": etq_corte if prelim else f"Diciembre {anio}",
+        "periodoEri": f"{_MES_ES[mes]} {anio - 1}",
+    }
+
+
+def papel_artefacto_html(db: Session, p: Prueba) -> bytes:
+    """HTML del papel de Planificación con el motor del artefacto AuditBrain.
+
+    Pasa los balances **crudos** (tal cual los subió el cliente) al motor del
+    artefacto, que los parsea y dibuja idéntico. Los demás formatos (Excel con
+    fórmulas, Word, PowerPoint, PDF) siguen saliendo del motor propio (`libro`).
+    """
+    from backend.app.aud.niif.procesadores import artefacto_html
+
+    reg = getattr(p, "registro", None) or {}
+    eng = dict(reg.get("engagement") or {})
+    par = reg.get("parameters") or {}
+    mappings = reg.get("mappings") or ([reg["mapping"]] if reg.get("mapping") else [])
+    por_ds: dict[str, dict] = {}
+    for mp in mappings:
+        ds, fid = mp.get("dataset"), mp.get("fileId")
+        if ds and fid and ds not in por_ds:          # primer archivo de cada balance
+            por_ds[ds] = mp
+    files: dict[str, dict] = {}
+    for rol, _per, ds, _key in artefacto_html._ROLES:
+        mp = por_ds.get(ds)
+        if not mp or not str(mp.get("fileId") or "").isdigit():
+            continue
+        a = db.get(PruebaArchivo, int(mp["fileId"]))
+        if a is None or a.prueba_id != p.id:
+            continue
+        try:
+            contenido = almacen.leer(a.ruta)
+        except Exception:                             # noqa: BLE001 (sin el crudo se cae al respaldo)
+            continue
+        files[rol] = artefacto_html.archivo_b64(contenido, a.nombre, mp.get("sheet"))
+    eng.update(_periodos_planificacion(eng, par))
+    return artefacto_html.render(files, eng, par, reg.get("datasets"))
 
 
 # --- evidencia ---------------------------------------------------------------
