@@ -310,6 +310,10 @@ function ExtraccionArchivo({ prueba, campos, archivo, habilitado, onSubido }) {
   const [trabajando, setTrabajando] = useState("");
   const [error, setError] = useState("");
   const [aviso, setAviso] = useState("");
+  // La tabla extraída se muestra en un panel colapsable: cerrada por defecto para
+  // que la tarjeta no quede ocupando toda la pantalla. Se abre sola al extraer
+  // (para revisar lo recién leído) y se cierra al confirmar.
+  const [abierta, setAbierta] = useState(false);
 
   // Re-siembra la tabla local cuando llega una extracción nueva (otro `at`).
   useEffect(() => {
@@ -330,10 +334,16 @@ function ExtraccionArchivo({ prueba, campos, archivo, habilitado, onSubido }) {
     }
   };
 
-  const extraer = () => correr("extraer_ia", { fileId: archivo.id },
-    "Tabla extraída por IA. Revísela y corríjala; luego confirme.");
-  const confirmar = () => correr("guardar_extraccion", { fileId: archivo.id, rows: filas },
-    "Tabla confirmada: ya alimenta la planificación.");
+  const extraer = async () => {
+    await correr("extraer_ia", { fileId: archivo.id },
+      "Tabla extraída por IA. Revísela y corríjala; luego confirme.");
+    setAbierta(true);   // abrir para revisar lo recién extraído
+  };
+  const confirmar = async () => {
+    await correr("guardar_extraccion", { fileId: archivo.id, rows: filas },
+      "Tabla confirmada: ya alimenta la planificación.");
+    setAbierta(false);  // colapsar: ya quedó confirmada, no ocupa toda la pantalla
+  };
   const editar = (i, k, v) => setFilas((fs) => fs.map((f, j) => (j === i ? { ...f, [k]: v } : f)));
   const quitar = (i) => setFilas((fs) => fs.filter((_, j) => j !== i));
   const val = guardada?.validation;
@@ -347,18 +357,23 @@ function ExtraccionArchivo({ prueba, campos, archivo, habilitado, onSubido }) {
         </button>
       </div>
       {guardada && (
-        <>
+        <details className="nf-ia-detalle" open={abierta}
+          onToggle={(e) => setAbierta(e.currentTarget.open)}>
+          <summary className="nf-ia-resumen">
+            {typeof guardada.segundos === "number" ? (
+              <>⏱️ Extraído en <strong>{guardada.segundos.toFixed(1)} s</strong>
+                {guardada.trozos ? ` · ${guardada.trozos} llamada(s)` : ""}
+                {guardada.modelo ? ` · ${guardada.modelo}` : ""}
+                {` · ${(guardada.rows || filas).length} fila(s)`}</>
+            ) : (
+              <>Tabla extraída por IA · {(guardada.rows || filas).length} fila(s)</>
+            )}
+            <span className="nf-ia-ver"> — ver / editar</span>
+          </summary>
           <p className="nf-ia-aviso muted">
             La IA transcribió lo que leyó del documento. <strong>Revise y corrija</strong> cada fila antes de confirmar;
             la IA no decide sola.
           </p>
-          {typeof guardada.segundos === "number" && (
-            <p className="nf-ia-tiempo muted">
-              ⏱️ Extraído en <strong>{guardada.segundos.toFixed(1)} s</strong>
-              {guardada.trozos ? ` · ${guardada.trozos} llamada(s) al modelo` : ""}
-              {guardada.modelo ? ` · modelo ${guardada.modelo}` : ""}
-            </p>
-          )}
           <div className="nf-ia-tabla-wrap">
             <table className="nf-ia-tabla">
               <thead>
@@ -392,7 +407,7 @@ function ExtraccionArchivo({ prueba, campos, archivo, habilitado, onSubido }) {
             onClick={confirmar}>
             {trabajando === "guardar_extraccion" ? "Confirmando…" : "Confirmar tabla"}
           </button>
-        </>
+        </details>
       )}
       {aviso && <small className="muted">{aviso}</small>}
       {error && <small className="nf-error">{error}</small>}

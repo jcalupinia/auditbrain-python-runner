@@ -192,3 +192,15 @@
 }
 .nf-ia-tabla input:focus { border-color: var(--accent); outline: none; background: var(--panel); }
 .nf-ia-confirmar { align-self: flex-start; }
+/* Panel colapsable de la tabla extraída: cerrado por defecto para que la tarjeta
+   no ocupe toda la pantalla. */
+.nf-ia-detalle { display: flex; flex-direction: column; gap: 6px; }
+.nf-ia-resumen {
+  cursor: pointer; font-size: 11px; color: var(--text-dim); list-style: none;
+  padding: 2px 0; user-select: none;
+}
+.nf-ia-resumen::-webkit-details-marker { display: none; }
+.nf-ia-resumen::before { content: "▸ "; color: var(--text-dim); }
+.nf-ia-detalle[open] > .nf-ia-resumen::before { content: "▾ "; }
+.nf-ia-resumen strong { color: var(--text); }
+.nf-ia-ver { color: var(--accent); }
