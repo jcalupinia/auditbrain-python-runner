@@ -2987,6 +2987,10 @@ function boot(){
   renderResults(); els.cardResults.classList.remove('locked');
   updateStatusChip(); initCaps();
   if(typeof AUDITIA_SOLO!=='undefined' && AUDITIA_SOLO){ activarSolo(AUDITIA_SOLO); }
+  /* PDF: abierto con «#print» (botón PDF de la plataforma) → se dispara el diálogo de
+     impresión del navegador. La impresión es horizontal (@media print) y el usuario
+     elige «Guardar como PDF»: el PDF es idéntico al HTML, con sus tablas y gráficos. */
+  if((location.hash||'').toLowerCase().indexOf('print')>=0){ setTimeout(function(){ try{ window.print(); }catch(e){} }, 700); }
 }
 /* HTML de una sola sección: activa esa pestaña (su contenido se pinta al activarla)
    y marca el body para que el CSS oculte carga/navegación/otras secciones. */
