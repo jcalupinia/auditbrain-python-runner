@@ -436,6 +436,45 @@ def _t(p: Prueba) -> dict:
     return {**reg, "state": p.estado, "definition": definicion}
 
 
+def _run_procesador(db: Session, p: Prueba, reg: dict, proc) -> dict:
+    """Ejecuta el procesador especializado de la prueba con los mismos insumos y
+    parámetros que usa ``execute`` (marco, edición, registros del encargo, versión
+    anterior y audit trail) y devuelve el ``run`` con sus cédulas (``hojas``) y los
+    datos del cliente ya incorporados.
+
+    Lo comparten ``execute`` (ejecución normal) y ``set_visit`` (que re-ejecuta para
+    que el papel —Excel/Word/PDF— refleje la visita corregida, ya que el ``run`` se
+    «hornea» al ejecutar y ``libro.xlsx`` pinta el ``run`` almacenado)."""
+    from backend.app.aud.niif.procesadores import datos_cliente
+
+    # Procesador especializado: el cálculo solo existe en Python.
+    param = {k: v for k, v in reg["parameters"].items() if k in proc.PARAMETROS}
+    # El marco y la edición del encargo enrutan el cálculo cuando la norma difiere (M02).
+    param["_marco"] = reg["engagement"].get("framework") or ""
+    param["_edicion"] = str(reg["engagement"].get("edition") or "")
+    if getattr(proc, "USA_REGISTROS_ENCARGO", False):
+        # Independencia, aceptación, carta, discusión y comunicación registradas con un clic: se
+        # congelan en esta ejecución (la hoja 00_Registros del papel es la evidencia; NIA 230).
+        param["_encargo"] = registros_encargo(db, p.project_id)
+        # M4 (NIA 300 párr. 10): cifras y riesgos de la versión anterior, para el comparativo de la hoja 42.
+        anterior = version_anterior_run(db, p)
+        if anterior:
+            param["_anterior"] = anterior
+        # Audit trail (NIA 230, hoja 23): nombre y huella SHA-256 de cada archivo del cliente que se usó.
+        param["_archivos"] = archivos_de_entrada(db, p.id)
+    run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
+    # La 3.ª edición de la NIIF para las PYMES rige desde el 1-1-2027: antes, solo con adopción anticipada.
+    if "PYMES" in param["_marco"] and param["_edicion"] == "2025" and str(reg["engagement"]["cutoff"]) < "2027-01-01":
+        run["exceptions"] = [{"code": "PYMES_2025_ANTICIPADA", "amount": "0.00", "message":
+            "La NIIF para las PYMES 2025 (3.ª edición) rige para períodos desde el 1-1-2027: con corte "
+            f"{reg['engagement']['cutoff']} solo procede si la entidad la adoptó anticipadamente y lo revela; "
+            "de lo contrario use la edición 2015."}] + list(run.get("exceptions") or [])
+    # Las cédulas y, dentro del libro, los datos que entregó el cliente (hojas D1_…).
+    run["hojas"] = datos_cliente.con_datos(proc, run, reg.get("datasets") or {})
+    run["detalle"] = {k: v for k, v in run["detalle"].items() if k in ("tasas", "fiscal", "cortes")}
+    return run
+
+
 def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: dict, actor: str) -> Prueba:
     """Acciones de E6. Cada rama replica la del mismo nombre en route.ts."""
     if revision != p.revision:
@@ -748,31 +787,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             if proc:
                 # Procesador especializado: el cálculo solo existe en Python;
                 # no hay resultado del navegador que contrastar.
-                param = {k: v for k, v in reg["parameters"].items() if k in proc.PARAMETROS}
-                # El marco y la edición del encargo enrutan el cálculo cuando la norma difiere (M02).
-                param["_marco"] = reg["engagement"].get("framework") or ""
-                param["_edicion"] = str(reg["engagement"].get("edition") or "")
-                if getattr(proc, "USA_REGISTROS_ENCARGO", False):
-                    # Independencia, aceptación, carta, discusión y comunicación registradas con un clic: se congelan en
-                    # esta ejecución (la hoja 00_Registros del papel es la evidencia; NIA 230).
-                    param["_encargo"] = registros_encargo(db, p.project_id)
-                    # M4 (NIA 300 párr. 10): cifras y riesgos de la versión anterior, para el comparativo de la hoja 42.
-                    anterior = version_anterior_run(db, p)
-                    if anterior:
-                        param["_anterior"] = anterior
-                    # Audit trail (NIA 230, hoja 23): nombre y huella SHA-256 de cada archivo del cliente que se usó.
-                    param["_archivos"] = archivos_de_entrada(db, p.id)
-                run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
-                # La 3.ª edición de la NIIF para las PYMES rige desde el 1-1-2027: antes, solo con adopción anticipada.
-                if "PYMES" in param["_marco"] and param["_edicion"] == "2025" and str(reg["engagement"]["cutoff"]) < "2027-01-01":
-                    run["exceptions"] = [{"code": "PYMES_2025_ANTICIPADA", "amount": "0.00", "message":
-                        "La NIIF para las PYMES 2025 (3.ª edición) rige para períodos desde el 1-1-2027: con corte "
-                        f"{reg['engagement']['cutoff']} solo procede si la entidad la adoptó anticipadamente y lo revela; "
-                        "de lo contrario use la edición 2015."}] + list(run.get("exceptions") or [])
-                # Las cédulas y, dentro del libro, los datos que entregó el cliente (hojas D1_…).
-                from backend.app.aud.niif.procesadores import datos_cliente
-                run["hojas"] = datos_cliente.con_datos(proc, run, reg.get("datasets") or {})
-                run["detalle"] = {k: v for k, v in run["detalle"].items() if k in ("tasas", "fiscal", "cortes")}
+                run = _run_procesador(db, p, reg, proc)
             else:
                 run = estudio.ejecutar_definicion(p.definicion, reg["rows"], reg["parameters"], reg.get("flows") or [])
         except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
@@ -808,6 +823,39 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             if not reg["conclusion"].strip():
                 raise ReglaIncumplida("Redacte la conclusión preliminar antes de enviar.")
             p.estado = reglas.transicion({**reg, "state": p.estado, "definition": p.definicion}, accion)
+
+    elif accion == "set_visit":
+        # Corregir la «Visita de auditoría» (Preliminar/Final) de una planificación ya
+        # avanzada SIN reiniciarla. La visita define las cabeceras de período del papel y
+        # vive en dos sitios que aquí se mantienen en sincronía: el HTML del artefacto la
+        # lee de ``engagement.visit`` y el procesador (Excel/Word/PDF) del parámetro
+        # ``tipoRevision`` (con ``mesesTranscurridos``). Si la prueba ya se ejecutó, se
+        # re-ejecuta para que el papel refleje la visita corregida (el ``run`` se hornea
+        # al ejecutar). No cambia el estado del ciclo: no se pierde trabajo.
+        if (p.definicion or {}).get("processor") != "planificacion_nia":
+            raise ReglaIncumplida("La visita solo se corrige en la planificación de la auditoría.")
+        visita = str(datos.get("visit") or "").strip().capitalize()
+        if visita not in ("Preliminar", "Final"):
+            raise ReglaIncumplida("Visita inválida: use Preliminar o Final.")
+        import re as _re_visit
+        mm = _re_visit.match(r"\d{4}-(\d{2})", str(reg["engagement"].get("cutoff") or ""))
+        mes_corte = int(mm.group(1)) if mm else 12
+        meses = mes_corte if visita == "Preliminar" else 12
+        reg["engagement"] = {**reg["engagement"], "visit": visita}
+        reg["parameters"] = {**(reg.get("parameters") or {}), "tipoRevision": visita, "mesesTranscurridos": meses}
+        proc = procesadores.de(p.definicion)
+        if proc is not None and reg.get("run"):
+            try:
+                reg["run"] = _run_procesador(db, p, reg, proc)
+            except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
+                raise ReglaIncumplida(str(e) or "No se pudo regenerar el papel con la visita corregida.")
+            reg["runHash"] = hashlib.sha256(json.dumps(
+                {"definition": p.definicion, "rows": reg["rows"], "parameters": reg["parameters"],
+                 "flows": reg.get("flows") or [], "run": reg["run"]},
+                ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            reg["executedAt"] = _ahora_iso()
+        datos = {**datos, "comment": f"Visita corregida a «{visita}»: períodos y papel actualizados sin reiniciar la prueba."}
 
     # --- E9: revisión y aprobación (route.ts) ---------------------------------
     elif accion == "return_to_data":
