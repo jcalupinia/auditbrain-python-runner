@@ -1009,12 +1009,14 @@ def _periodos_planificacion(engagement: dict, parametros: dict) -> dict:
     }
 
 
-def papel_artefacto_html(db: Session, p: Prueba) -> bytes:
+def papel_artefacto_html(db: Session, p: Prueba, seccion: str | None = None) -> bytes:
     """HTML del papel de Planificación con el motor del artefacto AuditBrain.
 
     Pasa los balances **crudos** (tal cual los subió el cliente) al motor del
     artefacto, que los parsea y dibuja idéntico. Los demás formatos (Excel con
     fórmulas, Word, PowerPoint, PDF) siguen saliendo del motor propio (`libro`).
+
+    ``seccion`` (opcional): HTML de una sola sección (Materialidad.html, etc.).
     """
     from backend.app.aud.niif.procesadores import artefacto_html
 
@@ -1041,7 +1043,7 @@ def papel_artefacto_html(db: Session, p: Prueba) -> bytes:
             continue
         files[rol] = artefacto_html.archivo_b64(contenido, a.nombre, mp.get("sheet"))
     eng.update(_periodos_planificacion(eng, par))
-    return artefacto_html.render(files, eng, par, reg.get("datasets"))
+    return artefacto_html.render(files, eng, par, reg.get("datasets"), seccion=seccion)
 
 
 # --- evidencia ---------------------------------------------------------------

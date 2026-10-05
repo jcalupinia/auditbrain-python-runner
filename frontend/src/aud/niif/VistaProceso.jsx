@@ -336,10 +336,11 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
     }
     win.document.write("<!doctype html><title>Generando…</title><body style='font-family:sans-serif;padding:2rem'>Generando el tablero…</body>");
     try {
-      const bytes = await api.cicloBajarLibro(prueba.id, "html");
+      // Cada botón trae su propio HTML autónomo con SOLO esa sección (Materialidad,
+      // Riesgos, …). Sin sección (p. ej. el tablero), trae el papel completo.
+      const bytes = await api.cicloBajarLibro(prueba.id, "html", seccion || null);
       const url = URL.createObjectURL(new Blob([bytes], { type: "text/html;charset=utf-8" }));
-      // Deep-link: abre el HTML directo en la sección del botón (#sec-…).
-      win.location = seccion ? `${url}#${seccion}` : url;
+      win.location = url;
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
       win.close();

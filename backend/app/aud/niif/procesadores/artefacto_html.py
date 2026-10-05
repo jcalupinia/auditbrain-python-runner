@@ -102,12 +102,23 @@ def construir_config(files: dict, engagement: dict, parametros: dict) -> dict:
     }
 
 
-def render(files: dict, engagement: dict, parametros: dict, datasets: dict | None = None) -> bytes:
+# Pestañas válidas del artefacto (whitelist para el modo "sección única"; evita
+# inyectar nada arbitrario en el HTML por el parámetro ``seccion``).
+SECCIONES = ("dashboard", "perfil", "situacion", "resultados", "analitico",
+             "ratios", "materia", "riesgos", "notas", "control", "programa")
+
+
+def render(files: dict, engagement: dict, parametros: dict, datasets: dict | None = None,
+           seccion: str | None = None) -> bytes:
     """HTML del papel con el motor del artefacto.
 
     ``files`` = ``{"prior":{"b64","name","sheet"?}|None, "current":{…}, "eri":{…}|None}``
     con los balances crudos en base64. Si falta el crudo de prior o current, se usa
     el respaldo pre-parseado desde ``datasets``.
+
+    ``seccion`` (opcional): si es una de ``SECCIONES``, el HTML arranca en modo de
+    una sola sección (oculta carga/navegación/otras secciones) para entregar un
+    archivo autónomo por botón (Materialidad.html, Riesgos.html, …).
     """
     files = {k: v for k, v in (files or {}).items() if v and v.get("b64")}
     cfg = construir_config(files, engagement, parametros)
@@ -125,10 +136,12 @@ def render(files: dict, engagement: dict, parametros: dict, datasets: dict | Non
     with open(_TMPL, encoding="utf-8") as fh:
         tmpl = fh.read()
     titulo = (cfg.get("company") or "Planificación").replace("<", "").replace(">", "")
+    solo = seccion if seccion in SECCIONES else None
     html = (tmpl
             .replace("__AUDITIA_TITLE__", _html.escape(titulo))
             .replace("__AUDITIA_CFG__", json.dumps(cfg, ensure_ascii=False))
-            .replace("__AUDITIA_LANSEY__", lansey))
+            .replace("__AUDITIA_LANSEY__", lansey)
+            .replace("__AUDITIA_SOLO__", json.dumps(solo)))
     return html.encode("utf-8")
 
 
