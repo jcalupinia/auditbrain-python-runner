@@ -399,3 +399,21 @@ def test_no_hay_respaldo_si_el_local_ya_trajo_filas(monkeypatch):
     monkeypatch.setattr(ex, "_chat_respaldo_nube", lambda: nube)
     out = ex.extraer_filas(m.CAMPOS["informe_anterior"], "INFORME " + ("t. " * 100))
     assert out["n"] == 1 and not nube.ultimo
+
+
+# --------------------------------------------------------------------------- #
+#  Informe: el «Detalle» es opcional (no bloquea la planificación)              #
+# --------------------------------------------------------------------------- #
+def test_informe_detalle_opcional_no_bloquea():
+    """Filas de Identificación/Opinión del informe traen el dato en concepto/tipo y
+    el detalle vacío; antes la validación fallaba con «Falta Detalle» y bloqueaba."""
+    filas = [
+        {"concepto": "Entidad auditada", "tipo": "Identificación", "detalle": "LANSEY S.A."},
+        {"concepto": "Período", "tipo": "Identificación"},                 # sin detalle
+        {"concepto": "Opinión", "tipo": "Opinión"},                        # sin detalle
+    ]
+    v = m.validar_filas("informe_anterior", filas)
+    assert v["ok"], v.get("errores") or v
+    # concepto SÍ sigue siendo obligatorio.
+    v2 = m.validar_filas("informe_anterior", [{"tipo": "Opinión", "detalle": "x"}])
+    assert not v2["ok"]
