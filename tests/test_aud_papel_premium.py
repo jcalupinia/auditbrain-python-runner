@@ -77,13 +77,21 @@ def _titulo(ch):
 
 
 def test_excel_un_solo_dashboard_con_graficos_por_formula():
-    """El Excel tiene UNA sola sección de dashboard (00_Inicio): los gráficos viven
-    ahí y sus datos son fórmulas a las cédulas; ninguna otra hoja lleva gráficos."""
+    """El Excel tiene su dashboard en 00_Inicio: los gráficos viven ahí y sus datos son
+    fórmulas a las cédulas. Ninguna otra hoja lleva gráficos, SALVO las herramientas que
+    activan ``PANEL["tableros_en_hoja"]`` (hoy la planificación), que además repiten el
+    gráfico de cada tablero dentro de su cédula visible, como el HTML pone el gráfico junto
+    a su pestaña."""
     for pid in PROCESADORES:
         d, _, reg = _reg(pid)
         wb = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "APROBADO")))  # abre sin «reparar»
         con_grafico = [ws.title for ws in wb.worksheets if ws._charts]
-        assert con_grafico == ["00_Inicio"], (pid, con_grafico)
+        spec = getattr(PROCESADORES[pid], "PANEL", None) or {}
+        if spec.get("tableros_en_hoja"):
+            destinos = {t.get("hoja_grafico") or t["hoja"] for t in (spec.get("tableros") or [])}
+            assert set(con_grafico) == {"00_Inicio"} | destinos, (pid, con_grafico)
+        else:
+            assert con_grafico == ["00_Inicio"], (pid, con_grafico)
         # Los MISMOS 4 gráficos del panel del HTML (pedido del dueño, 2026-09-25), nunca otros:
         # dona de composición, registrado vs recalculado, distribución y problemas por severidad;
         # después, solo los tableros que el PANEL declare (los mismos que dibuja el HTML).
