@@ -997,7 +997,11 @@ def _periodos_planificacion(engagement: dict, parametros: dict) -> dict:
     import re as _re
     corte = str((engagement or {}).get("cutoff") or (parametros or {}).get("cutoff") or "")
     m = _re.match(r"(\d{4})-(\d{2})", corte)
-    prelim = str((parametros or {}).get("tipoRevision") or "").strip().lower().startswith("prelim")
+    # «Preliminar» puede venir como parametros.tipoRevision, engagement.mode o el campo
+    # «Visita de auditoría» de la ficha (engagement.visit = "Preliminar"/"Final"). Antes
+    # solo se miraba tipoRevision, así que una visita preliminar salía como final.
+    prelim = str((parametros or {}).get("tipoRevision") or (engagement or {}).get("mode")
+                 or (engagement or {}).get("visit") or "").strip().lower().startswith("prelim")
     if not m:
         return {"periodoAnterior": "Cierre anterior", "periodoCorte": "Corte", "periodoEri": "Mismo corte anterior"}
     anio, mes = int(m.group(1)), int(m.group(2))

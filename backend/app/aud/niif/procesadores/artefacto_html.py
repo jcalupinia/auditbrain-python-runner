@@ -32,6 +32,7 @@ import base64
 import html as _html
 import json
 import os
+import re
 
 from backend.app.aud.niif.procesadores.base import num
 
@@ -77,7 +78,10 @@ def construir_config(files: dict, engagement: dict, parametros: dict) -> dict:
     e = engagement or {}
     p = parametros or {}
     files = files or {}
-    prelim = str(p.get("tipoRevision") or e.get("mode") or "").strip().lower().startswith("prelim")
+    # «Preliminar» puede venir como tipoRevision, engagement.mode o el campo «Visita de
+    # auditoría» de la ficha (engagement.visit). Antes no se miraba `visit`, así que una
+    # visita preliminar se trataba como final (comparaba contra Diciembre del corte).
+    prelim = str(p.get("tipoRevision") or e.get("mode") or e.get("visit") or "").strip().lower().startswith("prelim")
     hay_eri = bool(files.get("eri"))
     per = {
         "prior": str(e.get("periodoAnterior") or p.get("periodoAnterior") or "Cierre anterior"),
@@ -86,10 +90,14 @@ def construir_config(files: dict, engagement: dict, parametros: dict) -> dict:
     }
     # Meses transcurridos del ejercicio: con revisión preliminar y SIN estado de resultados al mismo
     # corte, el motor prorratea el ERI del año anterior (diciembre ÷ 12 × meses). En la final son 12.
+    # El default en preliminar es el MES DEL CORTE (agosto → 8); en final, 12.
+    mm = re.match(r"\d{4}-(\d{2})", str(e.get("cutoff") or p.get("cutoff") or ""))
+    mes_corte = int(mm.group(1)) if mm else 0
+    defecto_meses = (mes_corte or 8) if prelim else 12
     try:
-        meses = int(float(p.get("mesesTranscurridos") or e.get("mesesTranscurridos") or (8 if prelim else 12)))
+        meses = int(float(p.get("mesesTranscurridos") or e.get("mesesTranscurridos") or defecto_meses))
     except (TypeError, ValueError):
-        meses = 8 if prelim else 12
+        meses = defecto_meses
     meses = min(12, max(1, meses))
     return {
         "company": str(e.get("client") or p.get("cliente") or ""),
