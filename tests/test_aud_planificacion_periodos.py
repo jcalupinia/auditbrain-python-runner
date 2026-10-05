@@ -45,3 +45,17 @@ def test_meses_preliminar_sigue_el_mes_del_corte():
     # Corte en junio → meses = 6 (no el default fijo 8).
     cfg = construir_config({}, {"cutoff": "2026-06-30", "visit": "Preliminar"}, {})
     assert cfg["mode"] == "preliminar" and cfg["meses"] == 6
+
+
+def test_sin_eri_del_ano_anterior_activa_el_prorrateo():
+    """Carpeta del ERF del año anterior VACÍA (sin archivo eri): el proceso sigue y
+    el motor prorratea el estado de resultados del cierre anterior (Diciembre) ÷ 12 ×
+    meses. El contrato a nivel config: hasERI=False y meses = mes del corte (variable).
+    priorRaw del artefacto usa ese flag para prorratear (template, línea ~1222)."""
+    for corte, mes in [("2026-07-31", 7), ("2026-08-31", 8), ("2026-11-30", 11)]:
+        cfg = construir_config({}, {"cutoff": corte, "visit": "Preliminar"}, {})  # SIN 'eri'
+        assert cfg["hasERI"] is False, f"{corte}: debería prorratear (no hay ERF)"
+        assert cfg["meses"] == mes, f"{corte}: el prorrateo debe usar el mes del corte"
+    # Con el ERF presente NO se prorratea (se usa el archivo del mismo corte).
+    assert construir_config({"eri": {"b64": "x"}},
+                            {"cutoff": "2026-08-31", "visit": "Preliminar"}, {})["hasERI"] is True
