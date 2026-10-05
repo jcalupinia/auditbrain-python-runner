@@ -150,6 +150,29 @@ details.collapse summary{cursor:pointer;padding:12px 0;font-weight:600;font-size
 .tab-btn.on{color:var(--ink);border-bottom-color:var(--accent-bright);}
 .tab-panel[hidden]{display:none;}
 
+/* Impresión / "Guardar como PDF" del navegador: el PAPEL COMPLETO en horizontal.
+   En pantalla las secciones son pestañas (una visible); al imprimir se revelan
+   TODAS, cada una en su página. Se fuerza el tema CLARO (aunque el equipo esté en
+   modo oscuro) y se ocultan la navegación y los botones de acción.
+   Regla CLAUDE.md: el PDF debe traer el papel completo, formato horizontal. */
+@media print{
+  @page{size:A4 landscape;margin:12mm;}
+  :root,:root:not([data-theme="light"]),:root[data-theme="dark"]{
+    --bg:#F4F6F8; --surface:#FFFFFF; --surface-alt:#EAF0F5;
+    --ink:#1B2B3A; --ink-soft:#495867; --ink-faint:#7A8A99; --border:#D5DCE3;
+    --navy:#0A2342; --navy-2:#1B4F72; --teal:#0D7377;
+    --accent:#0D7377; --accent-bright:#0D7377; --accent-ink:#FFFFFF; --accent-bg:#E3F1F1;
+    --danger:#C0392B; --danger-bg:#FBEAE6; --warning:#B9770E; --warning-bg:#FCF0DA;
+    --success:#1E8449; --success-bg:#E7F5EC;
+  }
+  html{color-scheme:light;}
+  body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  .tab-panel[hidden]{display:block!important;}
+  .tab-panel{break-before:page;}
+  .tab-panel:first-of-type{break-before:auto;}
+  .tabs,.footer-actions{display:none!important;}
+}
+
 .report-table td.num-cell,.report-table th.num-cell{text-align:right;font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap;}
 .report-table .acct-name{display:inline-block;}
 .report-table .lvl1 td{background:var(--navy);color:#fff;font-weight:700;border-top:1.5px solid var(--teal);}
