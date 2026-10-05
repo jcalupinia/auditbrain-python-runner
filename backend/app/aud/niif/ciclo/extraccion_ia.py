@@ -52,6 +52,12 @@ MAX_CHARS = int(os.getenv("NIIF_EXTRACCION_MAX_CHARS", "60000"))
 CHARS_POR_LLAMADA = int(os.getenv("NIIF_EXTRACCION_CHARS_POR_LLAMADA", "14000"))
 MAX_RETRIES = int(os.getenv("NIIF_EXTRACCION_MAX_RETRIES", "2"))
 EXTRACCION_ENABLED = os.getenv("NIIF_EXTRACCION_ENABLED", "true").lower() in ("true", "1", "yes")
+# Respaldo a la nube cuando el servidor local devuelve 0 filas sobre un documento con
+# texto real: el modelo local (Qwen3/gpt-oss) a veces devuelve listas vacías en un
+# informe largo/complejo que SÍ tiene contenido extraíble. Si el texto supera este
+# mínimo de caracteres y no salió ninguna fila, se reintenta una vez forzando la nube
+# (modelo más fuerte). Solo se activa en el caso vacío.
+MIN_TEXTO_RESPALDO_NUBE = int(os.getenv("NIIF_EXTRACCION_MIN_TEXTO_RESPALDO", "400"))
 
 # Literal que `providers._call_openai_compatible`/`_call_anthropic` ponen cuando el
 # modelo contesta con contenido vacío. Lo espejamos aquí para detectar esa respuesta
@@ -375,6 +381,25 @@ def _chat_por_defecto() -> Callable:
     return providers.completar_para_extraccion
 
 
+def _chat_respaldo_nube() -> Optional[Callable]:
+    """Chat que FUERZA la nube (excluye el servidor local). Se usa como respaldo
+    cuando el local devuelve 0 filas sobre un documento con texto real: un modelo de
+    nube más fuerte (DeepSeek, Gemini, …) sí transcribe el informe. Devuelve ``None``
+    si no hay ningún proveedor de nube configurado (solo el local)."""
+    if not EXTRACCION_ENABLED:
+        return None
+    from backend.app.chat import providers
+
+    hay_nube = any(p != "local" for p in providers._providers_with_keys())
+    if not hay_nube:
+        return None
+
+    def _chat(messages, system=None):
+        return providers.chat_complete(messages, system, temperature=0, exclude=("local",))
+
+    return _chat
+
+
 # --------------------------------------------------------------------------- #
 #  4 · API pública                                                            #
 # --------------------------------------------------------------------------- #
@@ -386,6 +411,7 @@ def extraer_filas(
     enums: Optional[dict] = None,
     contexto: str = "",
     chat: Optional[Callable] = None,
+    permitir_respaldo_nube: bool = True,
 ) -> dict:
     """Extrae filas estructuradas del ``texto`` según los ``campos`` del procesador,
     usando el servidor de IA local primero (cadena de proveedores compartida).
@@ -399,6 +425,7 @@ def extraer_filas(
     :class:`ExtraccionError` si la respuesta es inválida.
     """
     enums = enums or {}
+    uso_defecto = chat is None     # solo con el chat por defecto aplica el respaldo a la nube
     chat = chat or _chat_por_defecto()
     texto = texto[:MAX_CHARS]
     claves = {c["key"] for c in campos}
@@ -408,47 +435,69 @@ def extraer_filas(
     # modelo local y se unen las filas de todos (un documento corto = un solo trozo).
     trozos = _trozos(texto, CHARS_POR_LLAMADA)
     t0 = time.perf_counter()   # tiempo real de la IA (llamadas al proveedor), para medir en producción
-    todas: list[dict] = []
-    modelo = ""
-    fallos: list[str] = []
-    for ti, trozo in enumerate(trozos, start=1):
-        prompt = _prompt(campos, instrucciones, contexto, enums, trozo)
-        error: Optional[Exception] = None
-        for intento in range(MAX_RETRIES):
-            try:
-                resp = chat([{"role": "user", "content": prompt}], system=_SISTEMA)
-                contenido = (getattr(resp, "content", "") or "").strip()
-                # Respuesta vacía del modelo: un modelo de razonamiento (gpt-oss del
-                # servidor local) a veces gasta todo su presupuesto de tokens pensando
-                # y no llega a escribir el JSON; el proveedor devuelve "" o el literal
-                # placeholder. En vez del críptico «Expecting value: line 1 column 1»,
-                # damos un mensaje accionable (se reintenta igual con backoff).
-                if not contenido or contenido == _RESPUESTA_VACIA_PROVEEDOR:
-                    raise ExtraccionError(
-                        "El modelo de IA devolvió una respuesta vacía (no transcribió nada). "
-                        "Suele pasar cuando el modelo de razonamiento del servidor local agota "
-                        "su presupuesto de tokens razonando sin llegar a responder. Opciones: "
-                        "reintente; suba AUDITBRAIN_LLM_MAX_TOKENS_EXTRACCION en Render; o cargue "
-                        "el documento como tabla en Excel/CSV con la plantilla del requerimiento."
-                    )
-                datos = _json_de_texto(contenido)
-                filas = datos.get("filas") if isinstance(datos, dict) else datos
-                if not isinstance(filas, list):
-                    raise ExtraccionError("La IA no devolvió una lista de filas.")
-                todas.extend(f for f in filas if isinstance(f, dict))
-                modelo = getattr(resp, "model", "") or modelo
-                error = None
-                break
-            except ExtraccionNoDisponible:
-                raise
-            except Exception as e:  # reintento con backoff exponencial 1s/2s/...
-                error = e
-                etq = f" (trozo {ti}/{len(trozos)})" if len(trozos) > 1 else ""
-                log.warning("Extracción IA falló%s (intento %d/%d): %s", etq, intento + 1, MAX_RETRIES, e)
-                if intento < MAX_RETRIES - 1:
-                    time.sleep(2 ** intento)
-        if error is not None:
-            fallos.append(f"trozo {ti}/{len(trozos)}: {error}")
+
+    def _corre(chat_fn: Callable) -> tuple[list[dict], str, list[str]]:
+        """Recorre los trozos con un proveedor y devuelve (filas, modelo, fallos)."""
+        todas: list[dict] = []
+        modelo = ""
+        fallos: list[str] = []
+        for ti, trozo in enumerate(trozos, start=1):
+            prompt = _prompt(campos, instrucciones, contexto, enums, trozo)
+            error: Optional[Exception] = None
+            for intento in range(MAX_RETRIES):
+                try:
+                    resp = chat_fn([{"role": "user", "content": prompt}], system=_SISTEMA)
+                    contenido = (getattr(resp, "content", "") or "").strip()
+                    # Respuesta vacía del modelo: un modelo de razonamiento (gpt-oss del
+                    # servidor local) a veces gasta todo su presupuesto de tokens pensando
+                    # y no llega a escribir el JSON; el proveedor devuelve "" o el literal
+                    # placeholder. En vez del críptico «Expecting value: line 1 column 1»,
+                    # damos un mensaje accionable (se reintenta igual con backoff).
+                    if not contenido or contenido == _RESPUESTA_VACIA_PROVEEDOR:
+                        raise ExtraccionError(
+                            "El modelo de IA devolvió una respuesta vacía (no transcribió nada). "
+                            "Suele pasar cuando el modelo de razonamiento del servidor local agota "
+                            "su presupuesto de tokens razonando sin llegar a responder. Opciones: "
+                            "reintente; suba AUDITBRAIN_LLM_MAX_TOKENS_EXTRACCION en Render; o cargue "
+                            "el documento como tabla en Excel/CSV con la plantilla del requerimiento."
+                        )
+                    datos = _json_de_texto(contenido)
+                    filas = datos.get("filas") if isinstance(datos, dict) else datos
+                    if not isinstance(filas, list):
+                        raise ExtraccionError("La IA no devolvió una lista de filas.")
+                    todas.extend(f for f in filas if isinstance(f, dict))
+                    modelo = getattr(resp, "model", "") or modelo
+                    error = None
+                    break
+                except ExtraccionNoDisponible:
+                    raise
+                except Exception as e:  # reintento con backoff exponencial 1s/2s/...
+                    error = e
+                    etq = f" (trozo {ti}/{len(trozos)})" if len(trozos) > 1 else ""
+                    log.warning("Extracción IA falló%s (intento %d/%d): %s", etq, intento + 1, MAX_RETRIES, e)
+                    if intento < MAX_RETRIES - 1:
+                        time.sleep(2 ** intento)
+            if error is not None:
+                fallos.append(f"trozo {ti}/{len(trozos)}: {error}")
+        return todas, modelo, fallos
+
+    todas, modelo, fallos = _corre(chat)
+
+    # Respaldo a la nube: el servidor local (primero en la cadena) a veces devuelve
+    # listas vacías en un documento largo/complejo que SÍ tiene contenido extraíble
+    # (p. ej. un informe de auditoría de 40 págs). Si no salió NINGUNA fila (sin error)
+    # y el documento tiene texto real, se reintenta UNA vez forzando la nube (modelo
+    # más fuerte). Solo se activa en el caso vacío, así que no encarece lo normal.
+    if (uso_defecto and permitir_respaldo_nube and not todas and not fallos
+            and len(texto.strip()) >= MIN_TEXTO_RESPALDO_NUBE):
+        nube = _chat_respaldo_nube()
+        if nube is not None:
+            log.info("Extracción IA: 0 filas del proveedor local sobre %d chars con texto real; "
+                     "reintento forzando la nube.", len(texto.strip()))
+            todas_n, modelo_n, fallos_n = _corre(nube)
+            if todas_n:
+                todas, modelo, fallos = todas_n, modelo_n, fallos_n
+
     # Si ningún trozo entregó filas, se propaga el error; si al menos uno funcionó,
     # se devuelven las filas obtenidas (un trozo caído no pierde toda la extracción).
     if not todas and fallos:
