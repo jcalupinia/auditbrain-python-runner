@@ -359,3 +359,43 @@ def test_apagada_no_disponible(monkeypatch):
     monkeypatch.setattr(ex, "EXTRACCION_ENABLED", False)
     with pytest.raises(ex.ExtraccionNoDisponible):
         ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t")
+
+
+# --------------------------------------------------------------------------- #
+#  Respaldo a la nube cuando el local devuelve 0 filas                          #
+# --------------------------------------------------------------------------- #
+def test_respaldo_nube_cuando_local_devuelve_cero_filas(monkeypatch):
+    """El local (por defecto) devuelve listas vacías sobre un documento con texto
+    real; debe reintentarse forzando la nube, que sí extrae filas."""
+    local = _ChatFalso(filas=[])                       # local: 0 filas
+    nube = _ChatFalso(filas=[{"concepto": "Opinión", "tipo": "Opinión",
+                              "detalle": "Opinión sin salvedades."}])  # nube: 1 fila
+    monkeypatch.setattr(ex, "_chat_por_defecto", lambda: local)
+    monkeypatch.setattr(ex, "_chat_respaldo_nube", lambda: nube)
+
+    texto = "INFORME DE AUDITORÍA LANSEY S.A. " + ("contenido real del informe. " * 50)
+    out = ex.extraer_filas(m.CAMPOS["informe_anterior"], texto,
+                           enums=m.EXTRACCION_ENUMS.get("informe_anterior", {}))
+    assert out["n"] == 1
+    assert out["rows"][0]["concepto"] == "Opinión"
+    assert nube.ultimo, "no se llamó al proveedor de nube de respaldo"
+
+
+def test_sin_respaldo_si_no_hay_nube(monkeypatch):
+    """Si no hay proveedor de nube, 0 filas del local se devuelven tal cual (sin crash)."""
+    local = _ChatFalso(filas=[])
+    monkeypatch.setattr(ex, "_chat_por_defecto", lambda: local)
+    monkeypatch.setattr(ex, "_chat_respaldo_nube", lambda: None)   # no hay nube
+    texto = "INFORME " + ("texto. " * 100)
+    out = ex.extraer_filas(m.CAMPOS["informe_anterior"], texto)
+    assert out["n"] == 0
+
+
+def test_no_hay_respaldo_si_el_local_ya_trajo_filas(monkeypatch):
+    """Si el local ya extrajo filas, NO se llama a la nube (no encarece lo normal)."""
+    local = _ChatFalso(filas=[{"concepto": "Entidad", "tipo": "Identificación", "detalle": "LANSEY S.A."}])
+    nube = _ChatFalso(filas=[{"concepto": "NO-DEBERIA", "tipo": "Opinión", "detalle": "x"}])
+    monkeypatch.setattr(ex, "_chat_por_defecto", lambda: local)
+    monkeypatch.setattr(ex, "_chat_respaldo_nube", lambda: nube)
+    out = ex.extraer_filas(m.CAMPOS["informe_anterior"], "INFORME " + ("t. " * 100))
+    assert out["n"] == 1 and not nube.ultimo
