@@ -190,8 +190,21 @@ def _openai_model() -> str:
 
 
 def _gemini_model() -> str:
-    # Default a Gemini 2.0 Flash (cuota gratis muy generosa en AI Studio).
-    return os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
+    # Default a Gemini 2.5 Flash-Lite: barato ($0.10/$0.40 por 1M tok) y con capa
+    # gratuita en AI Studio. (El anterior gemini-2.0-flash fue RETIRADO por Google
+    # el 2026-06-01 → devolvía error; este es su reemplazo oficial, mismo precio.)
+    return os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
+
+
+def _deepseek_key() -> str:
+    return os.getenv("DEEPSEEK_API_KEY", "").strip()
+
+
+def _deepseek_model() -> str:
+    # DeepSeek V3 (deepseek-chat): barato y de alta calidad, API compatible con
+    # OpenAI. Para razonamiento existe "deepseek-reasoner" (más lento, no ideal
+    # para extracción). Configurable con DEEPSEEK_MODEL.
+    return os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip()
 
 
 def _groq_model() -> str:
@@ -286,8 +299,8 @@ def _providers_with_keys() -> list[str]:
 
     Preferencia: el valor explícito de AUDITBRAIN_LLM_PROVIDER primero, y luego
     el resto. Sin override, el servidor de IA LOCAL va primero (privacidad +
-    coste cero), y los gratuitos antes que los de pago como respaldo:
-        local > gemini > groq > openrouter > anthropic > openai
+    coste cero), y los baratos/gratuitos antes que los caros como respaldo:
+        local > gemini > groq > deepseek > openrouter > anthropic > openai
     """
     have = {
         # "local" está disponible con solo la base URL configurada; la key es
@@ -297,12 +310,13 @@ def _providers_with_keys() -> list[str]:
         "openai": bool(_openai_key()),
         "gemini": bool(_gemini_key()),
         "groq": bool(_groq_key()),
+        "deepseek": bool(_deepseek_key()),
         "openrouter": bool(_openrouter_key()),
     }
     preferred = _provider()
     if preferred == "google":
         preferred = "gemini"
-    default_order = ["local", "gemini", "groq", "openrouter", "anthropic", "openai"]
+    default_order = ["local", "gemini", "groq", "deepseek", "openrouter", "anthropic", "openai"]
     order: list[str] = []
     if preferred in have and have[preferred]:
         order.append(preferred)
@@ -356,6 +370,7 @@ def estado_proveedores() -> dict:
             "local": bool(_local_base_url()),
             "gemini": bool(_gemini_key()),
             "groq": bool(_groq_key()),
+            "deepseek": bool(_deepseek_key()),
             "openrouter": bool(_openrouter_key()),
             "anthropic": bool(_anthropic_key()),
             "openai": bool(_openai_key()),
@@ -380,6 +395,8 @@ def _dispatch(provider: str, messages: list[dict], system: str | None,
         return _call_gemini(messages, system, temperature)
     if provider == "groq":
         return _call_groq(messages, system, temperature)
+    if provider == "deepseek":
+        return _call_deepseek(messages, system, temperature)
     if provider == "openrouter":
         return _call_openrouter(messages, system, temperature)
     raise ProviderUnavailable(f"Proveedor desconocido: {provider}")
@@ -762,6 +779,19 @@ def _call_groq(messages: list[dict], system: str | None,
     )
 
 
+def _call_deepseek(messages: list[dict], system: str | None,
+                   temperature: float | None = None) -> LLMResponse:
+    # DeepSeek expone una API compatible con OpenAI (base https://api.deepseek.com).
+    return _call_openai_compatible(
+        url="https://api.deepseek.com/v1/chat/completions",
+        key=_deepseek_key(),
+        model=_deepseek_model(),
+        messages=messages,
+        system=system,
+        temperature=temperature,
+    )
+
+
 def _call_openrouter(messages: list[dict], system: str | None,
                      temperature: float | None = None) -> LLMResponse:
     # OpenRouter recomienda enviar HTTP-Referer y X-Title para atribución;
@@ -841,7 +871,7 @@ def _call_gemini(messages: list[dict], system: str | None,
 # toda la cadena de failover. Una vez emitido el primer token ya no hay
 # failover transparente (se propaga el error con el parcial ya entregado).
 
-_STREAMABLE = {"local", "openai", "groq", "openrouter"}
+_STREAMABLE = {"local", "openai", "groq", "deepseek", "openrouter"}
 
 
 def _stream_openai_compatible(url, key, model, messages, system, timeout, extra_headers=None,
@@ -934,6 +964,11 @@ def _stream_provider(provider, messages, system, temperature=None):
         return _stream_openai_compatible(
             "https://api.openai.com/v1/chat/completions", _openai_key(),
             _openai_model(), messages, system, 60, temperature=temperature,
+        )
+    if provider == "deepseek":
+        return _stream_openai_compatible(
+            "https://api.deepseek.com/v1/chat/completions", _deepseek_key(),
+            _deepseek_model(), messages, system, 60, temperature=temperature,
         )
     if provider == "groq":
         return _stream_openai_compatible(
