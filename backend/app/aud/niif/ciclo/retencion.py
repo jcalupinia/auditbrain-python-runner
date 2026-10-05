@@ -12,9 +12,16 @@ pruebas de la auditoría del cliente). El servidor las borra automáticamente:
 - **Tope duro de 8 h:** en todo caso, nunca pasa de ``AUD_CICLO_PRUEBA_TTL_HORAS``
   (8 h) desde que se creó, se haya descargado o no.
 
-Aplica a TODAS las pruebas, **aprobadas incluidas**: el borrado automático levanta
-la regla ``APROBADA_NO_SE_TOCA`` (que sigue protegiendo el borrado MANUAL del
-usuario). El borrado es definitivo: fila, evidencia, bitácora y archivos del disco.
+Aplica a las pruebas TERMINADAS o ya DESCARGADAS, **aprobadas incluidas**: el
+borrado automático levanta la regla ``APROBADA_NO_SE_TOCA`` (que sigue protegiendo
+el borrado MANUAL del usuario). El borrado es definitivo: fila, evidencia, bitácora
+y archivos del disco.
+
+**Excepción (2026-10-05): el trabajo EN CURSO no se autopurga.** Una prueba que
+sigue ABIERTA (estado ≠ ``APROBADO``) y que nunca se descargó queda intocable por
+el borrado automático, aunque pase de las 8 h. El tope duro destruía una
+planificación (NIA 300) a medio armar mientras el auditor la trabajaba. El "lugar
+de paso" limpia lo terminado/descargado, no lo activo (ver ``_vencida``).
 
 Corre en un loop de fondo arrancado en ``app.py`` (igual que el cleanup AUD/OF).
 """
@@ -49,16 +56,34 @@ def _parse(iso: str | None) -> datetime.datetime | None:
 
 
 def _vencida(p: Prueba, ahora: datetime.datetime) -> bool:
-    """¿Esta prueba ya debe borrarse? Tope de 8 h desde creada, o la gracia
-    post-descarga desde la última descarga, lo que ocurra primero."""
-    tope_horas = settings.AUD_CICLO_PRUEBA_TTL_HORAS
-    if p.creada_en is not None and (ahora - p.creada_en) >= datetime.timedelta(hours=tope_horas):
-        return True
+    """¿Esta prueba ya debe borrarse?
+
+    Reglas (actualización 2026-10-05):
+    - **Trabajo en curso protegido:** una prueba que sigue ABIERTA (estado distinto
+      de ``APROBADO``) y que NUNCA se descargó NO se autopurga, aunque pase de las
+      8 h. Antes se borraba a las 8 h "se haya descargado o no", lo que destruía una
+      planificación (NIA 300) a medio armar mientras el auditor aún la trabajaba
+      (síntoma: "Prueba no encontrada" al extraer/confirmar). El "lugar de paso"
+      limpia papeles TERMINADOS o ya DESCARGADOS, no trabajo activo.
+    - **Descargada:** una vez que el auditor bajó el papel (lo archivó en su base),
+      se borra pasada la gracia post-descarga. Aplica a cualquier estado.
+    - **Tope duro de 8 h:** sigue vigente para pruebas APROBADAS (terminadas) o ya
+      descargadas, como backstop para que el servidor no acumule papeles cerrados.
+    """
     descargada = _parse((p.registro or {}).get("descargada_en"))
+    en_curso = (p.estado or "").upper() != "APROBADO"
+    # Trabajo en curso y sin descargar: intocable por el borrado automático.
+    if en_curso and descargada is None:
+        return False
+    # Descargada: ya archivada → purgar pasada la gracia.
     if descargada is not None:
         gracia = settings.AUD_CICLO_POST_DOWNLOAD_TTL_MINUTES
         if (ahora - descargada) >= datetime.timedelta(minutes=gracia):
             return True
+    # Tope duro desde la creación (ya solo alcanza aprobadas o descargadas).
+    tope_horas = settings.AUD_CICLO_PRUEBA_TTL_HORAS
+    if p.creada_en is not None and (ahora - p.creada_en) >= datetime.timedelta(hours=tope_horas):
+        return True
     return False
 
 
