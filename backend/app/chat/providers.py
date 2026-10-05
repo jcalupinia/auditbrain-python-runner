@@ -201,10 +201,12 @@ def _deepseek_key() -> str:
 
 
 def _deepseek_model() -> str:
-    # DeepSeek V3 (deepseek-chat): barato y de alta calidad, API compatible con
-    # OpenAI. Para razonamiento existe "deepseek-reasoner" (más lento, no ideal
-    # para extracción). Configurable con DEEPSEEK_MODEL.
-    return os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip()
+    # DeepSeek V4.1 Flash (deepseek-flash): barato y rápido, API compatible con
+    # OpenAI, ideal para extracción. Para razonamiento fuerte existe
+    # "deepseek-v4-pro". (Los IDs antiguos deepseek-chat/deepseek-reasoner fueron
+    # retirados por DeepSeek en 2026-07; por eso NO se usan de default.)
+    # Configurable con DEEPSEEK_MODEL; confirma el ID vigente en platform.deepseek.com.
+    return os.getenv("DEEPSEEK_MODEL", "deepseek-flash").strip()
 
 
 def _groq_model() -> str:
