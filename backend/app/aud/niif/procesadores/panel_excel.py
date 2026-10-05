@@ -588,13 +588,27 @@ def portada(ws, wd, definicion, reg, hojas, titulos, estado, version, grupos_nav
     # Tableros adicionales del PANEL (p. ej. índices por grupo y analítico de la planificación),
     # como en el HTML: debajo de los 4 gráficos, en la misma rejilla, con sus datos por fórmula.
     tabs = []
+    # Con ``PANEL["tableros_en_hoja"]`` (hoy solo la planificación), cada tablero se dibuja
+    # TAMBIÉN dentro de su cédula de origen —al lado de la tabla, como el HTML pone el gráfico
+    # junto a cada pestaña— además de la portada. Es un gráfico nativo extra, solo en el Excel.
+    en_hoja = bool(spec.get("tableros_en_hoja"))
+    tabs_hoja: dict = {}
     for t in p.get("tableros") or []:
         filas_t = tableros_formulas(t, hojas, titulos)
         if not filas_t:
             continue
         b = datos_g.bloque_series(t["rotulo"], [n for n, _ in t["series"]], filas_t, FMT_TABLERO.get(t.get("unidad"), est.FMT["n"]))
-        tabs.append(grafico_agrupadas(wd, b, t["rotulo"], t.get("sub"), _colores_tablero(t),
-                                      FMT_TABLERO.get(t.get("unidad"), "#,##0.00")))
+        col, fmt = _colores_tablero(t), FMT_TABLERO.get(t.get("unidad"), "#,##0.00")
+        tabs.append(grafico_agrupadas(wd, b, t["rotulo"], t.get("sub"), col, fmt))
+        if en_hoja:
+            # ``hoja_grafico`` permite anclar el gráfico en una pestaña VISIBLE distinta de la hoja
+            # de datos (p. ej. estructura/ERI se calculan en 09_Estados —oculta— pero el gráfico va
+            # en 08_Horizontal, el analítico visible). Por defecto, la misma hoja de los datos.
+            destino = t.get("hoja_grafico") or t["hoja"]
+            i = next((k for k, h in enumerate(hojas) if h.get("name") == destino), None)
+            if i is not None:
+                # Segundo gráfico desde el MISMO bloque de datos, para anclarlo en la cédula.
+                tabs_hoja.setdefault(titulos[i], []).append(grafico_agrupadas(wd, b, t["rotulo"], t.get("sub"), col, fmt))
     if tabs:
         ws.row_breaks.append(Break(id=fila - 1))
         primera = (p["tableros"][0].get("seccion") or "").upper()
@@ -617,6 +631,9 @@ def portada(ws, wd, definicion, reg, hojas, titulos, estado, version, grupos_nav
             _ancla_grafico(ws, ch, izquierda=(k % 2 == 0), fila=fila_g - 1, filas=filas_graf)
         fila = fila_g + filas_graf + 2
         ws.row_breaks.append(Break(id=fila - 1))
+
+    # Los gráficos por cédula (``tabs_hoja``) se anclan DESPUÉS, en ``libro.xlsx``, porque esas
+    # hojas aún no existen al construir la portada (``anclar_tableros_en_hojas``).
 
     # Navegación por sección con los botones del HTML.
     ws[f"B{fila}"].value = "NAVEGAR POR SECCIÓN"
@@ -641,7 +658,27 @@ def portada(ws, wd, definicion, reg, hojas, titulos, estado, version, grupos_nav
             ws.row_dimensions[row].height = 32
         fila += (len(items) - 1) // 5 + 2
     _pinta_fondo(ws, fila + 20)
-    return fila
+    return fila, tabs_hoja
+
+
+def anclar_tableros_en_hojas(wb, tabs_hoja: dict):
+    """Ancla los gráficos de los tableros DENTRO de su cédula de origen (como el HTML pone el
+    gráfico junto a cada pestaña), debajo del contenido ya escrito por ``libro._hoja_ejecutiva``
+    (tabla + «Cómo se calcula»). Se llama desde ``libro.xlsx`` después de crear las hojas de
+    cédula, porque al construir la portada esas hojas aún no existen. ``tabs_hoja`` = {título de
+    hoja: [gráficos]}; vacío cuando el PANEL no activó ``tableros_en_hoja``."""
+    filas_graf = 19
+    for titulo, charts in (tabs_hoja or {}).items():
+        if titulo not in wb.sheetnames:
+            continue
+        sws = wb[titulo]
+        base = (sws.max_row or 1) + 2
+        rot = sws.cell(row=base, column=2, value="GRÁFICOS DE ESTA SECCIÓN")
+        rot.font = Font(name=est.FONT_TITULO, size=9, bold=True, color=ORO_TXT)
+        fila0 = base + 1
+        for k, ch in enumerate(charts):
+            fila_g = fila0 + (k // 2) * (filas_graf + 1)
+            _ancla_grafico(sws, ch, izquierda=(k % 2 == 0), fila=fila_g - 1, filas=filas_graf)
 
 
 def _ancla_grafico(ws, ch, izquierda, fila, filas):

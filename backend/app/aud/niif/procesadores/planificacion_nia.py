@@ -4358,6 +4358,10 @@ EXPLICA = {
 # En la planificación no hay «cifra del cliente frente a la recalculada»: el comparativo muestra los dos umbrales
 # que guían el trabajo (graficos.TEXTOS los cambia solo para esta herramienta).
 PANEL = {
+    # Cada tablero se dibuja también DENTRO de su cédula de origen (como el HTML pone el gráfico
+    # al lado de su pestaña): los 4 de índices por grupo en 10_Indices y los de estructura/ERI en
+    # 09_Estados. Es un gráfico nativo extra del Excel; no afecta a las otras herramientas.
+    "tableros_en_hoja": True,
     "poblacion": {"rotulo": "Activo total", "total": "activos"},
     "recalculado": {"rotulo": "Materialidad de desempeño", "total": "desempeno"},
     "registrado": {"rotulo": "Umbral de errores claramente insignificantes", "total": "trivial"},
@@ -4388,12 +4392,12 @@ PANEL = {
          "filas": [{"fila": x, "mejor": "alto"} for x in ("ROI operativo (%)", "Margen operativo (%)", "ROE (%)",
                                                           "Margen neto (%)", "Margen bruto (%)")]},
         {"rotulo": "Estructura del balance", "sub": "USD · año anterior frente al corte.", "unidad": "USD", "hoja": "09_Estados",
-         "etiqueta": "Concepto",
+         "hoja_grafico": "08_Horizontal", "etiqueta": "Concepto",
          "filas": [{"fila": "Activo corriente"}, {"fila": "Activo no corriente"},
                    {"fila": "TOTAL PASIVO", "rotulo": "Pasivo total"},
                    {"fila": "PATRIMONIO TOTAL", "rotulo": "Patrimonio total", "mejor": "alto"}]},
         {"rotulo": "Estado de resultados", "sub": "USD · año anterior frente al corte.", "unidad": "USD", "hoja": "09_Estados",
-         "etiqueta": "Concepto",
+         "hoja_grafico": "08_Horizontal", "etiqueta": "Concepto",
          "filas": [{"fila": "Ventas netas", "mejor": "alto"}, {"fila": "(−) Costo de ventas", "rotulo": "Costo de ventas"},
                    {"fila": "Utilidad bruta", "mejor": "alto"}, {"fila": "(−) Gastos operativos", "rotulo": "Gastos operativos"},
                    {"fila": "Utilidad neta", "mejor": "alto"}]},
