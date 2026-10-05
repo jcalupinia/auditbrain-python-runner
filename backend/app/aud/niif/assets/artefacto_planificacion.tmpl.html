@@ -2998,16 +2998,17 @@ function activarSolo(tab){
     // Botón para cerrar/volver: como cada sección abre en su propia pestaña, ocultar
     // la navegación dejaba sin salida. Se agrega un "Cerrar" en la barra superior.
     var bar=document.querySelector('.topbar-inner');
-    if(bar && !document.getElementById('soloCerrar')){
+    if(bar && !document.getElementById('soloVolver')){
       var x=document.createElement('button');
-      x.id='soloCerrar'; x.type='button'; x.className='solo-cerrar';
-      x.textContent='✕ Cerrar';
-      x.title='Cerrar esta sección y volver';
+      x.id='soloVolver'; x.type='button'; x.className='solo-cerrar';
+      x.textContent='← Volver al tablero';
+      x.title='Ver el tablero completo (todas las secciones)';
       x.addEventListener('click',function(){
-        // Si la pestaña la abrió la plataforma (window.open), se cierra; si se abrió
-        // el archivo directo, al menos vuelve atrás en el historial.
-        window.close();
-        setTimeout(function(){ if(history.length>1){ history.back(); } },120);
+        // El archivo ya trae TODAS las secciones (solo ocultas en modo sección
+        // única): quitar data-solo revela la navegación y el tablero completo.
+        document.body.removeAttribute('data-solo');
+        x.remove();
+        window.scrollTo(0,0);
       });
       bar.appendChild(x);
     }
