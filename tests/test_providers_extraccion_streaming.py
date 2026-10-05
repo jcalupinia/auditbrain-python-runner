@@ -207,6 +207,44 @@ def test_extraccion_failover_a_la_nube_si_el_local_excede_el_presupuesto(monkeyp
         providers._EXTRACCION_SKIP_LOCAL.reset(_reset)
 
 
+def test_extraccion_termina_en_el_local_si_la_nube_esta_sin_saldo(monkeypatch):
+    """Caso del cliente: el local va lento y TODOS los proveedores de nube están sin
+    saldo/cuota. El failover no debe perder el trabajo: se vuelve al local SIN
+    presupuesto para que complete, y queda sticky (CLOUD_MUERTO) para que el bloque
+    siguiente vaya directo al local sin volver a probar la nube."""
+    monkeypatch.setattr(providers, "_extraccion_budget", lambda: 0)  # fuerza "excedido" en el intento con presupuesto
+
+    stream = {"llamadas": 0}
+
+    def _stream_local(messages, system=None, *, temperature=None):
+        stream["llamadas"] += 1
+        yield {"type": "token", "text": '{"filas": []}'}
+        yield {"type": "done", "model": "auditia-rutina"}
+
+    nube = {"llamadas": 0}
+
+    def _no_stream(messages, system=None, *, temperature=None, exclude=()):
+        nube["llamadas"] += 1
+        raise providers.ProviderUnavailable("Todos los proveedores sin saldo/cuota", billing=True)
+
+    monkeypatch.setattr(providers, "stream_chat_complete", _stream_local)
+    monkeypatch.setattr(providers, "chat_complete", _no_stream)
+    r1 = providers._EXTRACCION_SKIP_LOCAL.set(False)
+    r2 = providers._EXTRACCION_CLOUD_MUERTO.set(False)
+    try:
+        # Bloque 1: presupuesto 0 → intenta nube (muerta) → vuelve al local y completa.
+        b1 = providers.completar_para_extraccion([{"role": "user", "content": "bloque 1"}])
+        assert b1.content == '{"filas": []}' and b1.model == "auditia-rutina"
+        assert providers._EXTRACCION_CLOUD_MUERTO.get() is True
+        assert nube["llamadas"] == 1          # se probó la nube una vez (y falló)
+        # Bloque 2: con la nube ya marcada muerta, va directo al local (sin reintentar la nube).
+        b2 = providers.completar_para_extraccion([{"role": "user", "content": "bloque 2"}])
+        assert b2.content == '{"filas": []}' and nube["llamadas"] == 1
+    finally:
+        providers._EXTRACCION_SKIP_LOCAL.reset(r1)
+        providers._EXTRACCION_CLOUD_MUERTO.reset(r2)
+
+
 # --------------------------------------------------------------------------- #
 #  6 · Techo de tokens: la extracción da más margen al modelo de razonamiento #
 # --------------------------------------------------------------------------- #

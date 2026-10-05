@@ -449,14 +449,14 @@ export async function cicloLeerPrueba(id) {
 export async function cicloAccion(id, accion, revision, datos = {}) {
   // Acciones que invocan al LLM: la extracción por IA de un documento y el
   // Procesar (map_validate), que auto-extrae los PDF/Word pendientes. El servidor
-  // de IA local tarda por documento, y uno pesado (el informe = 5 llamadas) se
-  // alarga; con el default de 60s el cliente abortaba («No se pudo conectar con el
-  // servidor»). Se les da una ventana amplia (420s) y SIN reintentos (no
-  // re-POSTear un trabajo largo del modelo). El backend, además, hace failover a
-  // la nube si el local va lento (presupuesto por bloque), así que esta ventana
-  // cubre el peor caso (primer bloque al local + resto a un proveedor rápido).
+  // de IA local tarda por documento, y uno pesado (el informe/las notas = 5
+  // llamadas) se alarga; con el default de 60s el cliente abortaba («No se pudo
+  // conectar con el servidor»). Se les da una ventana amplia (600s) y SIN
+  // reintentos (no re-POSTear un trabajo largo del modelo). El backend hace
+  // failover a la nube si el local va lento; y si la nube está sin saldo, termina
+  // en el local (más lento). Esta ventana cubre ese peor caso (sondeo + local).
   const invocaLLM = accion === "extraer_ia" || accion === "map_validate";
-  const opts = invocaLLM ? { timeoutMs: 420000, retries: 0 } : {};
+  const opts = invocaLLM ? { timeoutMs: 600000, retries: 0 } : {};
   return parse(await apiFetch(`${CICLO}/pruebas/${id}/acciones`, jsonPost("POST", { accion, revision, datos }), opts));
 }
 // E7: evidencia. El archivo va por formulario multiparte; el servidor lo guarda
