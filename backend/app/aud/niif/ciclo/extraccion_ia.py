@@ -43,8 +43,26 @@ log = logging.getLogger(__name__)
 # Recorte del texto que se manda al modelo (los documentos del año anterior son
 # cortos; este tope evita costos/lentitud si alguien sube un PDF gigante por error).
 MAX_CHARS = int(os.getenv("NIIF_EXTRACCION_MAX_CHARS", "60000"))
+# Tamaño de cada TROZO que se le manda al modelo. Los modelos del servidor local
+# (gpt-oss vía LiteLLM) tienen una ventana de contexto chica (~24.576 tokens): un
+# documento largo de una sola vez la excede («Input length … exceeds model's
+# maximum context length») y la extracción falla. Por eso el documento se parte en
+# trozos que entran holgados (input + prompt + salida) y se unen las filas. ~14.000
+# caracteres ≈ 7.000 tokens de entrada, dejando sitio para el razonamiento y el JSON.
+CHARS_POR_LLAMADA = int(os.getenv("NIIF_EXTRACCION_CHARS_POR_LLAMADA", "14000"))
 MAX_RETRIES = int(os.getenv("NIIF_EXTRACCION_MAX_RETRIES", "2"))
 EXTRACCION_ENABLED = os.getenv("NIIF_EXTRACCION_ENABLED", "true").lower() in ("true", "1", "yes")
+# Respaldo a la nube cuando el servidor local devuelve 0 filas sobre un documento con
+# texto real: el modelo local (Qwen3/gpt-oss) a veces devuelve listas vacías en un
+# informe largo/complejo que SÍ tiene contenido extraíble. Si el texto supera este
+# mínimo de caracteres y no salió ninguna fila, se reintenta una vez forzando la nube
+# (modelo más fuerte). Solo se activa en el caso vacío.
+MIN_TEXTO_RESPALDO_NUBE = int(os.getenv("NIIF_EXTRACCION_MIN_TEXTO_RESPALDO", "400"))
+
+# Literal que `providers._call_openai_compatible`/`_call_anthropic` ponen cuando el
+# modelo contesta con contenido vacío. Lo espejamos aquí para detectar esa respuesta
+# vacía y dar un error accionable en vez del críptico «Expecting value» del JSON.
+_RESPUESTA_VACIA_PROVEEDOR = "(respuesta vacía del proveedor)"
 
 
 class ExtraccionError(Exception):
@@ -77,10 +95,14 @@ def texto_de_documento(nombre: str, datos: bytes) -> str:
         raise ExtraccionError(
             "El formato .doc antiguo no se puede leer automáticamente; guárdelo como .docx o .pdf y vuelva a subirlo."
         )
-    elif ext in ("txt", "md"):
+    elif ext in ("txt", "md", "csv"):
         texto = datos.decode("utf-8", errors="replace")
+    elif ext == "xlsx":
+        texto = _texto_xlsx(datos)
     else:
-        raise ExtraccionError(f"Formato no soportado para extracción por IA: «.{ext}». Use PDF o Word (.docx).")
+        raise ExtraccionError(
+            f"Formato no soportado para extracción por IA: «.{ext}». Use PDF, Word (.docx) o Excel (.xlsx)."
+        )
     texto = (texto or "").strip()
     if not texto:
         raise ExtraccionError(
@@ -88,6 +110,39 @@ def texto_de_documento(nombre: str, datos: bytes) -> str:
             "o transcriba los datos en la plantilla Excel."
         )
     return texto
+
+
+def _texto_xlsx(datos: bytes) -> str:
+    """Convierte un .xlsx a texto plano (una línea por fila, celdas unidas por « | »)
+    para que la IA lea una carta/informe/notas transcritas en Excel igual que si fueran
+    un documento firmado. Así un requerimiento extraíble subido en Excel se lee solo en
+    vez de pedir el mapeo manual de columnas. Levanta :class:`ExtraccionError` si el
+    archivo no es un XLSX válido."""
+    import io
+
+    try:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(datos), read_only=True, data_only=True)
+    except Exception as e:
+        raise ExtraccionError(f"No se pudo leer el Excel para extracción por IA ({e}).") from e
+    partes: list[str] = []
+    try:
+        for ws in wb.worksheets:
+            filas: list[str] = []
+            for fila in ws.iter_rows(values_only=True):
+                celdas = ["" if c is None else str(c).strip() for c in fila]
+                while celdas and not celdas[-1]:   # recorta las celdas vacías finales (rango usado del ERP)
+                    celdas.pop()
+                if celdas:
+                    filas.append(" | ".join(celdas))
+                if len(filas) >= 2000:   # tope de seguridad; MAX_CHARS recorta aguas abajo
+                    break
+            if filas:
+                partes.append(f"# Hoja: {ws.title}\n" + "\n".join(filas))
+    finally:
+        wb.close()
+    return "\n\n".join(partes)
 
 
 def _texto_pdf(datos: bytes) -> str:
@@ -326,6 +381,25 @@ def _chat_por_defecto() -> Callable:
     return providers.completar_para_extraccion
 
 
+def _chat_respaldo_nube() -> Optional[Callable]:
+    """Chat que FUERZA la nube (excluye el servidor local). Se usa como respaldo
+    cuando el local devuelve 0 filas sobre un documento con texto real: un modelo de
+    nube más fuerte (DeepSeek, Gemini, …) sí transcribe el informe. Devuelve ``None``
+    si no hay ningún proveedor de nube configurado (solo el local)."""
+    if not EXTRACCION_ENABLED:
+        return None
+    from backend.app.chat import providers
+
+    hay_nube = any(p != "local" for p in providers._providers_with_keys())
+    if not hay_nube:
+        return None
+
+    def _chat(messages, system=None):
+        return providers.chat_complete(messages, system, temperature=0, exclude=("local",))
+
+    return _chat
+
+
 # --------------------------------------------------------------------------- #
 #  4 · API pública                                                            #
 # --------------------------------------------------------------------------- #
@@ -337,42 +411,124 @@ def extraer_filas(
     enums: Optional[dict] = None,
     contexto: str = "",
     chat: Optional[Callable] = None,
+    permitir_respaldo_nube: bool = True,
 ) -> dict:
     """Extrae filas estructuradas del ``texto`` según los ``campos`` del procesador,
     usando el servidor de IA local primero (cadena de proveedores compartida).
 
-    Devuelve ``{"rows": [...], "modelo": str, "n": int}``. Cada fila es un dict con
+    Devuelve ``{"rows": [...], "modelo": str, "n": int, "segundos": float, "trozos": int}``
+    (``segundos`` = tiempo real de las llamadas al proveedor de IA; ``trozos`` = número de
+    llamadas en que se partió el documento). Cada fila es un dict con
     las mismas claves que produciría la transcripción en Excel (más ``_row``,
     el número de fila 1-based que usa la validación). Levanta
     :class:`ExtraccionNoDisponible` si la IA no está disponible, o
     :class:`ExtraccionError` si la respuesta es inválida.
     """
     enums = enums or {}
+    uso_defecto = chat is None     # solo con el chat por defecto aplica el respaldo a la nube
     chat = chat or _chat_por_defecto()
     texto = texto[:MAX_CHARS]
-    prompt = _prompt(campos, instrucciones, contexto, enums, texto)
     claves = {c["key"] for c in campos}
     numericos = {c["key"] for c in campos if c.get("type") == "number"}
 
-    error: Optional[Exception] = None
-    for intento in range(MAX_RETRIES):
-        try:
-            resp = chat([{"role": "user", "content": prompt}], system=_SISTEMA)
-            datos = _json_de_texto(getattr(resp, "content", "") or "")
-            filas = datos.get("filas") if isinstance(datos, dict) else datos
-            if not isinstance(filas, list):
-                raise ExtraccionError("La IA no devolvió una lista de filas.")
-            rows = [_normalizar_fila(f, claves, numericos, i) for i, f in enumerate(filas, start=1)
-                    if isinstance(f, dict)]
-            return {"rows": rows, "modelo": getattr(resp, "model", "") or "", "n": len(rows)}
-        except ExtraccionNoDisponible:
-            raise
-        except Exception as e:  # reintento con backoff exponencial 1s/2s/...
-            error = e
-            log.warning("Extracción IA falló (intento %d/%d): %s", intento + 1, MAX_RETRIES, e)
-            if intento < MAX_RETRIES - 1:
-                time.sleep(2 ** intento)
-    raise ExtraccionError(f"No se pudo extraer la información con la IA: {error}")
+    # Documento largo → se parte en trozos que entran en la ventana de contexto del
+    # modelo local y se unen las filas de todos (un documento corto = un solo trozo).
+    trozos = _trozos(texto, CHARS_POR_LLAMADA)
+    t0 = time.perf_counter()   # tiempo real de la IA (llamadas al proveedor), para medir en producción
+
+    def _corre(chat_fn: Callable) -> tuple[list[dict], str, list[str]]:
+        """Recorre los trozos con un proveedor y devuelve (filas, modelo, fallos)."""
+        todas: list[dict] = []
+        modelo = ""
+        fallos: list[str] = []
+        for ti, trozo in enumerate(trozos, start=1):
+            prompt = _prompt(campos, instrucciones, contexto, enums, trozo)
+            error: Optional[Exception] = None
+            for intento in range(MAX_RETRIES):
+                try:
+                    resp = chat_fn([{"role": "user", "content": prompt}], system=_SISTEMA)
+                    contenido = (getattr(resp, "content", "") or "").strip()
+                    # Respuesta vacía del modelo: un modelo de razonamiento (gpt-oss del
+                    # servidor local) a veces gasta todo su presupuesto de tokens pensando
+                    # y no llega a escribir el JSON; el proveedor devuelve "" o el literal
+                    # placeholder. En vez del críptico «Expecting value: line 1 column 1»,
+                    # damos un mensaje accionable (se reintenta igual con backoff).
+                    if not contenido or contenido == _RESPUESTA_VACIA_PROVEEDOR:
+                        raise ExtraccionError(
+                            "El modelo de IA devolvió una respuesta vacía (no transcribió nada). "
+                            "Suele pasar cuando el modelo de razonamiento del servidor local agota "
+                            "su presupuesto de tokens razonando sin llegar a responder. Opciones: "
+                            "reintente; suba AUDITBRAIN_LLM_MAX_TOKENS_EXTRACCION en Render; o cargue "
+                            "el documento como tabla en Excel/CSV con la plantilla del requerimiento."
+                        )
+                    datos = _json_de_texto(contenido)
+                    filas = datos.get("filas") if isinstance(datos, dict) else datos
+                    if not isinstance(filas, list):
+                        raise ExtraccionError("La IA no devolvió una lista de filas.")
+                    todas.extend(f for f in filas if isinstance(f, dict))
+                    modelo = getattr(resp, "model", "") or modelo
+                    error = None
+                    break
+                except ExtraccionNoDisponible:
+                    raise
+                except Exception as e:  # reintento con backoff exponencial 1s/2s/...
+                    error = e
+                    etq = f" (trozo {ti}/{len(trozos)})" if len(trozos) > 1 else ""
+                    log.warning("Extracción IA falló%s (intento %d/%d): %s", etq, intento + 1, MAX_RETRIES, e)
+                    if intento < MAX_RETRIES - 1:
+                        time.sleep(2 ** intento)
+            if error is not None:
+                fallos.append(f"trozo {ti}/{len(trozos)}: {error}")
+        return todas, modelo, fallos
+
+    todas, modelo, fallos = _corre(chat)
+
+    # Respaldo a la nube: el servidor local (primero en la cadena) a veces devuelve
+    # listas vacías en un documento largo/complejo que SÍ tiene contenido extraíble
+    # (p. ej. un informe de auditoría de 40 págs). Si no salió NINGUNA fila (sin error)
+    # y el documento tiene texto real, se reintenta UNA vez forzando la nube (modelo
+    # más fuerte). Solo se activa en el caso vacío, así que no encarece lo normal.
+    if (uso_defecto and permitir_respaldo_nube and not todas and not fallos
+            and len(texto.strip()) >= MIN_TEXTO_RESPALDO_NUBE):
+        nube = _chat_respaldo_nube()
+        if nube is not None:
+            log.info("Extracción IA: 0 filas del proveedor local sobre %d chars con texto real; "
+                     "reintento forzando la nube.", len(texto.strip()))
+            todas_n, modelo_n, fallos_n = _corre(nube)
+            if todas_n:
+                todas, modelo, fallos = todas_n, modelo_n, fallos_n
+
+    # Si ningún trozo entregó filas, se propaga el error; si al menos uno funcionó,
+    # se devuelven las filas obtenidas (un trozo caído no pierde toda la extracción).
+    if not todas and fallos:
+        raise ExtraccionError("No se pudo extraer la información con la IA: " + "; ".join(fallos))
+    rows = [_normalizar_fila(f, claves, numericos, i) for i, f in enumerate(todas, start=1)]
+    segundos = round(time.perf_counter() - t0, 1)
+    log.info("Extracción IA: %d fila(s) de %d trozo(s) con el modelo «%s» en %.1fs.", len(rows), len(trozos), modelo or "?", segundos)
+    return {"rows": rows, "modelo": modelo or "", "n": len(rows), "segundos": segundos, "trozos": len(trozos)}
+
+
+def _trozos(texto: str, limite: int) -> list[str]:
+    """Parte ``texto`` en trozos de a lo sumo ``limite`` caracteres, cortando en los
+    saltos de línea para no partir una fila por la mitad. Un texto corto devuelve un
+    único trozo (comportamiento idéntico al de antes de trocear)."""
+    if len(texto) <= limite:
+        return [texto]
+    trozos: list[str] = []
+    actual: list[str] = []
+    n = 0
+    for linea in texto.split("\n"):
+        # Una línea más larga que el límite se parte en crudo.
+        while len(linea) > limite:
+            if actual:
+                trozos.append("\n".join(actual)); actual, n = [], 0
+            trozos.append(linea[:limite]); linea = linea[limite:]
+        if actual and n + len(linea) + 1 > limite:
+            trozos.append("\n".join(actual)); actual, n = [], 0
+        actual.append(linea); n += len(linea) + 1
+    if actual:
+        trozos.append("\n".join(actual))
+    return [t for t in trozos if t.strip()]
 
 
 def _normalizar_fila(fila: dict, claves: set, numericos: set, n: int) -> dict:

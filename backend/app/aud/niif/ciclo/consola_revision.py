@@ -101,13 +101,16 @@ def indices_independientes(e: dict, dias: float = 365) -> dict:
     act = e.get("TOTAL ACTIVO")
     pas = e.get("TOTAL PASIVO")
     pnc = e.get("Pasivo no corriente")
-    pat = e.get("PATRIMONIO TOTAL")
+    psr = e.get("PATRIMONIO (sin resultado del período)")
     obl = e.get("Obligaciones financieras")
     ven = e.get("Ventas netas")
     cos = e.get("(−) Costo de ventas")
     ub = e.get("Utilidad bruta")
     uo = e.get("Utilidad operativa")
     un = e.get("Utilidad neta")
+    # Denominador patrimonial igual que el motor (_indices): patrimonio SIN resultado + utilidad neta del ERI (no el
+    # resultado según el balance). En la preliminar ambos difieren; con esto el cotejo reproduce al motor.
+    patg = None if psr is None or un is None else psr + un
 
     def r(a, b, factor=1.0):
         v = _div(a, b)
@@ -127,21 +130,21 @@ def indices_independientes(e: dict, dias: float = 365) -> dict:
     out["rotacionActivo"] = r(ven, act)
     out["endTotal"] = r(pas, act, 100)
     out["endLP"] = r(pnc, act, 100)
-    out["endFinanciero"] = r(obl, pat)
-    out["endPatrimonial"] = r(pas, pat)
-    out["multiplicador"] = r(act, pat)
+    out["endFinanciero"] = r(obl, patg)
+    out["endPatrimonial"] = r(pas, patg)
+    out["multiplicador"] = r(act, patg)
     out["margenBruto"] = r(ub, ven, 100)
     out["margenOperativo"] = r(uo, ven, 100)
     out["margenNeto"] = r(un, ven, 100)
     out["roi"] = r(uo, act, 100)
-    out["roe"] = r(un, pat, 100)
+    out["roe"] = r(un, patg, 100)
     # DuPont: el ROI y el ROE reconstruidos por sus componentes, sin redondear los factores.
     if ven and act:
         out["dupontRoi"] = round((uo / ven) * 100 * (ven / act), 2)
     else:
         out["dupontRoi"] = None
-    if ven and act and pat:
-        out["dupont"] = round((un / ven) * 100 * (ven / act) * (act / pat), 2)
+    if ven and act and patg:
+        out["dupont"] = round((un / ven) * 100 * (ven / act) * (act / patg), 2)
     else:
         out["dupont"] = None
     return out

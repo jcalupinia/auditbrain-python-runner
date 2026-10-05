@@ -10,7 +10,7 @@
 
 import * as api from "../../api";
 
-import { archivosDe, erroresLegibles, mapeoConManual, mejorEncabezado, pasoPreparar } from "./cicloLogic";
+import { admiteExtraccionIA, archivosDe, erroresLegibles, mapeoConManual, mejorEncabezado, pasoPreparar } from "./cicloLogic";
 
 // Se devuelve en vez de la prueba cuando el reconocimiento por alias no cubre las
 // columnas obligatorias de algún archivo y hay quien atienda el mapeo manual
@@ -59,16 +59,22 @@ export async function prepararBaseTecnica(prueba, { taxScope = "", taxConforme =
 async function mapear(p, files, { manualMaps = {}, onPendientes = null } = {}) {
   const d = p.definicion;
   const pendientes = [];
-  const armar = async (reqId, campos, dataset) => {
+  const armar = async (reqId, campos, dataset, extraible = false) => {
     const partes = [];
     for (const a of archivosDe(p, reqId)) {
       const bytes = await api.cicloBajarArchivo(p.id, a.id);
       const { sheets } = files.readSpreadsheet(bytes, a.nombre);
       const elegido = mejorEncabezado(sheets, campos);
-      if (!elegido) throw new Error(`${a.nombre}: no se pudo leer ninguna hoja.`);
+      if (!elegido) {
+        if (extraible) continue;   // la IA leerá el documento al Procesar
+        throw new Error(`${a.nombre}: no se pudo leer ninguna hoja.`);
+      }
       // El mapeo manual del auditor pisa lo que detectó el reconocimiento por alias.
       const combinado = mapeoConManual(elegido, manualMaps[a.id], campos);
       if (combinado.faltan.length) {
+        // Requerimiento extraíble (carta/informe/notas) cuyas columnas no se reconocen:
+        // no se abre el mapeo manual; la IA lo lee solo al Procesar (auto-extracción).
+        if (extraible) continue;
         if (!onPendientes)
           throw new Error(`${a.nombre}: no se reconocen las columnas ${combinado.faltan.join(", ")}.`);
         const hoja = (sheets || []).find((s) => s.name === combinado.sheet);
@@ -89,7 +95,7 @@ async function mapear(p, files, { manualMaps = {}, onPendientes = null } = {}) {
     const datasets = {};
     for (const r of (p.registro.requests || []).filter((x) => x.dataset)) {
       const tipo = (d.tipos && d.tipos[r.dataset]) || (["a1", "a2", "a3"].includes(r.dataset) ? "cartera" : r.dataset);
-      const partes = await armar(r.id, d.campos[tipo], r.dataset);
+      const partes = await armar(r.id, d.campos[tipo], r.dataset, admiteExtraccionIA(r));
       if (partes.length) datasets[r.dataset] = partes;
     }
     if (pendientes.length && onPendientes) { onPendientes(pendientes); return PENDIENTE_MAPEO; }
@@ -121,17 +127,19 @@ export async function revisarColumnas(prueba, { manualMaps = {} } = {}) {
   const p = await api.cicloLeerPrueba(prueba.id);
   const d = p.definicion;
   const pendientes = [];
-  const revisar = async (reqId, campos, dataset) => {
+  const revisar = async (reqId, campos, dataset, extraible = false) => {
     for (const a of archivosDe(p, reqId)) {
       const bytes = await api.cicloBajarArchivo(p.id, a.id);
       const { sheets } = files.readSpreadsheet(bytes, a.nombre);
       const elegido = mejorEncabezado(sheets, campos);
       if (!elegido) {
+        if (extraible) continue;   // extraíble por IA: no se avisa mapeo pendiente
         pendientes.push({ req: reqId, dataset, fileId: a.id, nombre: a.nombre, sheet: null, header: 1, columnas: [], campos, mapping: {} });
         continue;
       }
       const combinado = mapeoConManual(elegido, manualMaps[a.id], campos);
       if (combinado.faltan.length) {
+        if (extraible) continue;   // extraíble por IA: no se avisa mapeo pendiente
         const hoja = (sheets || []).find((s) => s.name === combinado.sheet);
         const filaEnc = ((hoja && hoja.rows) || [])[combinado.header - 1] || [];
         pendientes.push({
@@ -146,7 +154,7 @@ export async function revisarColumnas(prueba, { manualMaps = {} } = {}) {
   if (d.processor) {
     for (const r of (p.registro.requests || []).filter((x) => x.dataset)) {
       const tipo = (d.tipos && d.tipos[r.dataset]) || (["a1", "a2", "a3"].includes(r.dataset) ? "cartera" : r.dataset);
-      await revisar(r.id, d.campos[tipo], r.dataset);
+      await revisar(r.id, d.campos[tipo], r.dataset, admiteExtraccionIA(r));
     }
   } else {
     const [poblacion, flujos] = p.modelos || [];

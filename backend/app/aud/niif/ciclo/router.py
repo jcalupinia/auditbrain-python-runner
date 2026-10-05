@@ -82,7 +82,9 @@ def _regla(fn):
     except ReglaIncumplida as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     except servicio.Conflicto as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(e))
+        # Algunos conflictos llevan detalle estructurado (p. ej. PRUEBA_ABIERTA_EXISTE,
+        # con el id de la prueba a MODIFICAR) para que el frontend ofrezca la acción.
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=getattr(e, "detalle", None) or str(e))
 
 
 @router.get("/proyectos/{project_id}/ficha")
@@ -143,9 +145,13 @@ def leer(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(req
     docs = [{"id": a.id, "requestId": a.requerimiento, "component": a.componente} for a in lista]
     rechazados = [a.id for a in lista if a.estado == "rechazado"]
     salida = _salida(p)
+    # Definición VIVA del catálogo: el preview previo a generar (la pantalla usa
+    # definicion.requests) muestra los anexos nuevos del catálogo (p. ej. RQ-011
+    # Libro Mayor) aunque la prueba se haya creado antes de que existieran.
+    salida["definicion"] = servicio._definicion_viva(p)
     # Si la prueba ya tiene requerimientos generados, se entregan los VIVOS (con la
-    # política del catálogo y los anexos nuevos, p. ej. RQ-011 Libro Mayor), para que
-    # un encargo ya creado muestre la tarjeta de carga y acepte la subida.
+    # política del catálogo y los anexos nuevos), para que un encargo ya creado
+    # muestre la tarjeta de carga y acepte la subida.
     _reg = p.registro or {}
     if isinstance(_reg.get("requests"), list) and _reg["requests"]:
         salida["registro"] = {**_reg, "requests": reqs}
@@ -419,7 +425,8 @@ def descargar_reproceso_excel(prueba_id: int, db: Session = Depends(get_db),
 
 
 @router.get("/pruebas/{prueba_id}/libro")
-def descargar_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends(get_db),
+def descargar_libro(prueba_id: int, formato: str = "xlsx", seccion: str | None = None,
+                    db: Session = Depends(get_db),
                     user: User = Depends(require_staff)) -> Response:
     """Papel en curso de una prueba con procesador, armado por el servidor:
     Excel con fórmulas, Word, PowerPoint o HTML autónomo (funciona sin internet
@@ -439,11 +446,23 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", db: Session = Depends
     if not p.definicion.get("processor") or not (p.registro.get("run") or {}).get("hojas"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Procese la prueba antes de descargar su papel.")
     try:
-        contenido = getattr(libro, funcion)(*servicio.args_papel(db, p))
+        # Planificación: el HTML sale del MOTOR DEL ARTEFACTO AuditBrain (idéntico al
+        # artefacto de referencia). Los demás formatos y las demás herramientas usan `libro`.
+        if formato == "html" and p.definicion.get("processor") == "planificacion_nia":
+            contenido = servicio.papel_artefacto_html(db, p, seccion=seccion)
+        else:
+            contenido = getattr(libro, funcion)(*servicio.args_papel(db, p))
     except libro.PDFNoDisponible as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    servicio.marcar_descargada(db, p)  # retención: el servidor es lugar de paso; se borra tras la descarga (gracia) y a las 8 h
+    # Nombre del archivo: por sección si se pidió una (Materialidad.html, etc.).
+    from backend.app.aud.niif.procesadores import artefacto_html as _art
+    if formato == "html" and seccion in _art.SECCIONES:
+        nombre = f"{seccion}.{ext}"
+    else:
+        nombre = f"Papel_v{p.version}.{ext}"
     return Response(contenido, media_type=mime,
-                    headers={"Content-Disposition": f'attachment; filename="Papel_v{p.version}.{ext}"'})
+                    headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
 
 
 @router.get("/pruebas/{prueba_id}/consola-revision")

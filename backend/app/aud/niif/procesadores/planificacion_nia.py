@@ -178,7 +178,10 @@ _BAL_ACT = _balance("saldo_actual", "Saldo al corte",
 _ERI_ANT = _balance("saldo_eri", "Saldo al mismo corte del año anterior",
                     ("saldo", "saldo final", "saldo al mismo corte", "saldo año anterior", "saldo ano anterior"), "-2980000.00")
 _CARTA = [
-    campo("id", "Código del hallazgo", alias=("codigo", "código", "id", "n°", "no", "numero", "número", "ref"), ejemplo="R01"),
+    # Opcional: la carta del cliente no siempre numera sus hallazgos (regla «cero invención»: la IA no
+    # inventa un código que el documento no trae). Si llega sin código, ``_autonumerar_carta`` le asigna
+    # uno correlativo (H-01, H-02…) para amarrarlo a la matriz de riesgos y a su procedimiento del programa.
+    campo("id", "Código del hallazgo", requerido=False, alias=("codigo", "código", "id", "n°", "no", "numero", "número", "ref"), ejemplo="R01"),
     campo("proceso", "Proceso o área", alias=("proceso", "area", "área", "ciclo", "rubro"), ejemplo="Inventarios"),
     campo("hallazgo", "Hallazgo o riesgo", alias=("hallazgo", "riesgo", "condicion", "condición", "descripcion", "descripción",
                                                   "observacion", "observación"),
@@ -206,7 +209,11 @@ ALIAS_INFORME = {"consalvedades": "Salvedad", "salvedades": "Salvedad", "adversa
 _INFORME = [
     campo("concepto", "Concepto", alias=("concepto", "asunto", "tema"), ejemplo="Jubilación patronal"),
     campo("tipo", "Tipo", alias=("tipo", "clase", "categoria", "categoría"), ejemplo="Salvedad"),
-    campo("detalle", "Detalle", alias=("detalle", "descripcion", "descripción", "texto"),
+    # Detalle OPCIONAL: en filas de Identificación (entidad, auditor, período) y de
+    # Opinión limpia el dato va en concepto/tipo y el detalle queda vacío; exigirlo
+    # bloqueaba la planificación («Falta Detalle»). concepto y tipo siguen obligatorios
+    # (el ancla). El auditor completa el detalle al revisar (M22). Downstream tolera "".
+    campo("detalle", "Detalle", requerido=False, alias=("detalle", "descripcion", "descripción", "texto"),
           ejemplo="La provisión no se ajustó al cálculo actuarial al cierre."),
     campo("importe", "Importe (USD)", "number", requerido=False, alias=("importe", "monto", "valor", "efecto"), ejemplo="18500.00"),
     campo("fuente", "Fuente o referencia", requerido=False, alias=("fuente", "referencia", "pagina", "página", "parrafo", "párrafo"),
@@ -232,8 +239,35 @@ _NOTAS_DET = [
     campo("importe", "Importe auditado", "number", alias=("importe", "saldo", "valor", "monto", "saldo auditado"), ejemplo="690500.00"),
     campo("tipo", "Tipo de línea", requerido=False, alias=("tipo", "clase"), ejemplo="Saldo"),
 ]
+# Certificado del RUC (SRI): identificación oficial de la entidad, su actividad y obligaciones. Una sola fila.
+_RUC = [
+    campo("razon_social", "Razón social", requerido=False, alias=("razon social", "razón social", "entidad", "contribuyente", "nombre"),
+          ejemplo="LANSEY S.A."),
+    campo("ruc", "Número de RUC", requerido=False, alias=("ruc", "numero ruc", "número ruc", "nro ruc", "no ruc"), ejemplo="0991248021001"),
+    campo("representante_legal", "Representante legal", requerido=False, alias=("representante legal", "representante", "rep legal"),
+          ejemplo="PACINI DE LA ROSA ORLANDO ALBERTO"),
+    campo("actividad_principal", "Actividad económica principal", requerido=False,
+          alias=("actividad principal", "actividad economica principal", "actividad"), ejemplo="FABRICACIÓN DE COSMÉTICOS"),
+    campo("actividades", "Actividades económicas (todas)", requerido=False, alias=("actividades economicas", "actividades", "ciiu"),
+          ejemplo="C20233102 Fabricación de cosméticos; L68100101 Inmobiliaria"),
+    campo("obligado_contabilidad", "Obligado a llevar contabilidad", requerido=False,
+          alias=("obligado a llevar contabilidad", "obligado contabilidad", "lleva contabilidad"), ejemplo="SI"),
+    campo("tipo_contribuyente", "Tipo de contribuyente", requerido=False, alias=("tipo", "tipo contribuyente", "clase contribuyente"),
+          ejemplo="SOCIEDADES"),
+    campo("agente_retencion", "Agente de retención", requerido=False, alias=("agente de retencion", "agente retencion"), ejemplo="SI"),
+    campo("contribuyente_especial", "Contribuyente especial", requerido=False, alias=("contribuyente especial", "especial"), ejemplo="SI"),
+    campo("obligaciones_tributarias", "Obligaciones tributarias", requerido=False, alias=("obligaciones tributarias", "obligaciones"),
+          ejemplo="IVA mensual; Retenciones en la fuente; Renta sociedades; ATS; REBEFICS; ADI"),
+    campo("establecimientos", "Establecimientos (abiertos/cerrados)", requerido=False,
+          alias=("establecimientos", "establecimientos abiertos"), ejemplo="2 abiertos, 1 cerrado"),
+    campo("jurisdiccion", "Jurisdicción / domicilio tributario", requerido=False,
+          alias=("jurisdiccion", "jurisdicción", "domicilio", "domicilio tributario", "ubicacion"), ejemplo="ZONA 9 / PICHINCHA / QUITO"),
+    campo("inicio_actividades", "Inicio de actividades", requerido=False, alias=("inicio de actividades", "inicio actividades"),
+          ejemplo="12/11/1992"),
+    campo("estado_contribuyente", "Estado del contribuyente", requerido=False, alias=("estado", "estado contribuyente"), ejemplo="ACTIVO"),
+]
 CAMPOS = {"balance_anterior": _BAL_ANT, "balance_actual": _BAL_ACT, "resultados_mismo_corte": _ERI_ANT, "carta_control_interno": _CARTA,
-          "informe_anterior": _INFORME, "notas_estados_financieros": _NOTAS, "notas_detalle": _NOTAS_DET}
+          "informe_anterior": _INFORME, "notas_estados_financieros": _NOTAS, "notas_detalle": _NOTAS_DET, "ruc_certificado": _RUC}
 TIPOS = {k: k for k in CAMPOS}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "balance_actual"
@@ -243,7 +277,7 @@ CONTROL = "saldo_actual"
 # por IA desde el documento firmado (PDF/Word): la carta de control interno y el
 # informe del año anterior. El auditor revisa y confirma la tabla extraída antes de
 # que alimente la herramienta (la IA no decide sola). Lo usa ciclo/servicio.py.
-EXTRACCION_DATASETS = ("carta_control_interno", "informe_anterior", "notas_estados_financieros")
+EXTRACCION_DATASETS = ("carta_control_interno", "informe_anterior", "notas_estados_financieros", "ruc_certificado")
 # Valores permitidos por campo, para forzar el esquema de la extracción (el tipo del
 # informe debe caer en TIPOS_INFORME; la carta no tiene enumerados).
 EXTRACCION_ENUMS = {"informe_anterior": {"tipo": list(TIPOS_INFORME)}}
@@ -261,6 +295,13 @@ EXTRACCION_INSTRUCCIONES = {
         "El documento son las NOTAS a los estados financieros del año anterior. Genera una fila por cada nota de balance: "
         "número de nota, título, los códigos de cuenta del balance que la forman (separados por coma) y el saldo auditado "
         "total de la nota. Solo notas de rubros del balance con su total; no incluyas notas de políticas contables.",
+    "ruc_certificado":
+        "El documento es el CERTIFICADO del Registro Único de Contribuyentes (RUC) del SRI (Ecuador). Genera UNA sola fila con: "
+        "razón social, número de RUC, representante legal, actividad económica principal y TODAS las actividades económicas (con su "
+        "código CIIU, separadas por «; »), si está obligado a llevar contabilidad (SI/NO), el tipo de contribuyente, si es agente de "
+        "retención (SI/NO), si es contribuyente especial (SI/NO), las obligaciones tributarias (separadas por «; »), los "
+        "establecimientos (abiertos/cerrados), la jurisdicción o domicilio tributario, la fecha de inicio de actividades y el estado. "
+        "Transcribe solo lo que el certificado dice; lo que no conste, déjalo vacío.",
 }
 
 # --- parámetros ---------------------------------------------------------------------------------------------------
@@ -387,7 +428,31 @@ def _opinion_modificada(detalle) -> str | None:
     return None
 
 
+def _autonumerar_carta(filas: list) -> None:
+    """Asigna un «Código del hallazgo» correlativo (H-01, H-02…) a las filas de la carta de control
+    interno que llegan SIN código. La carta del cliente no siempre numera sus hallazgos y la regla de
+    «cero invención» impide que la IA invente un código que el documento no trae; pero cada hallazgo
+    necesita un identificador estable para amarrarse a la matriz de riesgos (hojas 12/46) y a su
+    procedimiento del programa (hoja 19). Respeta los códigos que el documento sí trae (p. ej. R01) y
+    evita colisiones. Muta ``filas`` in situ: como es el mismo objeto que luego se guarda y consume,
+    el código aparece tanto en la vista previa de la extracción como en el papel de trabajo final."""
+    usados = {str(f.get("id") or "").strip().lower() for f in filas if str(f.get("id") or "").strip()}
+    k = 0
+    for f in filas:
+        if str(f.get("id") or "").strip():
+            continue
+        k += 1
+        cod = f"H-{k:02d}"
+        while cod.lower() in usados:   # no chocar con un R01/H-01 que ya venga en el documento
+            k += 1
+            cod = f"H-{k:02d}"
+        f["id"] = cod
+        usados.add(cod.lower())
+
+
 def validar_filas(tipo: str, filas: list) -> dict:
+    if tipo == "carta_control_interno":
+        _autonumerar_carta(filas)
     unico = {"carta_control_interno": "id", "notas_estados_financieros": "nota"}.get(tipo)
     out = validar_campos(CAMPOS[tipo], filas, unico=unico)
     if tipo in ("balance_anterior", "balance_actual", "resultados_mismo_corte"):
@@ -458,8 +523,11 @@ def _debajo(x: str, c: str) -> bool:
 
 
 def _ancestro(a: str, c: str) -> bool:
-    """a es una cuenta superior de c (regla del código de la fila c)."""
-    return len(a) < len(c) and ((c + ".").startswith(a + ".") if "." in c else c.startswith(a))
+    """a es una cuenta superior de c. Se decide con la MISMA regla que `_debajo` (la del código del
+    posible padre `a`): así un código con sufijo de punto como «11010103.01» sigue anidando bajo sus
+    prefijos numéricos (110101, 1101, 11, 1), no solo bajo «11010103». Antes se usaba el formato del
+    hijo, que al tener punto cambiaba a segmentos y rompía el nivel (quedaba en 1) y la cuadratura."""
+    return len(a) < len(c) and _debajo(c, a)
 
 
 def _estructura(codes: list[str]) -> dict:
@@ -506,7 +574,7 @@ def _rubro_indice(nombre: str, sec: str) -> str:
         if _busca(nombre, "inventario", "mercader", "existencia"):
             return "Inventarios"
     if sec == "Pasivo":
-        if _busca(nombre, "bancari", "financ", "préstamo", "prestamo", "sobregiro"):
+        if _busca(nombre, "bancari", "financ", "préstamo", "prestamo", "sobregiro", "obligacion", "obligación"):
             return "Obligaciones financieras"
         if _busca(nombre, "pagar", "proveedor") and not _busca(nombre, *NO_COMERCIAL_CXP):
             return "Cuentas por pagar"
@@ -548,7 +616,7 @@ def _fuente(filas, key) -> list[dict]:
         f["codigo"] = c
         v = a_num(f.get(key))
         out.append({"codigo": c, "cuenta": str(f.get("cuenta", "") or "").strip() or c,
-                    "saldo": float(v) if v is not None else 0.0, "_row": f.get("_row")})
+                    "saldo": float(v) if v is not None else 0.0, "posteado": v is not None, "_row": f.get("_row")})
     return out
 
 
@@ -753,11 +821,18 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     est = _estructura(codes)
 
     def psum(k, c):
-        """R1: el saldo propio de la cuenta en ese balance; si no está, la suma de sus subcuentas de detalle."""
-        propio = [x["pres"] for x in fuentes[k] if x["codigo"] == c]
-        if propio:
-            return propio[0]
-        return sum(x["pres"] for x in fuentes[k] if x["detalle"] == "Sí" and _debajo(x["codigo"], c))
+        """R1: el saldo propio de la cuenta de detalle; para una cuenta SUPERIOR, su saldo si el balance lo trae,
+        y si viene vacío (0), la suma de sus subcuentas de detalle. Muchos balances dejan los padres en blanco y
+        solo llenan las hojas (p. ej. el balance al corte de LANSEY): sin esto, los totales de padre quedan en 0."""
+        propio = [x for x in fuentes[k] if x["codigo"] == c]
+        if not propio:
+            return 0.0                       # código ausente en este balance: vale 0 (no se infiere de sus hijas)
+        if propio[0]["detalle"] == "Sí" or propio[0]["posteado"]:
+            return propio[0]["pres"]          # hoja, o padre con saldo propio posteado (aunque sea 0 explícito)
+        # Padre SIN saldo propio (celda en blanco): suma la postación PROPIA de todos sus descendientes (no solo las
+        # hojas). Así una cuenta intermedia que postea y además tiene subcuentas (p. ej. «CAJA MENOR GESTIÓN HUMANA»
+        # 400 con dos subcajas .01/.02) cuenta su saldo y el de sus hijas, igual que el balance de comprobación.
+        return sum(x["pres"] for x in fuentes[k] if x["codigo"] != c and _debajo(x["codigo"], c))
 
     cuentas = []
     for c in codes:
@@ -771,6 +846,17 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         cuentas.append({"codigo": c, "cuenta": nombres[c], "nivel": est[c]["nivel"], "detalle": est[c]["detalle"], "clas": clas,
                         "sec": sec, "ant": ant, "act": s_act, "rubro": _rubro_eri(c, nombres[c], sec),
                         "rind": _rubro_indice(nombres[c], sec)})
+    # No listar cuentas en cero en TODOS los períodos comparados (decisión del dueño, 2026-10-04): se conservan las
+    # que tienen saldo en algún período (anterior o corte) y los ancestros de las conservadas. Omitir una cuenta con
+    # valor en un período —o un padre de su jerarquía— rompería la comparación y la cuadratura con el otro período.
+    # Quitar una cuenta en cero en todos los períodos no altera ningún total (aporta 0) ni el cuadre (sale de `fuentes`).
+    _tol = 0.005
+    _keep = {x["codigo"] for x in cuentas if abs(x["ant"]) >= _tol or abs(x["act"]) >= _tol}
+    _ancestros = {y["codigo"] for x in cuentas if x["codigo"] in _keep
+                  for y in cuentas if y["codigo"] != x["codigo"] and _debajo(x["codigo"], y["codigo"])}
+    _keep |= _ancestros
+    cuentas = [x for x in cuentas if x["codigo"] in _keep]
+
     for x in cuentas:
         x["pind"] = "" if not x["rind"] else _superior(x, cuentas, "rind")
         x["supsec"], x["supclas"] = _superior(x, cuentas, "sec"), _superior(x, cuentas, "clas")
@@ -943,6 +1029,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         n["det"] = bool(ls)
         n["suma"] = sum(x["importe"] for x in ls if x["tipo"] == "Saldo")
         n["difDet"] = n["suma"] - n["auditado"] if ls else 0.0
+
+    # Certificado de RUC (RQ-008): identificación oficial de la entidad, su actividad (CIIU) y obligaciones (SRI).
+    ruc = (datasets.get("ruc_certificado") or [{}])[0] or {}
 
     # 9 · posibles riesgos (NIA 240, 570, balances e informe anterior) — mismo orden que la hoja 13
     ia, ip = ind["act"], est9["act"]
@@ -1189,7 +1278,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                "sino": sino, "fechas": fechas, "fuentes": fuentes, "hayEri": hay_eri, "bruto": bruto, "signo": signo, "sec7": sec7,
                "cuentas": cuentas, "est9": est9, "ind": ind,
                "materialidad": {"base": base_valor, "global": mat, "desempeno": desemp, "trivial": triv},
-               "justificacion": justif, "carta": carta, "informe": informe, "notas": notas, "notasDet": notas_det,
+               "justificacion": justif, "carta": carta, "informe": informe, "notas": notas, "notasDet": notas_det, "ruc": ruc,
                "sinNota": _sin_nota(cuentas, notas), "riesgos": riesgos, "reg": reg, "evals": evals, "eqEst": eq_est, "pe": pe, "difs": difs, "dres": dres,
                "anomalias": anomalias, "revisar": revisar, "nivelRevisar": lvl, "parametros": p,
                "origenes": origenes, "puente": puente, "archivos": archivos, "arch_plat": arch_plat, "fac": fac,
@@ -1204,6 +1293,10 @@ def _indices(e: dict, dias: float) -> dict:
     """Índices del período con el mismo redondeo (ROUND 2) que la hoja 10."""
     ac, pc, inv, cxc, cxp = e["Activo corriente"], e["Pasivo corriente"], e["Inventarios"], e["Cuentas por cobrar"], e["Cuentas por pagar"]
     act_, pas, pnc, patt, obl = e["TOTAL ACTIVO"], e["TOTAL PASIVO"], e["Pasivo no corriente"], e["PATRIMONIO TOTAL"], e["Obligaciones financieras"]
+    # Denominador patrimonial de los índices (endeudamiento financiero/patrimonial, apalancamiento, ROE y DuPont):
+    # patrimonio SIN resultado + la utilidad neta CALCULADA del período (ERI), como el artefacto HTML. En un corte
+    # preliminar el balance puede traer en el patrimonio un resultado distinto del que arroja el estado de resultados.
+    patg = e["PATRIMONIO (sin resultado del período)"] + e["Utilidad neta"]
     ven, cos, ub, uo, un = e["Ventas netas"], e["(−) Costo de ventas"], e["Utilidad bruta"], e["Utilidad operativa"], e["Utilidad neta"]
 
     def q(a, b, f=1.0):
@@ -1221,18 +1314,18 @@ def _indices(e: dict, dias: float) -> dict:
     i["rotacionActivo"] = q(ven, act_)
     i["endTotal"] = q(pas, act_, 100)
     i["endLP"] = q(pnc, act_, 100)
-    i["endFinanciero"] = q(obl, patt)
-    i["endPatrimonial"] = q(pas, patt)
-    i["multiplicador"] = q(act_, patt)
+    i["endFinanciero"] = q(obl, patg)
+    i["endPatrimonial"] = q(pas, patg)
+    i["multiplicador"] = q(act_, patg)
     i["margenBruto"] = q(ub, ven, 100)
     i["margenOperativo"] = q(uo, ven, 100)
     i["margenNeto"] = q(un, ven, 100)
     i["roi"] = q(uo, act_, 100)
-    i["roe"] = q(un, patt, 100)
+    i["roe"] = q(un, patg, 100)
     # R5: el margen operativo es utilidad operativa ÷ ventas para que el DuPont reproduzca el ROI.
     # Los componentes del DuPont se multiplican sin redondear, para que reproduzcan el ROI y el ROE.
     i["dupontRoi"] = None if not ven or not act_ else _xr(uo / ven * 100 * (ven / act_), 2)
-    i["dupont"] = None if not ven or not act_ or not patt else _xr(un / ven * 100 * (ven / act_) * (act_ / patt), 2)
+    i["dupont"] = None if not ven or not act_ or not patg else _xr(un / ven * 100 * (ven / act_) * (act_ / patg), 2)
     return i
 
 
@@ -1735,6 +1828,7 @@ CEDULAS = [
     ("11_Materialidad", "Materialidad (NIA 320 y 450)"), ("12_Riesgos_CCI", "Matriz de riesgos de la carta de control interno"),
     ("13_Riesgos_Balance", "Posibles riesgos: NIA 240, empresa en funcionamiento, balances e informe anterior"),
     ("14_Perfil", "Perfil del encargo (NIA 315): identificación, entendimiento de la entidad y asuntos del informe anterior"),
+    ("15N_Notas_EEFF", "Notas a los estados financieros armadas del balance (comparativo anterior → corte)"),
     ("15_Notas", "Notas comparativas y saldos de apertura (NIA 510)"),
     ("15D_Notas_Detalle", "Notas: detalle comparativo por cuenta (anterior, corte y conciliación con la nota)"),
     ("15C_Composicion", "Notas: composición auditada del año anterior y su cuadre"),
@@ -1973,7 +2067,7 @@ def _f_rubro_ind(b: str, f: str) -> str:
     return (f'IF({f}="Activo",IF(AND({_s(b, "efectivo", "caja", "banco")},NOT({_s(b, "restringid")})),"Efectivo",'
             f'IF(AND({_s(b, "cobrar", "cliente")},NOT({_s(b, *NO_COMERCIAL_CXC)})),"Cuentas por cobrar",'
             f'IF({_s(b, "inventario", "mercader", "existencia")},"Inventarios",""))),'
-            f'IF({f}="Pasivo",IF({_s(b, "bancari", "financ", "préstamo", "prestamo", "sobregiro")},"Obligaciones financieras",'
+            f'IF({f}="Pasivo",IF({_s(b, "bancari", "financ", "préstamo", "prestamo", "sobregiro", "obligacion", "obligación")},"Obligaciones financieras",'
             f'IF(AND({_s(b, "pagar", "proveedor")},NOT({_s(b, *NO_COMERCIAL_CXP)})),"Cuentas por pagar","")),""))')
 
 
@@ -2020,6 +2114,7 @@ def hojas(res: dict) -> list[dict]:
     p, fu, cu, e9, ind = d["parametros"], d["fuentes"], d["cuentas"], d["est9"], d["ind"]
     nm, n4, n5, n6, n8 = len(d["mapa"]), len(fu["ant"]), len(fu["act"]), len(fu["eri"]), len(cu)
     carta, informe, notas, riesgos, anom, rev = d["carta"], d["informe"], d["notas"], d["riesgos"], d["anomalias"], d["revisar"]
+    ruc = d.get("ruc") or {}
     mt = d["materialidad"]
     pv = lambda k: None if p.get(k) in (None, "") else p.get(k)  # noqa: E731
 
@@ -2191,7 +2286,9 @@ def hojas(res: dict) -> list[dict]:
         for c10, c9, q in (("D", "C", "ant"), ("E", "D", "act")):
             dd = f"${c10}${F10['dias']}"
             ac, pc, inv = e("Activo corriente", c9), e("Pasivo corriente", c9), e("Inventarios", c9)
-            ta_, tp, pnc, pt = e("TOTAL ACTIVO", c9), e("TOTAL PASIVO", c9), e("Pasivo no corriente", c9), e("PATRIMONIO TOTAL", c9)
+            ta_, tp, pnc = e("TOTAL ACTIVO", c9), e("TOTAL PASIVO", c9), e("Pasivo no corriente", c9)
+            # Denominador patrimonial de los índices: patrimonio sin resultado + utilidad neta del ERI (igual que _indices / el HTML).
+            pt = f'({e("PATRIMONIO (sin resultado del período)", c9)}+{e("Utilidad neta", c9)})'
             vn, cv = e("Ventas netas", c9), e("(−) Costo de ventas", c9)
 
             def q_(num, den):
@@ -2338,7 +2435,7 @@ def hojas(res: dict) -> list[dict]:
                           f'"{DEF_OTRA}"))', _clase_def(x)), SEGUIMIENTO])
 
     # 14 · perfil del encargo (se arma antes de la 13, que remite a sus importes)
-    perfil, estilos_p, fila14 = _perfil(informe, d, pv)
+    perfil, estilos_p, fila14 = _perfil(informe, d, pv, ruc)
 
     # 13 · posibles riesgos
     fila8 = {x["codigo"]: FILA0 + i for i, x in enumerate(cu)}
@@ -2440,7 +2537,8 @@ def hojas(res: dict) -> list[dict]:
     stand_h = cal_m.filas_stand_back(rev, notas, c_cal)
     an_h = cal_m.filas_analiticos(d["an"], c_cal)
     est_h = cal_m.filas_estimaciones(d["est"], c_cal)
-    act_txt = " ".join([str(ficha.get("activity") or "")] + [x["detalle"] for x in informe if cal_m._hay(x["concepto"], ("actividad",))])
+    act_txt = " ".join([str(ficha.get("activity") or "")] + [x["detalle"] for x in informe if cal_m._hay(x["concepto"], ("actividad",))]
+                       + [str(ruc.get("actividades") or ""), str(ruc.get("actividad_principal") or "")])
     leyes_h = cal_m.filas_leyes(cu, act_txt, c_cal)
     partes_h = cal_m.filas_partes(d["partes"], cal_m.partes_textos(informe, notas), c_cal)
     assert len(partes_h) == d["n40"]
@@ -2461,6 +2559,7 @@ def hojas(res: dict) -> list[dict]:
     no_conc = sum(1 for x in notas if abs(x["dif"]) >= 0.01)
     notas_det_h, est_d = _notas_detalle(notas, cu, d["sinNota"], d["umbrales"]["var"])
     comp, est_c = _composicion(notas, d["notasDet"])
+    notas_eeff_h, est_ne = _notas_balance(cu)   # notas a los EEFF armadas del balance (artefacto), independientes del documento
     n_comp = sum(1 for f in comp if isinstance(f[4], dict) and f[4].get("v") == "Revisar")
     n_jer = sum(1 for k in ("ant", "act") for x in fu[k] if abs(x["difsub"]) >= 0.01)
     fch_ = d["fechas"]
@@ -2992,20 +3091,22 @@ def hojas(res: dict) -> list[dict]:
                                              ["Cuenta para índices", "t"], ["Monto material", "t"], ["Variación material", "t"],
                                              ["Superior de la sección", "t"], ["Superior de la clasificación", "t"],
                                              ["Superior del rubro del ERI", "t"]],
-             horizontal, explica=EXPLICA["08_Horizontal"]),
+             horizontal, explica=EXPLICA["08_Horizontal"], signo=["Variación", "Variación %"]),
         hoja("08S_Sumarias", _ETQ["08S_Sumarias"], COLS_SUMARIA, sumarias, explica=EXPLICA["08S_Sumarias"], estilos=estilos_s),
         hoja("08A_ESF_Detalle", _ETQ["08A_ESF_Detalle"], _cols_detalle(f_a["esf"], f_c), esf_det,
-             explica=_explica_detalle(f_a["esf"], f_c, "total del activo (hoja 09)"), estilos=est_a),
+             explica=_explica_detalle(f_a["esf"], f_c, "total del activo (hoja 09)"), estilos=est_a,
+             signo=["Variación", "Variación %"]),
         hoja("08B_ERI_Detalle", _ETQ["08B_ERI_Detalle"], _cols_detalle(f_a["eri"], f_c), eri_det,
-             explica=_explica_detalle(f_a["eri"], f_c, "ventas netas (hoja 09)"), estilos=est_b),
+             explica=_explica_detalle(f_a["eri"], f_c, "ventas netas (hoja 09)"), estilos=est_b,
+             signo=["Variación", "Variación %"]),
         hoja("09_Estados", _ETQ["09_Estados"], [["Concepto", "t"], ["Estado", "t"], ["Anterior", "n"], ["Actual", "n"], ["Variación", "n"],
                                           ["Variación %", "p"], ["Vertical actual", "p"], ["Vertical anterior", "p"],
                                           ["Observación", "t"]], estados,
-             explica=EXPLICA["09_Estados"]),
+             explica=EXPLICA["09_Estados"], signo=["Variación", "Variación %"]),
         hoja("10_Indices", _ETQ["10_Indices"], [["Indicador", "t"], ["Categoría", "t"], ["Cómo se calcula", "t"], ["Anterior", "n"],
                                           ["Actual", "n"], ["Variación", "n"], ["Semáforo", "t"], ["Lectura", "t"],
                                           ["Actual ajustado al período", "n"], ["Variación ajustada", "n"], ["Tendencia", "t"]],
-             indices, explica=EXPLICA["10_Indices"], colores=["Semáforo", "Tendencia"]),
+             indices, explica=EXPLICA["10_Indices"], colores=["Semáforo", "Tendencia"], signo=["Variación", "Variación ajustada"]),
         hoja("11_Materialidad", _ETQ["11_Materialidad"], [["Concepto", "t"], ["Importe", "n"], ["Porcentaje", "n"], ["Materialidad", "n"],
                                                 ["Sustento", "t"], ["Rango de práctica", "t"], ["¿Dentro del rango?", "t"]],
              materialidad, explica=EXPLICA["11_Materialidad"], colores=["¿Dentro del rango?"]),
@@ -3024,10 +3125,12 @@ def hojas(res: dict) -> list[dict]:
         hoja("14_Perfil", _ETQ["14_Perfil"], [["Tipo", "t"], ["Concepto", "t"], ["Detalle", "x"], ["Importe (USD)", "n"],
                                           ["Fuente o referencia", "t"], ["Efecto en la planificación", "t"], ["Origen", "t"]], perfil,
              explica=EXPLICA["14_Perfil"], estilos=estilos_p),
+        hoja("15N_Notas_EEFF", _ETQ["15N_Notas_EEFF"], COLS_NOTAS_EEFF, notas_eeff_h, explica=EXPLICA["15N_Notas_EEFF"], estilos=est_ne,
+             signo=["Variación", "Variación %"]),
         hoja("15_Notas", _ETQ["15_Notas"], [["Nota", "t"], ["Título de la nota", "t"], ["Cuentas del balance (códigos)", "t"],
                                          ["Saldo auditado según la nota", "n"], ["Saldo del balance anterior", "n"], ["Diferencia", "n"],
                                          ["Saldo al corte", "n"], ["Variación", "n"], ["Variación %", "p"]], notas_h,
-             explica=EXPLICA["15_Notas"]),
+             explica=EXPLICA["15_Notas"], signo=["Variación", "Variación %"]),
         hoja("15D_Notas_Detalle", _ETQ["15D_Notas_Detalle"], COLS_NOTAS_DET, notas_det_h, explica=EXPLICA["15D_Notas_Detalle"],
              estilos=est_d),
         hoja("15C_Composicion", _ETQ["15C_Composicion"], COLS_COMPOSICION, comp, explica=EXPLICA["15C_Composicion"], estilos=est_c,
@@ -3041,7 +3144,8 @@ def hojas(res: dict) -> list[dict]:
         hoja("18_Cuentas_Revisar", _ETQ["18_Cuentas_Revisar"], [["Código", "t"], ["Cuenta", "t"], ["Sección", "t"], ["Saldo actual", "n"],
                                                    ["Variación", "n"], ["Monto material", "t"], ["Variación material", "t"],
                                                    ["Riesgo de la carta de CI", "t"], ["Riesgos de la hoja 13", "t"], ["Herramienta del catálogo", "t"],
-                                                   ["¿Se revisa?", "t"]], cuentas_rev, explica=EXPLICA["18_Cuentas_Revisar"]),
+                                                   ["¿Se revisa?", "t"]], cuentas_rev, explica=EXPLICA["18_Cuentas_Revisar"],
+             signo=["Variación"]),
         hoja("19_Programa", _ETQ["19_Programa"], [["PT", "t"], ["Área o rubro", "t"], ["Riesgo", "t"], ["Nivel", "t"],
                                             ["Respuesta de auditoría (NIA 330)", "t"], ["Herramienta del catálogo", "t"], ["Oportunidad", "t"],
                                             ["Aseveraciones", "t"], ["Evidencia a obtener (PBC)", "t"], ["Responsable", "t"],
@@ -3053,7 +3157,8 @@ def hojas(res: dict) -> list[dict]:
         hoja("21_Estrategia", _ETQ["21_Estrategia"], [["Aspecto", "t"], ["Decisión", "x"], ["Sustento", "t"]], estrategia,
              explica=EXPLICA["21_Estrategia"]),
         hoja("22_Origenes", _ETQ["22_Origenes"], [["Código", "t"], ["Cuenta", "t"], ["Sección", "t"], ["Variación", "n"],
-                                            ["Efecto en el efectivo", "n"], ["Tipo", "t"]], origenes_h, explica=EXPLICA["22_Origenes"]),
+                                            ["Efecto en el efectivo", "n"], ["Tipo", "t"]], origenes_h, explica=EXPLICA["22_Origenes"],
+             signo=["Variación", "Efecto en el efectivo"]),
         hoja("23_Audit_trail", _ETQ["23_Audit_trail"], [["Concepto", "t"], ["Detalle", "t"], ["Valor", "n"]], trail,
              explica=EXPLICA["23_Audit_trail"]),
         hoja(enc_m.REG, _ETQ[enc_m.REG], enc_m.COLS_REGISTROS, registros_h, guia=enc_m.GUIA_REGISTROS),
@@ -3166,6 +3271,68 @@ TXT_SUMA_COMP = "Suma de las líneas de saldo"
 TXT_TOTAL_COMP = "Total que presenta la nota"
 TXT_DIF_COMP = "Diferencia: suma de las líneas − saldo auditado de la nota"
 TXT_SIN_NOTA = "Rubros del balance sin nota del año anterior"
+
+# Notas a los EEFF armadas DEL BALANCE (como el artefacto HTML): una nota por rubro, con los códigos del balance que la
+# forman. No depende de un documento; se calcula del balance al cierre anterior y al corte. ref = número de nota.
+NOTAS_ESF = [
+    ("3", "Efectivo y equivalentes de efectivo", ["1101"]),
+    ("4", "Cuentas por cobrar comerciales y otras", ["1103", "1104", "1105", "1108", "1112"]),
+    ("5", "Inventarios", ["1113"]),
+    ("6 y 7", "Propiedad, planta y equipo y propiedades de inversión", ["1201"]),
+    ("8", "Activos por impuestos corrientes", ["1110"]),
+    ("8", "Activos por impuestos diferidos", ["1206"]),
+    ("—", "Otros activos no corrientes", ["1208"]),
+    ("10", "Obligaciones bancarias — corto plazo", ["2101"]),
+    ("12", "Cuentas y documentos por pagar", ["2102", "2201"]),
+    ("8", "Pasivos por impuestos corrientes", ["2103"]),
+    ("9", "Obligaciones por beneficios definidos", ["2104", "2206"]),
+    ("11", "Obligaciones bancarias — largo plazo", ["2202"]),
+]
+COLS_NOTAS_EEFF = [["Cuenta", "t"], ["Saldo al cierre anterior", "n"], ["Saldo al corte", "n"], ["Variación", "n"], ["Variación %", "p"]]
+TXT_TOTAL_NOTA_EEFF = "Total de la nota (según el balance)"
+
+
+def _notas_balance(cu: list) -> tuple[list, list]:
+    """Notas a los EEFF armadas del balance (artefacto `NOTES_ESF_MAP`): por cada rubro de `NOTAS_ESF`, el desglose de sus
+    subcuentas con saldo (hojas sin subcuentas; con saldo ≠ 0) y la fila Total, comparando el cierre anterior con el corte.
+    Todo por fórmula a la hoja 08 (Horizontal), para que recalcule en Excel. No depende de ningún documento del cliente."""
+    filas, est = [], []
+    idx = {x["codigo"]: i for i, x in enumerate(cu)}
+    by_code = {x["codigo"]: x for x in cu}
+    codes_all = [x["codigo"] for x in cu]
+
+    def tiene_hijos(c):
+        return any(o != c and len(o) > len(c) and _debajo(o, c) for o in codes_all)
+
+    for ref_, titulo, codes in NOTAS_ESF:
+        presentes = [c for c in codes if c in by_code]
+        if not presentes:
+            continue
+        filas.append([f"Nota {ref_} · {titulo}", None, None, None, None])
+        est.append({"tipo": "titulo"})
+        desc = [x for x in cu if any(x["codigo"] != c and _debajo(x["codigo"], c) for c in codes)]
+        con_saldo = [x for x in desc if abs(x["ant"]) >= 0.005 or abs(x["act"]) >= 0.005]
+        hojas_ = [x for x in con_saldo if not tiene_hijos(x["codigo"])]
+        if 0 < len(hojas_) <= 28:
+            rows = hojas_
+        else:   # demasiadas hojas: colapsar al primer nivel de subcuenta bajo cada código
+            rows = [x for x in con_saldo if any(c in by_code and x["codigo"] != c and _debajo(x["codigo"], c)
+                                                and x["nivel"] == by_code[c]["nivel"] + 1 for c in codes)] or hojas_
+        for x in rows:
+            r = FILA0 + len(filas)
+            r8 = FILA0 + idx[x["codigo"]]
+            filas.append([x["cuenta"], fx(f"{H8}G{r8}", n2(x["ant"])), fx(f"{H8}H{r8}", n2(x["act"])),
+                          fx(f"C{r}-B{r}", n2(x["act"] - x["ant"])),
+                          fx(f'IF(B{r}=0,"",D{r}/ABS(B{r}))', None if x["ant"] == 0 else (x["act"] - x["ant"]) / abs(x["ant"]))])
+            est.append({"sangria": 1, "col": "Cuenta"})
+        rt = FILA0 + len(filas)
+        tops = [(FILA0 + idx[c], by_code[c]) for c in presentes]
+        ta, tc = sum(x["ant"] for _, x in tops), sum(x["act"] for _, x in tops)
+        suma = lambda col: "+".join(f"{H8}{col}{r}" for r, _ in tops)  # noqa: E731
+        filas.append([f"{TXT_TOTAL_NOTA_EEFF}: {titulo}", fx(suma("G"), n2(ta)), fx(suma("H"), n2(tc)),
+                      fx(f"C{rt}-B{rt}", n2(tc - ta)), fx(f'IF(B{rt}=0,"",D{rt}/ABS(B{rt}))', None if ta == 0 else (tc - ta) / abs(ta))])
+        est.append({"tipo": "total"})
+    return filas, est
 
 
 def _cubre(codigo: str, pref: str) -> bool:
@@ -3502,6 +3669,7 @@ def _justif_cifras(d: dict, mt: dict, propia) -> str:
 ORIGEN_INFORME = "Informe del año anterior (RQ-005)"
 ORIGEN_PARAMETROS = "Parámetros del encargo (hoja 02)"
 ORIGEN_PENDIENTE = "Sin soporte documental"
+ORIGEN_RUC = "Certificado de RUC (RQ-008)"
 PENDIENTE = "[PENDIENTE]"
 MARCO_AUDITORIA = "Normas Internacionales de Auditoría (NIA)"
 # Identificación mínima del encargo (artefacto: «Identificación del encargo»): concepto y cómo se obtiene. Lo que no tiene
@@ -3515,9 +3683,12 @@ TXT_ENTENDIMIENTO_PEND = ("Documente el entendimiento de la entidad y su entorno
                           "relacionadas, sistema de información y marco normativo (NIA 315 párr. 19).")
 
 
-def _perfil(informe: list, d: dict, pv) -> tuple[list, list, dict]:
+def _perfil(informe: list, d: dict, pv, ruc: dict | None = None) -> tuple[list, list, dict]:
     """Hoja 14 (artefacto: «Perfil del encargo»): identificación del encargo, entendimiento de la entidad y su entorno,
-    contexto y asuntos del informe anterior. Devuelve las filas, sus estilos y la fila de cada dato del informe."""
+    contexto y asuntos del informe anterior. La identificación prioriza el certificado de RUC (RQ-008) cuando está, por ser
+    la fuente oficial del SRI; si no hay RUC, cae al informe o queda [PENDIENTE]. Devuelve las filas, sus estilos y la fila
+    de cada dato del informe."""
+    ruc = ruc or {}
     filas, estilos, fila = [], [], {}
 
     def titulo(txt):
@@ -3530,11 +3701,24 @@ def _perfil(informe: list, d: dict, pv) -> tuple[list, list, dict]:
                       x["enfoque"] or EFECTO_INFORME[x["tipo"]], ORIGEN_INFORME])
         estilos.append(None)
 
+    def de_ruc(concepto, valor):
+        filas.append(["Identificación", concepto, str(valor).strip() or PENDIENTE, None, "Certificado de RUC (SRI)",
+                      EFECTO_INFORME["Identificación"], ORIGEN_RUC])
+        estilos.append(None)
+
     usados = set()
     titulo("Identificación del encargo")
+    # El RUC es la fuente oficial de entidad, RUC y actividad: si lo trae, manda sobre el informe.
+    _ruc_ident = {"Entidad auditada": ruc.get("razon_social"), "RUC": ruc.get("ruc"),
+                  "Actividad": ruc.get("actividad_principal") or ruc.get("actividades")}
     for concepto, claves in IDENT_INFORME:
         j = next((j for j, x in enumerate(informe) if j not in usados and x["tipo"] == "Identificación"
                   and any(k in norm(x["concepto"]) for k in claves)), None)
+        if str(_ruc_ident.get(concepto, "") or "").strip():
+            if j is not None:          # el RUC manda: marca la fila equivalente del informe para no duplicarla
+                usados.add(j)
+            de_ruc(concepto, _ruc_ident[concepto])
+            continue
         if j is None:
             filas.append(["Identificación", concepto, PENDIENTE, None, "No se completa por inferencia",
                           EFECTO_INFORME["Identificación"], ORIGEN_PENDIENTE])
@@ -3558,6 +3742,18 @@ def _perfil(informe: list, d: dict, pv) -> tuple[list, list, dict]:
     filas.append(["Identificación", "Marco de auditoría", MARCO_AUDITORIA, None, "Política de la firma",
                   EFECTO_INFORME["Identificación"], ORIGEN_PARAMETROS])
     estilos.append(None)
+    # Datos adicionales del certificado de RUC (NIA 315): solo las filas que el certificado trae.
+    for concepto, clave in (("Representante legal", "representante_legal"),
+                            ("Obligado a llevar contabilidad", "obligado_contabilidad"),
+                            ("Tipo de contribuyente", "tipo_contribuyente"),
+                            ("Agente de retención", "agente_retencion"),
+                            ("Contribuyente especial", "contribuyente_especial"),
+                            ("Establecimientos (abiertos/cerrados)", "establecimientos"),
+                            ("Jurisdicción / domicilio tributario", "jurisdiccion"),
+                            ("Inicio de actividades", "inicio_actividades"),
+                            ("Obligaciones tributarias", "obligaciones_tributarias")):
+        if str(ruc.get(clave, "") or "").strip():
+            de_ruc(concepto, ruc.get(clave))
     for j, x in enumerate(informe):              # otros datos de identificación del informe
         if x["tipo"] == "Identificación" and j not in usados:
             usados.add(j)
@@ -4061,6 +4257,12 @@ EXPLICA = {
                           "mayores a 90, aumento de días ajustado mayor al umbral de la hoja 02…); la presunción de "
                           "fraude en ingresos se presenta salvo que se refute en la hoja 02."),
     },
+    "15N_Notas_EEFF": {
+        "Saldo al cierre anterior": "Saldo de la cuenta en el balance del cierre anterior (fórmula a la hoja 08, análisis horizontal).",
+        "Saldo al corte": "Saldo de la cuenta en el balance al corte que se audita (fórmula a la hoja 08).",
+        "Variación": "Saldo al corte menos saldo al cierre anterior.",
+        "Variación %": "Divide la variación para el saldo anterior sin signo; en blanco si el saldo anterior es cero.",
+    },
     "15_Notas": {
         "Saldo del balance anterior": ("Suma el saldo presentado de las cuentas de detalle de la hoja 04 cuyos códigos empiezan "
                                        "con los códigos de la nota: es el saldo de apertura según el balance del cliente."),
@@ -4156,6 +4358,10 @@ EXPLICA = {
 # En la planificación no hay «cifra del cliente frente a la recalculada»: el comparativo muestra los dos umbrales
 # que guían el trabajo (graficos.TEXTOS los cambia solo para esta herramienta).
 PANEL = {
+    # Cada tablero se dibuja también DENTRO de su cédula de origen (como el HTML pone el gráfico
+    # al lado de su pestaña): los 4 de índices por grupo en 10_Indices y los de estructura/ERI en
+    # 09_Estados. Es un gráfico nativo extra del Excel; no afecta a las otras herramientas.
+    "tableros_en_hoja": True,
     "poblacion": {"rotulo": "Activo total", "total": "activos"},
     "recalculado": {"rotulo": "Materialidad de desempeño", "total": "desempeno"},
     "registrado": {"rotulo": "Umbral de errores claramente insignificantes", "total": "trivial"},
@@ -4186,12 +4392,12 @@ PANEL = {
          "filas": [{"fila": x, "mejor": "alto"} for x in ("ROI operativo (%)", "Margen operativo (%)", "ROE (%)",
                                                           "Margen neto (%)", "Margen bruto (%)")]},
         {"rotulo": "Estructura del balance", "sub": "USD · año anterior frente al corte.", "unidad": "USD", "hoja": "09_Estados",
-         "etiqueta": "Concepto",
+         "hoja_grafico": "08_Horizontal", "etiqueta": "Concepto",
          "filas": [{"fila": "Activo corriente"}, {"fila": "Activo no corriente"},
                    {"fila": "TOTAL PASIVO", "rotulo": "Pasivo total"},
                    {"fila": "PATRIMONIO TOTAL", "rotulo": "Patrimonio total", "mejor": "alto"}]},
         {"rotulo": "Estado de resultados", "sub": "USD · año anterior frente al corte.", "unidad": "USD", "hoja": "09_Estados",
-         "etiqueta": "Concepto",
+         "hoja_grafico": "08_Horizontal", "etiqueta": "Concepto",
          "filas": [{"fila": "Ventas netas", "mejor": "alto"}, {"fila": "(−) Costo de ventas", "rotulo": "Costo de ventas"},
                    {"fila": "Utilidad bruta", "mejor": "alto"}, {"fila": "(−) Gastos operativos", "rotulo": "Gastos operativos"},
                    {"fila": "Utilidad neta", "mejor": "alto"}]},
@@ -4260,6 +4466,32 @@ REF_PROBLEMAS = {
 
 # --- definición --------------------------------------------------------------------------------------------------
 
+# Pestañas visibles del papel HTML (los «botones» de la vista de ejecución), en su
+# orden. El resto de las ~55 cédulas quedan INTERNAS (en el Excel y en «Cómo se
+# calcula»), no como pestaña. El Tablero Ejecutivo es el panel/tableros, que el HTML
+# muestra siempre aparte.
+HOJAS_HTML = [
+    "14_Perfil",            # Perfil del Encargo
+    "08A_ESF_Detalle",      # Situación Financiera
+    "08B_ERI_Detalle",      # Estado de Resultados
+    "08_Horizontal",        # Analítico Preliminar
+    "10_Indices",           # Índices Financieros
+    "11_Materialidad",      # Materialidad
+    "46_Matriz_Riesgos",    # Matriz de Riesgos
+    "15N_Notas_EEFF",       # Notas a los EEFF
+    "17_Anomalias",         # Control & Anomalías
+    "19_Programa",          # Programa
+    "47_Conocimiento_Negocio",  # Conocimiento del Negocio (agregado)
+]
+
+# Hojas que se ven como PESTAÑA en el Excel entregable: las mismas de los botones de
+# ejecución (00_Inicio = Tablero + estas 10 cédulas). El resto de las cédulas viaja
+# OCULTO (sheet_state="hidden"), nunca borrado: las fórmulas de las visibles las
+# referencian (mismo criterio que el ICT). `libro.xlsx` lo aplica si la definición trae
+# `hojas_visibles`.
+HOJAS_PESTANA = [h for h in HOJAS_HTML if h != "47_Conocimiento_Negocio"]
+
+
 def definicion() -> dict:
     bc = ("Una fila por cuenta, tal como lo exporta el sistema contable, con TODOS los niveles (sección, grupo, cuenta y "
           "subcuentas): código, nombre y saldo. Los saldos acreedores pueden venir negativos: la herramienta detecta el signo "
@@ -4318,6 +4550,14 @@ def definicion() -> dict:
         "fields": _BAL_ACT, "rules": [], "control": CONTROL, "primary": "materialidad",
         "campos": CAMPOS, "tipos": TIPOS, "parametros": dict(PARAMETROS), "etiquetas_parametros": ETIQUETAS_PARAM,
         "cedulas": [[n, etq] for n, etq in CEDULAS],
+        # Pestañas visibles del papel HTML (los «botones» de la vista): solo estas
+        # cédulas se muestran como sección en el HTML/Word/PowerPoint, en este orden;
+        # las otras 40+ quedan INTERNAS (siguen en el Excel y en «Cómo se calcula»,
+        # pero no estorban la vista ejecutiva). El Tablero es el panel/tableros
+        # (siempre visible aparte). Si se quiere mostrar/ocultar otra, editar aquí.
+        "hojas_html": HOJAS_HTML,
+        # Pestañas visibles del Excel entregable = las de los botones (el resto va oculto en el libro).
+        "hojas_visibles": HOJAS_PESTANA,
         # A4 (NIA 230): cédulas clave con su preparó y revisó tomados de la bitácora (hoja 00_Firmas del libro).
         "firmas": ["11_Materialidad", "12_Riesgos_CCI", "13_Riesgos_Balance", "19_Programa", "21_Estrategia", enc_m.H24, enc_m.H25,
                    enc_m.H28, enc_m.H32],
@@ -4400,8 +4640,13 @@ def definicion() -> dict:
                         "importe y tipo (Saldo si forma el saldo, Movimiento si es la conciliación del año, Total si es el total)."),
             req("RQ-007", "Informe de auditoría, notas y carta de control interno del año anterior (documentos firmados)", None, "PLA-01",
                 "Respaldo de los datos transcritos en RQ-004 a RQ-006", formats=("pdf", "docx"), use="soporte", required=False),
-            req("RQ-008", "RUC actualizado de la entidad", None, "PLA-01", "Identificación de la entidad y su actividad",
-                formats=("pdf",), use="soporte", required=False),
+            req("RQ-008", "RUC actualizado de la entidad", "ruc_certificado", "PLA-01",
+                "Identificación de la entidad, su actividad económica (CIIU) y sus obligaciones tributarias", required=False,
+                formats=("pdf", "docx", "xlsx", "csv"),
+                content="Datos del certificado del RUC (SRI): razón social, número de RUC, representante legal, actividades "
+                        "económicas (CIIU), si está obligado a llevar contabilidad, tipo de contribuyente, agente de retención, "
+                        "contribuyente especial, obligaciones tributarias, establecimientos y jurisdicción. Suba el certificado en "
+                        "PDF (la IA lo lee y usted revisa) o transcríbalo en Excel/CSV."),
         ],
     }
 

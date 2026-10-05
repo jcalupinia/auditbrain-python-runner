@@ -31,7 +31,10 @@ def validar_campos(campos: list, filas: list, unico: str | None = "id") -> dict:
     for f in filas:
         fila = f.get("_row")
         for c in campos:
-            v = str(f.get(c["key"], "") or "").strip()
+            # Un 0 numérico es un valor PRESENTE, no un campo vacío: ``0 or ""`` lo colapsaba a "" y marcaba
+            # «Falta …» en saldos legítimamente en cero (decisión del dueño, 2026-10-04). Solo None/ausente es vacío.
+            raw = f.get(c["key"], "")
+            v = "" if raw is None else str(raw).strip()
             if c.get("required") and not v:
                 errores.append({"row": fila, "field": c["key"], "message": f"Falta {c['label']}."})
             elif v and c["type"] == "number" and a_num(v) is None:
@@ -77,7 +80,7 @@ def problema(code: str, mensaje: str, importe=0) -> dict:
 
 def hoja(name: str, label: str, cols: list, rows: list, total=None, explica: dict | None = None,
          guia: str | None = None, ocultas: list | None = None, origen: dict | None = None,
-         estilos: list | None = None, colores: list | None = None) -> dict:
+         estilos: list | None = None, colores: list | None = None, signo: list | None = None) -> dict:
     """Cédula: cols = [[título, formato]] con formato t/n/p/i/d/x; celdas calculadas con fx().
 
     ``explica`` = {título de columna calculada: explicación en lenguaje sencillo}.
@@ -100,7 +103,11 @@ def hoja(name: str, label: str, cols: list, rows: list, total=None, explica: dic
     HTML, Word y PowerPoint.
     ``colores`` = columnas cuyo valor es un nivel, severidad, semáforo o estado (Alto, Medio, Bajo,
     Significativo, Rojo, Crítico, Conforme…): cada celda se pinta según ``NIVEL_COLOR`` en el Excel
-    (formato condicional, sigue a la fórmula), el HTML, el Word y el PowerPoint."""
+    (formato condicional, sigue a la fórmula), el HTML, el Word y el PowerPoint.
+    ``signo`` = columnas numéricas (Variación, Variación %…) cuyo TEXTO se tiñe por el signo del
+    valor: positivo en verde, negativo en rojo, el cero y el vacío neutros. Replica la lectura de
+    variaciones del artefacto HTML de la planificación. En el Excel se aplica con formato condicional
+    (sigue a la fórmula si cambia un saldo) y SIN relleno, para no tapar la zebra ni los bordes."""
     h = {"name": name, "label": label, "cols": cols, "rows": rows, "total": total, "explica": dict(explica or {})}
     if guia:
         h["guia"] = guia
@@ -112,6 +119,8 @@ def hoja(name: str, label: str, cols: list, rows: list, total=None, explica: dic
         h["estilos"] = list(estilos)
     if colores:
         h["colores"] = [c for c in colores if c in [x[0] for x in cols]]
+    if signo:
+        h["signo"] = [c for c in signo if c in [x[0] for x in cols]]
     return h
 
 
@@ -123,6 +132,7 @@ NIVEL_COLOR = {
     "Medio": "media", "Media": "media", "Revisar": "media", "Amarillo": "media",
     "Bajo": "baja", "Baja": "baja", "Conforme": "baja", "Verde": "baja",
     "Pendiente": "info", "No evaluado": "info", "No significativo": "info", "No aplica": "info", "No se presenta": "info",
+    "Sin dato": "info",
     "Alerta": "alta", "Comunicar": "media", "Candidato": "media", "Documentado": "baja",
     "Empeora": "alta", "Mejora": "baja", "Dentro del rango": "baja", "Fuera": "media",
 }

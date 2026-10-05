@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import * as api from "../../api";
+import { Ejecucion } from "./CicloEjecucion";
+import { Revision } from "./CicloRevision";
 import { ChipDocumento, MapeoManual, VistaTrabajo } from "./CicloVista";
 import { PENDIENTE_MAPEO, prepararBaseTecnica, producir, revisarColumnas } from "./cicloOrquestacion";
 import {
@@ -322,10 +324,81 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
     }
   }
 
-  // Abre la vista de trabajo detallada, desplazándose a esa sección. La tarjeta de
-  // reproceso además consulta el endpoint y muestra la matriz.
+  // Abre el papel en HTML (el artefacto autónomo: tablero, cédulas y, dentro, las
+  // descargas de Excel/Word/PowerPoint) en una PESTAÑA NUEVA, al frente —no tablas
+  // abajo—. La ventana se abre sincrónicamente dentro del clic (si se abre tras el
+  // await, el bloqueador de pop-ups la corta) y luego se le carga el HTML ya armado.
+  async function abrirTableroHTML(seccion) {
+    // La ventana se abre SINCRÓNICA dentro del clic (si se abre tras el await, el
+    // bloqueador de pop-ups la corta). Si el navegador la bloqueó, avisamos.
+    const win = window.open("", "_blank");
+    if (!win) {
+      setError("El navegador bloqueó la ventana nueva. Habilitá las ventanas emergentes (pop-ups) para este sitio y volvé a intentar.");
+      return;
+    }
+    win.document.write("<!doctype html><title>Generando…</title><body style='font-family:sans-serif;padding:2rem'>Generando el tablero…</body>");
+    try {
+      // Cada botón trae su propio HTML autónomo con SOLO esa sección (Materialidad,
+      // Riesgos, …). Sin sección (p. ej. el tablero), trae el papel completo.
+      const bytes = await api.cicloBajarLibro(prueba.id, "html", seccion || null);
+      const url = URL.createObjectURL(new Blob([bytes], { type: "text/html;charset=utf-8" }));
+      win.location = url;
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      win.close();
+      setError(e.message || String(e));
+    }
+  }
+
+  // PDF = el MISMO HTML del artefacto, impreso por el navegador (fidelidad 100 %, sin
+  // servidor ni internet). Abre el papel autónomo con «#print»: el propio HTML llama a
+  // window.print() al cargar y el usuario elige «Guardar como PDF» (impresión horizontal
+  // ya preparada). Así el PDF es idéntico al HTML, con sus tablas y gráficos.
+  async function imprimirPDF(seccion) {
+    const win = window.open("", "_blank");
+    if (!win) {
+      setError("El navegador bloqueó la ventana nueva. Habilitá las ventanas emergentes (pop-ups) para este sitio y volvé a intentar.");
+      return;
+    }
+    win.document.write("<!doctype html><title>Generando PDF…</title><body style='font-family:sans-serif;padding:2rem'>Preparando el PDF…</body>");
+    try {
+      const bytes = await api.cicloBajarLibro(prueba.id, "html", seccion || null);
+      const url = URL.createObjectURL(new Blob([bytes], { type: "text/html;charset=utf-8" }));
+      win.location = url + "#print";   // el boot del artefacto detecta #print y abre el diálogo de impresión
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      win.close();
+      setError(e.message || String(e));
+    }
+  }
+
+  // Descarga un formato del papel armado por el servidor (Excel con fórmulas y gráficos,
+  // Word ejecutivo). Siempre con el mismo diseño del procesador.
+  async function bajarFormato(ext, tipo) {
+    try {
+      const base = `${(d.name || "Planificacion").replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}`;
+      descargar(`${base}.${ext}`, await api.cicloBajarLibro(prueba.id, ext), tipo);
+    } catch (e) {
+      setError(e.message || String(e));
+    }
+  }
+
+  // Corrige la «Visita de auditoría» (Preliminar/Final) sin reiniciar la prueba:
+  // actualiza las cabeceras de período del HTML y el prorrateo del Excel, y re-genera
+  // el papel. onAccion recarga la prueba al terminar.
+  const corregirVisita = (visit) => onAccion("set_visit", { visit });
+
+  // Al aplastar una tarjeta de ejecución:
+  // - Planificación (procesador planificacion_nia): abre el papel HTML al frente,
+  //   directo en la sección del botón. Solo esta herramienta: las demás conservan
+  //   su vista de trabajo detallada (con sus chips de descarga).
+  // - Efectivo (reproceso) y declarativas: la vista de trabajo detallada de siempre.
   async function abrirEjecucion(item) {
     if (!procesada) return;
+    if (config.processor === "planificacion_nia" && !item.reproceso) {
+      await abrirTableroHTML(item.seccion);
+      return;
+    }
     setVerDetalle(true);
     if (item.reproceso) {
       setReproceso(null);
@@ -355,6 +428,34 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
       {error && <p role="alert" className="nf-ef-error">{error}</p>}
       {aviso && <p className="nf-ef-ok">{aviso}</p>}
       {revisando && <p className="nf-ef-aviso">Revisando las columnas del anexo…</p>}
+
+      {/* Visita de auditoría (Preliminar/Final) — corrige las cabeceras de período del papel
+          SIN reiniciar la prueba. Solo la planificación. */}
+      {d.processor === "planificacion_nia" && (
+        <section className="nf-ef-visita">
+          <div className="nf-ef-visita-l">
+            <span className="nf-ef-visita-t">Visita de auditoría</span>
+            <span className="nf-ef-visita-s">
+              Define las cabeceras de período: <strong>Final</strong> compara diciembre contra diciembre;{" "}
+              <strong>Preliminar</strong> compara el cierre anterior contra el corte (con prorrateo del estado de resultados).
+            </span>
+          </div>
+          <div className="nf-ef-visita-sw" role="group" aria-label="Visita de auditoría">
+            {["Preliminar", "Final"].map((v) => (
+              <button
+                key={v}
+                type="button"
+                className={`nf-ef-visita-btn ${reg.engagement?.visit === v ? "on" : ""}`}
+                disabled={bloqueado || estado === "APROBADO" || reg.engagement?.visit === v}
+                onClick={() => corregirVisita(v)}
+                title={estado === "APROBADO" ? "La versión aprobada es inmutable." : `Fijar la visita en ${v} y regenerar el papel`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ===== Paso 1 · Requerimientos de información ===== */}
       <section className="nf-ef-paso">
@@ -501,6 +602,75 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
             </button>
           ))}
         </div>
+      </section>
+
+      {/* ===== Paso 4 · Análisis y cierre (envío a revisión) ===== */}
+      {["PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS"].includes(estado) && (
+        <section className="nf-ef-paso">
+          <header className="nf-ef-paso-h">
+            <span className="nf-ef-num">4</span>
+            <h3>Análisis y cierre</h3>
+          </header>
+          <p className="nf-ef-aviso">
+            Genere el análisis preliminar, revíselo y redacte la conclusión; luego «Enviar a revisión».
+          </p>
+          <div className="nf-ef-cierre">
+            <Ejecucion prueba={prueba} onAccion={onAccion} ocupado={bloqueado} soloAnalisis />
+          </div>
+        </section>
+      )}
+
+      {/* ===== Paso 5 · Revisión y aprobación ===== */}
+      {(["EN_REVISION", "APROBADO"].includes(estado) || (reg.notes || []).length > 0) && (
+        <section className="nf-ef-paso">
+          <header className="nf-ef-paso-h">
+            <span className="nf-ef-num">5</span>
+            <h3>Revisión y aprobación</h3>
+          </header>
+          <div className="nf-ef-cierre">
+            <Revision prueba={prueba} onAccion={onAccion} onRecargar={onRecargar} ocupado={bloqueado} />
+          </div>
+        </section>
+      )}
+
+      {/* ===== Paso 6 · Descarga del papel (4 formatos) ===== */}
+      <section className="nf-ef-paso">
+        <header className="nf-ef-paso-h">
+          <span className="nf-ef-num">6</span>
+          <h3>Descarga del papel de trabajo</h3>
+        </header>
+        {!procesada && <p className="nf-ef-aviso">Procese la información para habilitar las descargas.</p>}
+        {procesada && (
+          <>
+            <p className="nf-ef-aviso">
+              El mismo papel en cuatro formatos. El HTML funciona sin internet y recalcula al editar; el Excel trae
+              fórmulas trazables y los gráficos; el PDF es el propio HTML impreso; el Word es ejecutivo con márgenes y cuadros.
+            </p>
+            <div className="nf-ef-descargas">
+              <button type="button" className="nf-ef-dl" onClick={() => abrirTableroHTML(null)}>
+                <Icono name="dashboard" color="blue" />
+                <span className="nf-ef-dl-t">HTML sin conexión</span>
+                <span className="nf-ef-dl-s">Editable · recalcula sin internet</span>
+              </button>
+              <button type="button" className="nf-ef-dl" onClick={() => bajarFormato("xlsx", XLSX)}>
+                <Icono name="table" color="green" />
+                <span className="nf-ef-dl-t">Excel</span>
+                <span className="nf-ef-dl-s">Fórmulas trazables + gráficos</span>
+              </button>
+              <button type="button" className="nf-ef-dl"
+                onClick={() => bajarFormato("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}>
+                <Icono name="doc" color="blue" />
+                <span className="nf-ef-dl-t">Word</span>
+                <span className="nf-ef-dl-s">Ejecutivo · márgenes y cuadros</span>
+              </button>
+              <button type="button" className="nf-ef-dl" onClick={() => imprimirPDF(null)}>
+                <Icono name="pdf" color="red" />
+                <span className="nf-ef-dl-t">PDF</span>
+                <span className="nf-ef-dl-s">El HTML impreso (Guardar como PDF)</span>
+              </button>
+            </div>
+          </>
+        )}
       </section>
 
       {/* ===== Vista de trabajo detallada (paso 3) ===== */}

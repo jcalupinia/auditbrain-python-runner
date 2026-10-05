@@ -91,7 +91,13 @@ async function parse(res) {
     }
     const detail =
       (data && data.detail) || res.statusText || `HTTP ${res.status}`;
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    const esObj = detail && typeof detail === "object";
+    const err = new Error(esObj ? (detail.message || JSON.stringify(detail)) : detail);
+    // Conservar el detalle estructurado y el status para que el caller pueda reaccionar
+    // (p. ej. 409 PRUEBA_ABIERTA_EXISTE → ofrecer «Modificar» la prueba existente).
+    err.detail = detail;
+    err.status = res.status;
+    throw err;
   }
   return data;
 }
@@ -443,12 +449,14 @@ export async function cicloLeerPrueba(id) {
 export async function cicloAccion(id, accion, revision, datos = {}) {
   // Acciones que invocan al LLM: la extracción por IA de un documento y el
   // Procesar (map_validate), que auto-extrae los PDF/Word pendientes. El servidor
-  // de IA local genera SIN streaming hasta LOCAL_LLM_TIMEOUT_SECONDS (180s) por
-  // documento, así que el default de 60s del cliente abortaba («No se pudo
-  // conectar con el servidor») antes de terminar. Se les da un timeout amplio y
-  // sin reintentos (no re-POSTear un trabajo largo del modelo).
+  // de IA local tarda por documento, y uno pesado (el informe/las notas = 5
+  // llamadas) se alarga; con el default de 60s el cliente abortaba («No se pudo
+  // conectar con el servidor»). Se les da una ventana amplia (600s) y SIN
+  // reintentos (no re-POSTear un trabajo largo del modelo). El backend hace
+  // failover a la nube si el local va lento; y si la nube está sin saldo, termina
+  // en el local (más lento). Esta ventana cubre ese peor caso (sondeo + local).
   const invocaLLM = accion === "extraer_ia" || accion === "map_validate";
-  const opts = invocaLLM ? { timeoutMs: 300000, retries: 0 } : {};
+  const opts = invocaLLM ? { timeoutMs: 600000, retries: 0 } : {};
   return parse(await apiFetch(`${CICLO}/pruebas/${id}/acciones`, jsonPost("POST", { accion, revision, datos }), opts));
 }
 // E7: evidencia. El archivo va por formulario multiparte; el servidor lo guarda
@@ -498,8 +506,11 @@ export async function cicloBajarModelo(pruebaId, requerimiento) {
   return new Uint8Array(await res.arrayBuffer());
 }
 // Excel del papel en curso de una prueba con procesador: lo arma el servidor.
-export async function cicloBajarLibro(pruebaId, formato = "xlsx") {
-  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/libro?formato=${formato}`, { headers: authHeaders() });
+export async function cicloBajarLibro(pruebaId, formato = "xlsx", seccion = null) {
+  // `seccion` (solo HTML de planificación): devuelve un HTML autónomo con SOLO esa
+  // sección (Materialidad, Riesgos, …) en vez del papel completo.
+  const q = seccion ? `&seccion=${encodeURIComponent(seccion)}` : "";
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/libro?formato=${formato}${q}`, { headers: authHeaders() });
   if (!res.ok) await parse(res);
   return new Uint8Array(await res.arrayBuffer());
 }

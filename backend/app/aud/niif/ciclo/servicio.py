@@ -155,13 +155,16 @@ def _num_seguro(v) -> float:
     return n or 0.0
 
 
-def _auto_extraer_ia(db: Session, p: Prueba, reg: dict, proc) -> list[str]:
-    """Al procesar: extrae por IA los documentos PDF/Word de los requerimientos
-    extraíbles (carta/informe/notas) que aún NO tengan extracción, y los deja en
+def _auto_extraer_ia(db: Session, p: Prueba, reg: dict, proc, ya_mapeados: set = frozenset()) -> list[str]:
+    """Al procesar: extrae por IA los documentos de los requerimientos extraíbles
+    (carta/informe/notas) que aún NO tengan extracción, y los deja en
     ``reg["extraccion"]`` marcados como automáticos y pendientes de revisión. Respeta
-    lo ya extraído/confirmado con el botón. Devuelve avisos legibles (uno por archivo).
-    Nunca crashea: si la IA no está disponible o falla, avisa y sigue (el requerimiento
-    es opcional; el auditor puede subir la tabla en Excel/CSV)."""
+    lo ya extraído/confirmado con el botón. Lee PDF, Word y también Excel/CSV: así una
+    nota (o carta/informe) subida en .xlsx cuyas columnas no se reconocen se LEE sola
+    en vez de pedir el mapeo manual. ``ya_mapeados`` son los archivos que ya viajaron
+    como tabla reconocida en ``datasets`` (no se vuelven a leer por IA, para no
+    duplicarlos). Devuelve avisos legibles (uno por archivo). Nunca crashea: si la IA
+    no está disponible o falla, avisa y sigue (el requerimiento es opcional)."""
     extdatasets = getattr(proc, "EXTRACCION_DATASETS", ())
     if not extdatasets:
         return []
@@ -172,9 +175,10 @@ def _auto_extraer_ia(db: Session, p: Prueba, reg: dict, proc) -> list[str]:
     corte = (reg.get("engagement") or {}).get("cutoff", "")
     avisos: list[str] = []
     for a in archivos(db, p.id):
-        if a.estado == "rechazado" or a.requerimiento not in por_req or str(a.id) in extraccion:
+        if (a.estado == "rechazado" or a.requerimiento not in por_req
+                or str(a.id) in extraccion or a.id in ya_mapeados):
             continue
-        if extraccion_ia._extension(a.nombre) not in ("pdf", "docx"):
+        if extraccion_ia._extension(a.nombre) not in ("pdf", "docx", "xlsx", "csv"):
             continue
         ds = por_req[a.requerimiento]["dataset"]
         campos = proc.CAMPOS[proc.kind(ds)]
@@ -191,8 +195,10 @@ def _auto_extraer_ia(db: Session, p: Prueba, reg: dict, proc) -> list[str]:
         v = proc.validar_filas(proc.kind(ds), res["rows"])
         extraccion[str(a.id)] = {"dataset": ds, "requestId": a.requerimiento, "file": a.nombre, "rows": res["rows"],
                                  "modelo": res["modelo"], "validation": v, "auto": True, "revisado": False,
-                                 "at": _ahora_iso()}
-        avisos.append(f"{a.requerimiento} · {len(res['rows'])} fila(s) extraídas por IA de «{a.nombre}» al procesar; "
+                                 "segundos": res.get("segundos"), "trozos": res.get("trozos"), "at": _ahora_iso()}
+        seg = res.get("segundos")
+        t_txt = f" en {seg:.1f}s ({res.get('trozos')} llamada(s) al modelo)" if seg is not None else ""
+        avisos.append(f"{a.requerimiento} · {len(res['rows'])} fila(s) extraídas por IA de «{a.nombre}»{t_txt} al procesar; "
                       "revíselas (la IA solo transcribe lo que leyó).")
     reg["extraccion"] = extraccion
     return avisos
@@ -221,6 +227,36 @@ def crear_prueba(db: Session, project_id: int, origen: str, tributario: bool, ac
     pais = encargo.get("country") or ""
     if not 2 <= len(pais) <= 80:
         raise ReglaIncumplida("Seleccione el país del encargo.")
+    # No se permite crear una prueba nueva si ya hay una ABIERTA (no aprobada) de la
+    # MISMA herramienta en el MISMO ejercicio económico (mismo corte): el usuario debe
+    # MODIFICAR la existente, no volver a crearla (evita el apilamiento de duplicados).
+    # Las APROBADAS no bloquean: corregirlas es, por diseño, una versión nueva.
+    corte = encargo.get("cutoff")
+    abiertas = db.execute(
+        select(Prueba).where(
+            Prueba.project_id == project_id,
+            Prueba.origen == origen,
+            Prueba.estado != "APROBADO",
+        ).order_by(Prueba.creada_en.desc())
+    ).scalars().all()
+    existente = next(
+        (x for x in abiertas if ((x.registro or {}).get("engagement") or {}).get("cutoff") == corte),
+        None,
+    )
+    if existente is not None:
+        nombre = (existente.definicion or {}).get("name") or "la prueba"
+        exc = Conflicto(
+            f"Ya tiene abierta «{nombre}» en este ejercicio. Modifíquela en vez de crear otra "
+            "(no se permiten duplicados de la misma prueba en el mismo ejercicio)."
+        )
+        exc.detalle = {
+            "code": "PRUEBA_ABIERTA_EXISTE",
+            "message": str(exc),
+            "pruebaId": existente.id,
+            "estado": existente.estado,
+            "version": existente.version,
+        }
+        raise exc
     registro = {
         "methodologyVersion": VERSIONES["methodologyVersion"],
         "contextOverride": encargo.get("reuseScope") in ("one", "selected"),
@@ -367,6 +403,27 @@ def requests_vivos(p: Prueba) -> list:
     return _con_politica_viva(completos, _politica_catalogo_viva(p))
 
 
+def _definicion_viva(p: Prueba) -> dict:
+    """La definición de la prueba con los requerimientos VIVOS del catálogo. La
+    definición se congela al crear la prueba; para una herramienta del catálogo
+    (`proc:` con RUBRO) eso deja fuera los anexos que el catálogo agregó después
+    (p. ej. RQ-011 «Libro Mayor»). Devolver los requerimientos vivos hace que el
+    preview previo a generar y la generación de requerimientos los incluyan, sin
+    re-crear la prueba. Para fichas que no son del catálogo, la definición congelada."""
+    d = p.definicion or {}
+    origen = getattr(p, "origen", "") or ""
+    if not origen.startswith("proc:"):
+        return d
+    mod = procesadores.PROCESADORES.get(origen[5:])
+    if mod is None or not getattr(mod, "RUBRO", None):
+        return d
+    try:
+        reqs = mod.definicion().get("requests")
+    except Exception:
+        return d
+    return {**d, "requests": list(reqs)} if reqs else d
+
+
 def _t(p: Prueba) -> dict:
     """El registro con la forma que esperan las reglas del sitio."""
     politica = _politica_catalogo_viva(p)
@@ -377,6 +434,45 @@ def _t(p: Prueba) -> dict:
         if (definicion or {}).get("requests"):
             definicion = {**definicion, "requests": _con_politica_viva(definicion["requests"], politica)}
     return {**reg, "state": p.estado, "definition": definicion}
+
+
+def _run_procesador(db: Session, p: Prueba, reg: dict, proc) -> dict:
+    """Ejecuta el procesador especializado de la prueba con los mismos insumos y
+    parámetros que usa ``execute`` (marco, edición, registros del encargo, versión
+    anterior y audit trail) y devuelve el ``run`` con sus cédulas (``hojas``) y los
+    datos del cliente ya incorporados.
+
+    Lo comparten ``execute`` (ejecución normal) y ``set_visit`` (que re-ejecuta para
+    que el papel —Excel/Word/PDF— refleje la visita corregida, ya que el ``run`` se
+    «hornea» al ejecutar y ``libro.xlsx`` pinta el ``run`` almacenado)."""
+    from backend.app.aud.niif.procesadores import datos_cliente
+
+    # Procesador especializado: el cálculo solo existe en Python.
+    param = {k: v for k, v in reg["parameters"].items() if k in proc.PARAMETROS}
+    # El marco y la edición del encargo enrutan el cálculo cuando la norma difiere (M02).
+    param["_marco"] = reg["engagement"].get("framework") or ""
+    param["_edicion"] = str(reg["engagement"].get("edition") or "")
+    if getattr(proc, "USA_REGISTROS_ENCARGO", False):
+        # Independencia, aceptación, carta, discusión y comunicación registradas con un clic: se
+        # congelan en esta ejecución (la hoja 00_Registros del papel es la evidencia; NIA 230).
+        param["_encargo"] = registros_encargo(db, p.project_id)
+        # M4 (NIA 300 párr. 10): cifras y riesgos de la versión anterior, para el comparativo de la hoja 42.
+        anterior = version_anterior_run(db, p)
+        if anterior:
+            param["_anterior"] = anterior
+        # Audit trail (NIA 230, hoja 23): nombre y huella SHA-256 de cada archivo del cliente que se usó.
+        param["_archivos"] = archivos_de_entrada(db, p.id)
+    run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
+    # La 3.ª edición de la NIIF para las PYMES rige desde el 1-1-2027: antes, solo con adopción anticipada.
+    if "PYMES" in param["_marco"] and param["_edicion"] == "2025" and str(reg["engagement"]["cutoff"]) < "2027-01-01":
+        run["exceptions"] = [{"code": "PYMES_2025_ANTICIPADA", "amount": "0.00", "message":
+            "La NIIF para las PYMES 2025 (3.ª edición) rige para períodos desde el 1-1-2027: con corte "
+            f"{reg['engagement']['cutoff']} solo procede si la entidad la adoptó anticipadamente y lo revela; "
+            "de lo contrario use la edición 2015."}] + list(run.get("exceptions") or [])
+    # Las cédulas y, dentro del libro, los datos que entregó el cliente (hojas D1_…).
+    run["hojas"] = datos_cliente.con_datos(proc, run, reg.get("datasets") or {})
+    run["detalle"] = {k: v for k, v in run["detalle"].items() if k in ("tasas", "fiscal", "cortes")}
+    return run
 
 
 def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: dict, actor: str) -> Prueba:
@@ -435,7 +531,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             reg["program"] = aprobado
     elif accion == "generate_request":
         p.estado = reglas.transicion(t, accion)
-        reg["requests"] = datos_mod.create_requests(reg["program"], reg["engagement"]["cutoff"], p.definicion)
+        reg["requests"] = datos_mod.create_requests(reg["program"], reg["engagement"]["cutoff"], _definicion_viva(p))
 
     elif accion in ("save_request", "approve_request"):
         if p.estado != "REQUERIMIENTO_GENERADO":
@@ -533,7 +629,9 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             # requerimiento extraíble (carta/informe/notas) que aún no tiene extracción,
             # la IA lo lee AHORA y se usa (queda marcado como automático, pendiente de
             # revisión del auditor). Si ya se extrajo/confirmó con el botón, se respeta.
-            avisos += [{"row": None, "message": msg} for msg in _auto_extraer_ia(db, p, reg, proc)]
+            ya = {int(pt.get("fileId")) for partes in conjuntos.values() if isinstance(partes, list)
+                  for pt in partes if isinstance(pt, dict) and str(pt.get("fileId") or "").isdigit()}
+            avisos += [{"row": None, "message": msg} for msg in _auto_extraer_ia(db, p, reg, proc, ya)]
             # Filas extraídas por IA de la carta/informe/notas (PDF/Word), ya en
             # reg["extraccion"] (por el botón «Extraer con IA» o por la auto-extracción
             # de arriba). Se suman a su dataset.
@@ -689,31 +787,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             if proc:
                 # Procesador especializado: el cálculo solo existe en Python;
                 # no hay resultado del navegador que contrastar.
-                param = {k: v for k, v in reg["parameters"].items() if k in proc.PARAMETROS}
-                # El marco y la edición del encargo enrutan el cálculo cuando la norma difiere (M02).
-                param["_marco"] = reg["engagement"].get("framework") or ""
-                param["_edicion"] = str(reg["engagement"].get("edition") or "")
-                if getattr(proc, "USA_REGISTROS_ENCARGO", False):
-                    # Independencia, aceptación, carta, discusión y comunicación registradas con un clic: se congelan en
-                    # esta ejecución (la hoja 00_Registros del papel es la evidencia; NIA 230).
-                    param["_encargo"] = registros_encargo(db, p.project_id)
-                    # M4 (NIA 300 párr. 10): cifras y riesgos de la versión anterior, para el comparativo de la hoja 42.
-                    anterior = version_anterior_run(db, p)
-                    if anterior:
-                        param["_anterior"] = anterior
-                    # Audit trail (NIA 230, hoja 23): nombre y huella SHA-256 de cada archivo del cliente que se usó.
-                    param["_archivos"] = archivos_de_entrada(db, p.id)
-                run = proc.ejecutar(reg.get("datasets") or {}, param, reg["engagement"]["cutoff"])
-                # La 3.ª edición de la NIIF para las PYMES rige desde el 1-1-2027: antes, solo con adopción anticipada.
-                if "PYMES" in param["_marco"] and param["_edicion"] == "2025" and str(reg["engagement"]["cutoff"]) < "2027-01-01":
-                    run["exceptions"] = [{"code": "PYMES_2025_ANTICIPADA", "amount": "0.00", "message":
-                        "La NIIF para las PYMES 2025 (3.ª edición) rige para períodos desde el 1-1-2027: con corte "
-                        f"{reg['engagement']['cutoff']} solo procede si la entidad la adoptó anticipadamente y lo revela; "
-                        "de lo contrario use la edición 2015."}] + list(run.get("exceptions") or [])
-                # Las cédulas y, dentro del libro, los datos que entregó el cliente (hojas D1_…).
-                from backend.app.aud.niif.procesadores import datos_cliente
-                run["hojas"] = datos_cliente.con_datos(proc, run, reg.get("datasets") or {})
-                run["detalle"] = {k: v for k, v in run["detalle"].items() if k in ("tasas", "fiscal", "cortes")}
+                run = _run_procesador(db, p, reg, proc)
             else:
                 run = estudio.ejecutar_definicion(p.definicion, reg["rows"], reg["parameters"], reg.get("flows") or [])
         except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
@@ -749,6 +823,39 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             if not reg["conclusion"].strip():
                 raise ReglaIncumplida("Redacte la conclusión preliminar antes de enviar.")
             p.estado = reglas.transicion({**reg, "state": p.estado, "definition": p.definicion}, accion)
+
+    elif accion == "set_visit":
+        # Corregir la «Visita de auditoría» (Preliminar/Final) de una planificación ya
+        # avanzada SIN reiniciarla. La visita define las cabeceras de período del papel y
+        # vive en dos sitios que aquí se mantienen en sincronía: el HTML del artefacto la
+        # lee de ``engagement.visit`` y el procesador (Excel/Word/PDF) del parámetro
+        # ``tipoRevision`` (con ``mesesTranscurridos``). Si la prueba ya se ejecutó, se
+        # re-ejecuta para que el papel refleje la visita corregida (el ``run`` se hornea
+        # al ejecutar). No cambia el estado del ciclo: no se pierde trabajo.
+        if (p.definicion or {}).get("processor") != "planificacion_nia":
+            raise ReglaIncumplida("La visita solo se corrige en la planificación de la auditoría.")
+        visita = str(datos.get("visit") or "").strip().capitalize()
+        if visita not in ("Preliminar", "Final"):
+            raise ReglaIncumplida("Visita inválida: use Preliminar o Final.")
+        import re as _re_visit
+        mm = _re_visit.match(r"\d{4}-(\d{2})", str(reg["engagement"].get("cutoff") or ""))
+        mes_corte = int(mm.group(1)) if mm else 12
+        meses = mes_corte if visita == "Preliminar" else 12
+        reg["engagement"] = {**reg["engagement"], "visit": visita}
+        reg["parameters"] = {**(reg.get("parameters") or {}), "tipoRevision": visita, "mesesTranscurridos": meses}
+        proc = procesadores.de(p.definicion)
+        if proc is not None and reg.get("run"):
+            try:
+                reg["run"] = _run_procesador(db, p, reg, proc)
+            except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
+                raise ReglaIncumplida(str(e) or "No se pudo regenerar el papel con la visita corregida.")
+            reg["runHash"] = hashlib.sha256(json.dumps(
+                {"definition": p.definicion, "rows": reg["rows"], "parameters": reg["parameters"],
+                 "flows": reg.get("flows") or [], "run": reg["run"]},
+                ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            reg["executedAt"] = _ahora_iso()
+        datos = {**datos, "comment": f"Visita corregida a «{visita}»: períodos y papel actualizados sin reiniciar la prueba."}
 
     # --- E9: revisión y aprobación (route.ts) ---------------------------------
     elif accion == "return_to_data":
@@ -859,6 +966,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             except extraccion_ia.ExtraccionError as e:
                 raise ReglaIncumplida(str(e))
             rows, modelo = res["rows"], res["modelo"]
+            segundos, trozos = res.get("segundos"), res.get("trozos")
         else:  # guardar_extraccion: la tabla que el auditor revisó y editó
             crudas = datos.get("rows")
             if not isinstance(crudas, list) or len(crudas) > datos_mod.MAX_ROWS:
@@ -866,13 +974,16 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             claves = [c["key"] for c in campos]
             rows = [{**{k: (f.get(k) if isinstance(f, dict) else "") for k in claves}, "_row": i}
                     for i, f in enumerate(crudas, start=1)]
-            modelo = (extraccion.get(str(a.id)) or {}).get("modelo", "")
+            prev = extraccion.get(str(a.id)) or {}
+            modelo = prev.get("modelo", "")
+            segundos, trozos = prev.get("segundos"), prev.get("trozos")   # conserva el tiempo de la extracción al confirmar
         v = proc.validar_filas(proc.kind(ds), rows)
         extraccion[str(a.id)] = {"dataset": ds, "requestId": a.requerimiento, "file": a.nombre, "rows": rows,
-                                 "modelo": modelo, "validation": v, "at": _ahora_iso()}
+                                 "modelo": modelo, "validation": v, "segundos": segundos, "trozos": trozos, "at": _ahora_iso()}
         reg["extraccion"] = extraccion
+        t_txt = f" en {segundos:.1f}s ({trozos} llamada(s) al modelo)" if accion == "extraer_ia" and segundos is not None else ""
         datos = {**datos, "comment": f"{a.requerimiento}: {len(rows)} fila(s) "
-                 + ("extraídas por IA de " if accion == "extraer_ia" else "confirmadas de ") + a.nombre
+                 + ("extraídas por IA de " if accion == "extraer_ia" else "confirmadas de ") + a.nombre + t_txt
                  + ("" if v["ok"] else " (revisar avisos de validación)")}
 
     else:
@@ -900,9 +1011,91 @@ def args_papel(db: Session, p: Prueba) -> tuple:
     return (p.definicion, p.registro, _eventos_papel(db, p), p.version, p.estado)
 
 
+def marcar_descargada(db: Session, p: Prueba) -> None:
+    """Registra que el usuario descargó el papel. La retención borra la prueba una
+    breve gracia después (y en todo caso a las 8 h de creada): el Command Center es
+    un lugar de paso y el auditor archiva lo descargado en su propia base. Marcar en
+    cada descarga reinicia la gracia, para poder bajar varios formatos sin perderla."""
+    reg = dict(p.registro or {})
+    reg["descargada_en"] = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
+    p.registro = reg
+    db.add(p)
+    db.commit()
+
+
 def papel_procesador(db: Session, p: Prueba) -> tuple[bytes, bytes]:
     args = args_papel(db, p)
+    # Planificación: el HTML es el del motor del artefacto (idéntico al de referencia);
+    # el Excel con fórmulas sigue saliendo del motor propio.
+    if (p.definicion or {}).get("processor") == "planificacion_nia":
+        return libro.xlsx(*args), papel_artefacto_html(db, p)
     return libro.xlsx(*args), libro.html(*args)
+
+
+_MES_ES = ("", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre",
+           "Octubre", "Noviembre", "Diciembre")
+
+
+def _periodos_planificacion(engagement: dict, parametros: dict) -> dict:
+    """Etiquetas de período para el HTML del artefacto, derivadas del corte y el modo.
+
+    Preliminar: «Diciembre {A-1}» (cierre anterior) → «{Mes} {A}» (corte) y
+    «{Mes} {A-1}» (mismo corte del año anterior). Final: «Diciembre {A-1}» → «Diciembre {A}».
+    """
+    import re as _re
+    corte = str((engagement or {}).get("cutoff") or (parametros or {}).get("cutoff") or "")
+    m = _re.match(r"(\d{4})-(\d{2})", corte)
+    # «Preliminar» puede venir como parametros.tipoRevision, engagement.mode o el campo
+    # «Visita de auditoría» de la ficha (engagement.visit = "Preliminar"/"Final"). Antes
+    # solo se miraba tipoRevision, así que una visita preliminar salía como final.
+    prelim = str((parametros or {}).get("tipoRevision") or (engagement or {}).get("mode")
+                 or (engagement or {}).get("visit") or "").strip().lower().startswith("prelim")
+    if not m:
+        return {"periodoAnterior": "Cierre anterior", "periodoCorte": "Corte", "periodoEri": "Mismo corte anterior"}
+    anio, mes = int(m.group(1)), int(m.group(2))
+    etq_corte = f"{_MES_ES[mes]} {anio}"
+    return {
+        "periodoAnterior": f"Diciembre {anio - 1}",
+        "periodoCorte": etq_corte if prelim else f"Diciembre {anio}",
+        "periodoEri": f"{_MES_ES[mes]} {anio - 1}",
+    }
+
+
+def papel_artefacto_html(db: Session, p: Prueba, seccion: str | None = None) -> bytes:
+    """HTML del papel de Planificación con el motor del artefacto AuditBrain.
+
+    Pasa los balances **crudos** (tal cual los subió el cliente) al motor del
+    artefacto, que los parsea y dibuja idéntico. Los demás formatos (Excel con
+    fórmulas, Word, PowerPoint, PDF) siguen saliendo del motor propio (`libro`).
+
+    ``seccion`` (opcional): HTML de una sola sección (Materialidad.html, etc.).
+    """
+    from backend.app.aud.niif.procesadores import artefacto_html
+
+    reg = getattr(p, "registro", None) or {}
+    eng = dict(reg.get("engagement") or {})
+    par = reg.get("parameters") or {}
+    mappings = reg.get("mappings") or ([reg["mapping"]] if reg.get("mapping") else [])
+    por_ds: dict[str, dict] = {}
+    for mp in mappings:
+        ds, fid = mp.get("dataset"), mp.get("fileId")
+        if ds and fid and ds not in por_ds:          # primer archivo de cada balance
+            por_ds[ds] = mp
+    files: dict[str, dict] = {}
+    for rol, _per, ds, _key in artefacto_html._ROLES:
+        mp = por_ds.get(ds)
+        if not mp or not str(mp.get("fileId") or "").isdigit():
+            continue
+        a = db.get(PruebaArchivo, int(mp["fileId"]))
+        if a is None or a.prueba_id != p.id:
+            continue
+        try:
+            contenido = almacen.leer(a.ruta)
+        except Exception:                             # noqa: BLE001 (sin el crudo se cae al respaldo)
+            continue
+        files[rol] = artefacto_html.archivo_b64(contenido, a.nombre, mp.get("sheet"))
+    eng.update(_periodos_planificacion(eng, par))
+    return artefacto_html.render(files, eng, par, reg.get("datasets"), seccion=seccion)
 
 
 # --- evidencia ---------------------------------------------------------------

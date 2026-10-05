@@ -511,6 +511,7 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav, hojas=None, anexo=None):
             dim.hidden = True
             dim.outlineLevel = 1
     _colores_nivel(ws, h, fila_enc + 1, fila_enc + len(h["rows"]))
+    _colores_signo(ws, h, fila_enc + 1, fila_enc + len(h["rows"]))
     if any((e or {}).get("grupo") for e in h.get("estilos") or []):
         ws.sheet_properties.outlinePr.summaryBelow = False   # la cuenta superior va arriba de sus subcuentas
     ws.freeze_panes = f"A{fila_enc + 1}"
@@ -539,6 +540,27 @@ def _colores_nivel(ws, h: dict, fila_ini: int, fila_fin: int):
                 FormulaRule(formula=[f'OR({celda}="{clave}",LEFT({celda},{len(clave) + 1})="{clave} ")'], stopIfTrue=True,
                             fill=PatternFill(start_color=relleno, end_color=relleno, fill_type="solid"),
                             font=Font(color=texto, bold=True)))
+
+
+def _colores_signo(ws, h: dict, fila_ini: int, fila_fin: int):
+    """Tiñe por SIGNO el texto de las columnas numéricas declaradas en ``signo`` (Variación,
+    Variación %…): positivo en verde, negativo en rojo (el cero y el vacío quedan neutros).
+    Replica la lectura de variaciones del artefacto HTML. Es formato condicional, así que el
+    color sigue a la fórmula si el auditor cambia un saldo. No usa relleno (respeta la zebra)."""
+    from openpyxl.formatting.rule import CellIsRule
+
+    if fila_fin < fila_ini:
+        return
+    nombres = [c[0] for c in h["cols"]]
+    verde = Font(color="166534", bold=True)
+    rojo = Font(color="991B1B", bold=True)
+    for col in h.get("signo") or []:
+        if col not in nombres:
+            continue
+        letra = get_column_letter(nombres.index(col) + 1)
+        rng = f"{letra}{fila_ini}:{letra}{fila_fin}"
+        ws.conditional_formatting.add(rng, CellIsRule(operator="greaterThan", formula=["0"], font=verde))
+        ws.conditional_formatting.add(rng, CellIsRule(operator="lessThan", formula=["0"], font=rojo))
 
 
 def _q(titulo: str) -> str:
@@ -663,7 +685,7 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     # Portada = el panel del HTML (tema «Ejecutivo»): mismos KPI, gráficos, colores y botones.
     from backend.app.aud.niif.procesadores import panel_excel
 
-    fin_panel = panel_excel.portada(inicio, datos_graf, definicion, reg, hojas, titulos, estado, version,
+    fin_panel, tableros_en_hoja = panel_excel.portada(inicio, datos_graf, definicion, reg, hojas, titulos, estado, version,
                                     _grupos_nav(hojas, titulos, [("Anexo técnico (fórmulas)", HOJA_ANEXO, 3)]), SECCIONES)
     inicio.print_options.horizontalCentered = True
     _print_setup(inicio, reg.get("engagement") or {})
@@ -683,6 +705,23 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     tec = wb.create_sheet(HOJA_ANEXO, pos)
     tec.sheet_properties.tabColor = SECCIONES[3][1]
     _anexo_tecnico(tec, S, anexo, titulo_prueba)
+
+    # Gráficos de los tableros DENTRO de su cédula (como el HTML, junto a su tabla): se anclan ahora
+    # que las hojas ya existen. Solo si el PANEL activó `tableros_en_hoja` (hoy, planificación).
+    panel_excel.anclar_tableros_en_hojas(wb, tableros_en_hoja)
+
+    # Si la definición declara `hojas_visibles` (p. ej. planificación: las pestañas de los
+    # botones), el resto de las cédulas y el anexo técnico viajan OCULTOS (sheet_state=
+    # "hidden"), NUNCA borrados: las fórmulas de las visibles los referencian (mismo criterio
+    # que el ICT, donde ocultar —no borrar— evita romper las referencias con #REF!). 00_Inicio
+    # (Tablero) queda visible y activo. El papel de trabajo NO se protege con contraseña.
+    visibles = definicion.get("hojas_visibles")
+    if visibles:
+        permit = set(visibles)
+        for h, t in zip(hojas, titulos):
+            if h.get("name") not in permit:
+                wb[t].sheet_state = "hidden"
+        tec.sheet_state = "hidden"
     wb.active = 0
     wb.calculation.fullCalcOnLoad = True  # el gráfico y las fórmulas se calculan al abrir
     salida = io.BytesIO()
@@ -707,12 +746,27 @@ def _imagenes_con_marco(datos: bytes) -> bytes:
         return (m.group(1) + f'<a:xfrm xmlns:a="{_A}"><a:off x="0" y="0"/>'
                 f'<a:ext cx="{m.group(2)}" cy="{m.group(3)}"/></a:xfrm>')
 
+    from xml.etree import ElementTree as ET
+
     ent, sal = io.BytesIO(datos), io.BytesIO()
     with zipfile.ZipFile(ent) as zin, zipfile.ZipFile(sal, "w", zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             contenido = zin.read(item.filename)
             if item.filename.startswith("xl/drawings/drawing") and item.filename.endswith(".xml"):
-                contenido = patron.sub(marco, contenido.decode("utf-8")).encode("utf-8")
+                original = contenido.decode("utf-8")
+                transformado = patron.sub(marco, original)
+                # NUNCA emitir un dibujo mal formado: si la cirugía por regex dejara XML
+                # inválido, Excel quitaría TODA la parte del dibujo al abrir (cuadro de
+                # «reparaciones», parte /xl/drawings/drawingN.xml). Validar que el resultado
+                # siga siendo XML bien formado; si no, conservar el original (en el peor caso
+                # los logos salen sin marco en algún visor —cosmético—, pero el Excel abre limpio).
+                if transformado != original:
+                    try:
+                        ET.fromstring(transformado)
+                        original = transformado
+                    except ET.ParseError:
+                        pass
+                contenido = original.encode("utf-8")
             zout.writestr(item, contenido)
     return sal.getvalue()
 

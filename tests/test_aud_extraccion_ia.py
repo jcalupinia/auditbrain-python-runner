@@ -58,7 +58,26 @@ def test_texto_docx_incluye_parrafos_y_tablas():
 
 def test_texto_formato_no_soportado():
     with pytest.raises(ex.ExtraccionError):
-        ex.texto_de_documento("archivo.xlsx", b"cualquier cosa")
+        ex.texto_de_documento("imagen.png", b"cualquier cosa")
+
+
+def test_texto_xlsx_se_lee_como_tabla():
+    """Un requerimiento extraíble (carta/informe/notas) transcrito en Excel se lee por
+    IA igual que un documento firmado, en vez de pedir el mapeo manual de columnas."""
+    openpyxl = pytest.importorskip("openpyxl")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Nota", "Título", "Códigos", "Saldo auditado"])
+    ws.append(["13", "Beneficios a empleados", "2103", "222400.00"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    texto = ex.texto_de_documento("NOTAS LANSEY 2025.xlsx", buf.getvalue())
+    assert "Beneficios a empleados" in texto and "222400.00" in texto
+
+
+def test_texto_xlsx_invalido_falla():
+    with pytest.raises(ex.ExtraccionError):
+        ex.texto_de_documento("archivo.xlsx", b"no soy un xlsx")
 
 
 def test_texto_vacio_falla():
@@ -170,6 +189,20 @@ def test_extraer_carta_produce_filas_validas():
     assert v["ok"], v["errors"]
 
 
+def test_extraer_reporta_segundos_y_trozos():
+    """La extracción mide el tiempo real de la IA y el número de llamadas al modelo,
+    para que el aviso y el log de producción muestren cuánto tardó cada documento."""
+    out = ex.extraer_filas(m.CAMPOS["carta_control_interno"], "texto de la carta",
+                           chat=_ChatFalso([{"id": "R01", "proceso": "X", "hallazgo": "Y"}]))
+    assert isinstance(out["segundos"], float) and out["segundos"] >= 0
+    assert out["trozos"] == 1          # documento corto = una sola llamada
+    # Documento largo → varios trozos = varias llamadas al modelo (medidas por separado).
+    largo = "\n".join(f"linea {i} con texto de relleno para superar el tope por llamada" for i in range(1, 1200))
+    out2 = ex.extraer_filas(m.CAMPOS["carta_control_interno"], largo,
+                            chat=_ChatFalso([{"id": "R01", "proceso": "X", "hallazgo": "Y"}]))
+    assert out2["trozos"] >= 2
+
+
 def test_extraer_informe_incluye_enums_en_el_prompt():
     filas = [
         {"concepto": "Jubilación patronal", "tipo": "Salvedad",
@@ -214,6 +247,30 @@ def test_json_con_cercas_de_codigo_se_parsea():
 def test_respuesta_no_json_falla():
     with pytest.raises(ex.ExtraccionError):
         ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t", chat=_ChatFalso(content="no soy json"))
+
+
+def test_respuesta_vacia_da_error_accionable():
+    """Incidente de producción con la carta: el modelo de razonamiento local
+    devolvió contenido vacío (todo el presupuesto de tokens en el razonamiento) y
+    el usuario veía el críptico «Expecting value: line 1 column 1». Ahora el error
+    es accionable y menciona la env var del techo de tokens."""
+    with pytest.raises(ex.ExtraccionError) as exc:
+        ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t", chat=_ChatFalso(content="   "))
+    msg = str(exc.value)
+    assert "respuesta vacía" in msg
+    assert "AUDITBRAIN_LLM_MAX_TOKENS_EXTRACCION" in msg
+    assert "Expecting value" not in msg
+
+
+def test_placeholder_de_proveedor_vacio_da_error_accionable():
+    """El literal que pone providers cuando el modelo contesta vacío tampoco debe
+    llegar al parser JSON: se traduce al mismo error accionable."""
+    with pytest.raises(ex.ExtraccionError) as exc:
+        ex.extraer_filas(
+            m.CAMPOS["carta_control_interno"], "t",
+            chat=_ChatFalso(content=ex._RESPUESTA_VACIA_PROVEEDOR),
+        )
+    assert "respuesta vacía" in str(exc.value)
 
 
 # --------------------------------------------------------------------------- #
@@ -302,3 +359,61 @@ def test_apagada_no_disponible(monkeypatch):
     monkeypatch.setattr(ex, "EXTRACCION_ENABLED", False)
     with pytest.raises(ex.ExtraccionNoDisponible):
         ex.extraer_filas(m.CAMPOS["carta_control_interno"], "t")
+
+
+# --------------------------------------------------------------------------- #
+#  Respaldo a la nube cuando el local devuelve 0 filas                          #
+# --------------------------------------------------------------------------- #
+def test_respaldo_nube_cuando_local_devuelve_cero_filas(monkeypatch):
+    """El local (por defecto) devuelve listas vacías sobre un documento con texto
+    real; debe reintentarse forzando la nube, que sí extrae filas."""
+    local = _ChatFalso(filas=[])                       # local: 0 filas
+    nube = _ChatFalso(filas=[{"concepto": "Opinión", "tipo": "Opinión",
+                              "detalle": "Opinión sin salvedades."}])  # nube: 1 fila
+    monkeypatch.setattr(ex, "_chat_por_defecto", lambda: local)
+    monkeypatch.setattr(ex, "_chat_respaldo_nube", lambda: nube)
+
+    texto = "INFORME DE AUDITORÍA LANSEY S.A. " + ("contenido real del informe. " * 50)
+    out = ex.extraer_filas(m.CAMPOS["informe_anterior"], texto,
+                           enums=m.EXTRACCION_ENUMS.get("informe_anterior", {}))
+    assert out["n"] == 1
+    assert out["rows"][0]["concepto"] == "Opinión"
+    assert nube.ultimo, "no se llamó al proveedor de nube de respaldo"
+
+
+def test_sin_respaldo_si_no_hay_nube(monkeypatch):
+    """Si no hay proveedor de nube, 0 filas del local se devuelven tal cual (sin crash)."""
+    local = _ChatFalso(filas=[])
+    monkeypatch.setattr(ex, "_chat_por_defecto", lambda: local)
+    monkeypatch.setattr(ex, "_chat_respaldo_nube", lambda: None)   # no hay nube
+    texto = "INFORME " + ("texto. " * 100)
+    out = ex.extraer_filas(m.CAMPOS["informe_anterior"], texto)
+    assert out["n"] == 0
+
+
+def test_no_hay_respaldo_si_el_local_ya_trajo_filas(monkeypatch):
+    """Si el local ya extrajo filas, NO se llama a la nube (no encarece lo normal)."""
+    local = _ChatFalso(filas=[{"concepto": "Entidad", "tipo": "Identificación", "detalle": "LANSEY S.A."}])
+    nube = _ChatFalso(filas=[{"concepto": "NO-DEBERIA", "tipo": "Opinión", "detalle": "x"}])
+    monkeypatch.setattr(ex, "_chat_por_defecto", lambda: local)
+    monkeypatch.setattr(ex, "_chat_respaldo_nube", lambda: nube)
+    out = ex.extraer_filas(m.CAMPOS["informe_anterior"], "INFORME " + ("t. " * 100))
+    assert out["n"] == 1 and not nube.ultimo
+
+
+# --------------------------------------------------------------------------- #
+#  Informe: el «Detalle» es opcional (no bloquea la planificación)              #
+# --------------------------------------------------------------------------- #
+def test_informe_detalle_opcional_no_bloquea():
+    """Filas de Identificación/Opinión del informe traen el dato en concepto/tipo y
+    el detalle vacío; antes la validación fallaba con «Falta Detalle» y bloqueaba."""
+    filas = [
+        {"concepto": "Entidad auditada", "tipo": "Identificación", "detalle": "LANSEY S.A."},
+        {"concepto": "Período", "tipo": "Identificación"},                 # sin detalle
+        {"concepto": "Opinión", "tipo": "Opinión"},                        # sin detalle
+    ]
+    v = m.validar_filas("informe_anterior", filas)
+    assert v["ok"], v.get("errores") or v
+    # concepto SÍ sigue siendo obligatorio.
+    v2 = m.validar_filas("informe_anterior", [{"tipo": "Opinión", "detalle": "x"}])
+    assert not v2["ok"]

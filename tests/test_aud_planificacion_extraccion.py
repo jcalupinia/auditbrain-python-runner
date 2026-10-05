@@ -178,3 +178,63 @@ def test_carta_en_pdf_se_extrae_sola_al_procesar(client, monkeypatch):
     entrada = next(iter(p["registro"]["extraccion"].values()))
     assert entrada["auto"] is True and entrada["revisado"] is False
     assert any("extraídas por IA" in w["message"] for w in val["warnings"])
+
+
+NOTAS_IA = [
+    {"nota": "13", "titulo": "Beneficios a empleados", "codigos": "2103", "saldo_auditado": "222400.00"},
+]
+
+
+def _xlsx_notas():
+    """Un .xlsx de notas con encabezados que el reconocimiento por alias NO cubre (como
+    las notas firmadas del cliente), para forzar el camino de lectura por IA."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Detalle de las notas a los estados financieros 2024"])
+    ws.append(["13. Beneficios a empleados (jubilación patronal)", "222,400.00"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_notas_en_xlsx_se_extraen_solas_al_procesar(client, monkeypatch):
+    """Regresión: una nota a los estados financieros subida en .xlsx ya NO queda
+    atascada en el mapeo manual de columnas. Al Procesar, la IA la lee sola (igual que
+    un PDF/Word) y la suma al dataset `notas_estados_financieros`, de modo que alimenta
+    la conciliación con el balance y los riesgos de la matriz (NIA 510)."""
+    monkeypatch.setattr(extraccion_ia, "texto_de_documento",
+                        lambda nombre, datos: "Nota 13 | Beneficios a empleados | 2103 | 222400")
+    monkeypatch.setattr(extraccion_ia, "_chat_por_defecto", lambda: _chat_falso(NOTAS_IA))
+
+    tok, pid = _staff_con_proyecto(client)
+    p = _hasta_requerimiento(client, tok, pid)
+    req_notas = next(r["id"] for r in p["registro"]["requests"] if r.get("dataset") == "notas_estados_financieros")
+
+    subidas = [
+        ("RQ-001", "RQ-001.xlsx", _modelo_lleno(client, tok, p, "RQ-001",
+            _filas_balance("balance_anterior", ["codigo", "cuenta", "saldo_anterior"]))),
+        ("RQ-002", "RQ-002.xlsx", _modelo_lleno(client, tok, p, "RQ-002",
+            _filas_balance("balance_actual", ["codigo", "cuenta", "saldo_actual"]))),
+        (req_notas, "NOTAS LANSEY 2025.xlsx", _xlsx_notas()),
+    ]
+    for req, nombre, contenido in subidas:
+        p = _leer(client, tok, p)
+        assert _subir(client, tok, p, req, nombre, contenido).status_code == 201
+
+    p = _leer(client, tok, p)
+    arch = {a["requerimiento"]: a["id"] for a in p["archivos"]}
+    parte = lambda req, tipo: [{"fileId": arch[req], "sheet": "Datos", "header": 1, "mapping": _mapa(tipo)}]
+    # Se procesa SOLO con los balances; la nota .xlsx NO viaja en `datasets` (no se mapeó a mano).
+    p = _accion(client, tok, p, "map_validate", {"datasets": {
+        "balance_anterior": parte("RQ-001", "balance_anterior"),
+        "balance_actual": parte("RQ-002", "balance_actual")}}).json()
+    val = p["registro"]["validation"]
+    assert val["ok"], val
+    # La IA leyó la nota .xlsx sola y la sumó al dataset (sin pedir mapeo manual).
+    notas = p["registro"]["datasets"]["notas_estados_financieros"]
+    assert [f["nota"] for f in notas] == ["13"]
+    entrada = p["registro"]["extraccion"][str(arch[req_notas])]
+    assert entrada["auto"] is True and entrada["revisado"] is False
+    assert any("extraídas por IA" in w["message"] for w in val["warnings"])

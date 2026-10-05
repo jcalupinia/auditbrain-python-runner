@@ -850,3 +850,36 @@ lean el cuadro (el sitio las dejaba apuntando a la columna A: #¡VALOR!). Verifi
 `declarativo.motor_portable()`; el `.dockerignore` lo deja entrar a la imagen) y la población de la
 versión: editar, agregar/quitar filas, recalcular, restablecer. Es una simulación: no cambia el papel,
 no se imprime ni va al PDF. Prueba en el navegador: `node scripts/probar_calculadora.mjs <papel.html> <total>`.
+
+## Command Center = lugar de paso: retención y no-duplicados de las pruebas del ciclo AUD
+
+**REGLA OBLIGATORIA (decisión del dueño, 2026-10-04):** el Command Center NO archiva las
+pruebas. El auditor descarga el papel y lo guarda en su propia base (donde viven todas las
+pruebas de la auditoría de ese cliente). El servidor es un lugar de paso y limpia solo:
+
+- **Retención.** Una prueba se borra automáticamente cuando el usuario descarga el papel
+  (tras una breve **gracia** para bajar varios formatos) y, en todo caso, **nunca pasa de 8 h**
+  desde que se creó. Aplica a las pruebas **terminadas o ya descargadas**, **aprobadas
+  incluidas**: el borrado automático **levanta** la regla `APROBADA_NO_SE_TOCA` (que sigue
+  protegiendo el borrado MANUAL del usuario). Es **definitivo**: fila, evidencia, bitácora y
+  archivos del disco.
+  - **Excepción (2026-10-05): el trabajo EN CURSO no se autopurga.** Una prueba que sigue
+    **ABIERTA** (estado ≠ `APROBADO`) y que **nunca se descargó** queda intocable por el
+    borrado automático, aunque pase de las 8 h. El tope duro destruía una planificación
+    (NIA 300) a medio armar mientras el auditor la trabajaba (síntoma: «Prueba no encontrada»
+    al extraer/confirmar). El lugar de paso limpia lo terminado/descargado, no lo activo. La
+    lógica vive en `retencion._vencida`; se puede apagar del todo con
+    `AUD_CICLO_RETENCION_ENABLED=false` o alargar con `AUD_CICLO_PRUEBA_TTL_HORAS`.
+  - Implementación: `backend/app/aud/niif/ciclo/retencion.py` (`purgar_once`, `purgar_loop`,
+    `purgar_prueba`), arrancado en `app.py` como el cleanup AUD/OF. La descarga del papel marca
+    `registro["descargada_en"]` vía `servicio.marcar_descargada` (reinicia la gracia en cada
+    descarga). Env vars: `AUD_CICLO_PRUEBA_TTL_HORAS` (8), `AUD_CICLO_POST_DOWNLOAD_TTL_MINUTES`
+    (30), `AUD_CICLO_CLEANUP_INTERVAL_SECONDS` (300), `AUD_CICLO_RETENCION_ENABLED` (true).
+  - Tests: `tests/test_aud_ciclo_retencion.py`.
+
+- **No-duplicados.** No se permite crear una prueba nueva si ya hay una **ABIERTA** (no
+  aprobada) de la **misma herramienta** en el **mismo ejercicio** (mismo corte): el usuario
+  debe **MODIFICAR** la existente. `servicio.crear_prueba` lanza `Conflicto` con detalle
+  estructurado `{code: "PRUEBA_ABIERTA_EXISTE", pruebaId, …}` (HTTP 409); el frontend
+  (`PruebasEncargo.jsx`) abre esa prueba para modificarla. Las APROBADAS no bloquean: corregirlas
+  es, por diseño, una versión nueva. Test: `test_no_se_crea_una_prueba_abierta_duplicada`.
