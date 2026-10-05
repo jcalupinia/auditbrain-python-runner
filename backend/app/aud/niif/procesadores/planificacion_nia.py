@@ -209,7 +209,11 @@ ALIAS_INFORME = {"consalvedades": "Salvedad", "salvedades": "Salvedad", "adversa
 _INFORME = [
     campo("concepto", "Concepto", alias=("concepto", "asunto", "tema"), ejemplo="Jubilación patronal"),
     campo("tipo", "Tipo", alias=("tipo", "clase", "categoria", "categoría"), ejemplo="Salvedad"),
-    campo("detalle", "Detalle", alias=("detalle", "descripcion", "descripción", "texto"),
+    # Detalle OPCIONAL: en filas de Identificación (entidad, auditor, período) y de
+    # Opinión limpia el dato va en concepto/tipo y el detalle queda vacío; exigirlo
+    # bloqueaba la planificación («Falta Detalle»). concepto y tipo siguen obligatorios
+    # (el ancla). El auditor completa el detalle al revisar (M22). Downstream tolera "".
+    campo("detalle", "Detalle", requerido=False, alias=("detalle", "descripcion", "descripción", "texto"),
           ejemplo="La provisión no se ajustó al cálculo actuarial al cierre."),
     campo("importe", "Importe (USD)", "number", requerido=False, alias=("importe", "monto", "valor", "efecto"), ejemplo="18500.00"),
     campo("fuente", "Fuente o referencia", requerido=False, alias=("fuente", "referencia", "pagina", "página", "parrafo", "párrafo"),
