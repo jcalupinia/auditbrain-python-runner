@@ -685,7 +685,7 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     # Portada = el panel del HTML (tema «Ejecutivo»): mismos KPI, gráficos, colores y botones.
     from backend.app.aud.niif.procesadores import panel_excel
 
-    fin_panel = panel_excel.portada(inicio, datos_graf, definicion, reg, hojas, titulos, estado, version,
+    fin_panel, tableros_en_hoja = panel_excel.portada(inicio, datos_graf, definicion, reg, hojas, titulos, estado, version,
                                     _grupos_nav(hojas, titulos, [("Anexo técnico (fórmulas)", HOJA_ANEXO, 3)]), SECCIONES)
     inicio.print_options.horizontalCentered = True
     _print_setup(inicio, reg.get("engagement") or {})
@@ -705,6 +705,10 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     tec = wb.create_sheet(HOJA_ANEXO, pos)
     tec.sheet_properties.tabColor = SECCIONES[3][1]
     _anexo_tecnico(tec, S, anexo, titulo_prueba)
+
+    # Gráficos de los tableros DENTRO de su cédula (como el HTML, junto a su tabla): se anclan ahora
+    # que las hojas ya existen. Solo si el PANEL activó `tableros_en_hoja` (hoy, planificación).
+    panel_excel.anclar_tableros_en_hojas(wb, tableros_en_hoja)
 
     # Si la definición declara `hojas_visibles` (p. ej. planificación: las pestañas de los
     # botones), el resto de las cédulas y el anexo técnico viajan OCULTOS (sheet_state=

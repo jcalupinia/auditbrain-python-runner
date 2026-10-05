@@ -433,6 +433,9 @@ def tableros_spec(specs: list | None, mapa: dict) -> tuple[list[dict], list[str]
                        # Una familia de color por tablero, sin repetir (``graficos_svg.FAMILIAS_TABLERO``).
                        "color": sp.get("color") or _FAMILIAS[len(salida) % len(_FAMILIAS)],
                        "hoja": sp["hoja"], "filas": idx, "categorias": [c for _, c in pares],
+                       # ``hoja_grafico``: pestaña (visible) donde se ancla el gráfico nativo del Excel, si
+                       # difiere de la hoja de datos; el Excel la usa en ``panel_excel`` (no afecta al HTML).
+                       **({"hoja_grafico": sp["hoja_grafico"]} if sp.get("hoja_grafico") else {}),
                        "series": [(n, vs) for n, vs, _ in series], "columnas": [c for _, _, c in series],
                        "mejor": mejor, "estados": estados})
     return salida, faltan
