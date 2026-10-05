@@ -2,7 +2,7 @@
 modelo por defecto de Gemini (el anterior gemini-2.0-flash fue retirado).
 
 Contrato:
-  1. Defaults vigentes: Gemini = gemini-2.5-flash-lite; DeepSeek = deepseek-chat.
+  1. Defaults vigentes: Gemini = gemini-2.5-flash-lite; DeepSeek = deepseek-flash.
   2. Con DEEPSEEK_API_KEY, 'deepseek' entra en la cadena, en el orden
      local > gemini > groq > deepseek > openrouter > anthropic > openai.
   3. _dispatch('deepseek') llega al endpoint OpenAI-compatible de DeepSeek.
@@ -26,7 +26,7 @@ def limpio(monkeypatch):
 
 def test_defaults_vigentes(limpio):
     assert providers._gemini_model() == "gemini-2.5-flash-lite"   # no el retirado gemini-2.0-flash
-    assert providers._deepseek_model() == "deepseek-chat"
+    assert providers._deepseek_model() == "deepseek-flash"        # no el retirado deepseek-chat
 
 
 def test_deepseek_entra_en_la_cadena_y_en_su_orden(limpio):
@@ -57,7 +57,7 @@ def test_dispatch_deepseek_usa_endpoint_openai_compatible(limpio):
     r = providers._dispatch("deepseek", [{"role": "user", "content": "x"}], None, 0)
     assert r.content == "ok"
     assert capturado["url"] == "https://api.deepseek.com/v1/chat/completions"
-    assert capturado["key"] == "dk" and capturado["model"] == "deepseek-chat"
+    assert capturado["key"] == "dk" and capturado["model"] == "deepseek-flash"
 
 
 def test_deepseek_es_streameable(limpio):
@@ -72,4 +72,4 @@ def test_deepseek_es_streameable(limpio):
     limpio.setattr(providers, "_stream_openai_compatible", _fake_stream)
     list(providers._stream_provider("deepseek", [{"role": "user", "content": "x"}], None))
     assert capturado["url"] == "https://api.deepseek.com/v1/chat/completions"
-    assert capturado["model"] == "deepseek-chat"
+    assert capturado["model"] == "deepseek-flash"
