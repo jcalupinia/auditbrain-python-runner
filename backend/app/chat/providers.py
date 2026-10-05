@@ -386,21 +386,29 @@ def estado_proveedores() -> dict:
 # ---------------------------------------------------------------------------
 
 def _dispatch(provider: str, messages: list[dict], system: str | None,
-              temperature: float | None = None) -> LLMResponse:
+              temperature: float | None = None,
+              model: str | None = None) -> LLMResponse:
+    """``model`` (opcional) sobrescribe el modelo por defecto del proveedor para
+    ESTA llamada (lo usa el ruteo de dos niveles del agente: mismo proveedor,
+    modelo barato para consulta y modelo fuerte para razonamiento). Si es None,
+    cada proveedor usa su modelo de env var."""
+    # Solo se pasa ``model`` cuando se forzó uno: así la llamada normal queda
+    # idéntica a la histórica (compatible con mocks que no aceptan ese parámetro).
+    extra = {} if model is None else {"model": model}
     if provider == "local":
-        return _call_local(messages, system, temperature)
+        return _call_local(messages, system, temperature, **extra)
     if provider == "anthropic":
-        return _call_anthropic(messages, system, temperature)
+        return _call_anthropic(messages, system, temperature, **extra)
     if provider == "openai":
-        return _call_openai(messages, system, temperature)
+        return _call_openai(messages, system, temperature, **extra)
     if provider == "gemini":
-        return _call_gemini(messages, system, temperature)
+        return _call_gemini(messages, system, temperature, **extra)
     if provider == "groq":
-        return _call_groq(messages, system, temperature)
+        return _call_groq(messages, system, temperature, **extra)
     if provider == "deepseek":
-        return _call_deepseek(messages, system, temperature)
+        return _call_deepseek(messages, system, temperature, **extra)
     if provider == "openrouter":
-        return _call_openrouter(messages, system, temperature)
+        return _call_openrouter(messages, system, temperature, **extra)
     raise ProviderUnavailable(f"Proveedor desconocido: {provider}")
 
 
@@ -469,6 +477,8 @@ def chat_complete(
     *,
     temperature: float | None = None,
     exclude: tuple[str, ...] = (),
+    preferir: str | None = None,
+    modelo: str | None = None,
 ) -> LLMResponse:
     """Envía una conversación al proveedor activo y devuelve la respuesta.
 
@@ -481,6 +491,12 @@ def chat_complete(
     deja la cadena vacía, se ignora el filtro (mejor intentar con lo que haya que
     no intentar con nada).
 
+    ``preferir`` pone ese proveedor a la cabeza de la cadena (sin quitar el resto
+    como respaldo). ``modelo`` sobrescribe el modelo por defecto, pero SOLO del
+    proveedor ``preferir``: los proveedores de respaldo siguen con su propio
+    modelo (no tiene sentido mandar un ID de DeepSeek a Gemini). Juntos
+    implementan el ruteo de dos niveles del agente (consulta vs razonamiento).
+
     Si NINGÚN proveedor responde con éxito, propaga un error accionable (o la
     última excepción real) para que la UI muestre el problema al usuario (no se
     inventa respuesta).
@@ -488,6 +504,8 @@ def chat_complete(
     chain = _providers_with_keys()
     if exclude:
         chain = [p for p in chain if p not in exclude] or chain
+    if preferir and preferir in chain:
+        chain = [preferir] + [p for p in chain if p != preferir]
     if not chain:
         raise ProviderUnavailable(
             "No hay proveedor LLM configurado en el servidor. Define una de: "
@@ -499,7 +517,10 @@ def chat_complete(
     fallos: dict[str, ProviderUnavailable] = {}
     for provider in chain:
         try:
-            return _dispatch(provider, messages, system, temperature)
+            # El modelo forzado aplica solo al proveedor preferido; el resto de
+            # la cadena (respaldo) usa su modelo de env var.
+            modelo_prov = modelo if (preferir and provider == preferir) else None
+            return _dispatch(provider, messages, system, temperature, modelo_prov)
         except ProviderUnavailable as exc:
             last_exc = exc
             fallos[provider] = exc
@@ -664,8 +685,9 @@ def _http_post(url: str, headers: dict[str, str], payload: dict, timeout: int = 
 
 
 def _call_anthropic(messages: list[dict], system: str | None,
-                    temperature: float | None = None) -> LLMResponse:
-    model = _anthropic_model()
+                    temperature: float | None = None,
+                    model: str | None = None) -> LLMResponse:
+    model = model or _anthropic_model()
     payload: dict = {
         "model": model,
         "max_tokens": _max_tokens(),
@@ -740,7 +762,8 @@ def _call_openai_compatible(
 
 
 def _call_local(messages: list[dict], system: str | None,
-                temperature: float | None = None) -> LLMResponse:
+                temperature: float | None = None,
+                model: str | None = None) -> LLMResponse:
     # Gateway LiteLLM propio (OpenAI-compatible). LOCAL_LLM_BASE_URL incluye
     # /v1, aquí se le añade /chat/completions. Se envía un Bearer no-vacío por
     # si el gateway valida el header aunque la master key sea opcional. Usa el
@@ -749,7 +772,7 @@ def _call_local(messages: list[dict], system: str | None,
     return _call_openai_compatible(
         url=f"{base}/chat/completions",
         key=_local_key() or "sk-noauth",
-        model=_local_model(),
+        model=model or _local_model(),
         messages=messages,
         system=system,
         timeout=_local_timeout(),
@@ -758,11 +781,12 @@ def _call_local(messages: list[dict], system: str | None,
 
 
 def _call_openai(messages: list[dict], system: str | None,
-                 temperature: float | None = None) -> LLMResponse:
+                 temperature: float | None = None,
+                 model: str | None = None) -> LLMResponse:
     return _call_openai_compatible(
         url="https://api.openai.com/v1/chat/completions",
         key=_openai_key(),
-        model=_openai_model(),
+        model=model or _openai_model(),
         messages=messages,
         system=system,
         temperature=temperature,
@@ -770,11 +794,12 @@ def _call_openai(messages: list[dict], system: str | None,
 
 
 def _call_groq(messages: list[dict], system: str | None,
-               temperature: float | None = None) -> LLMResponse:
+               temperature: float | None = None,
+               model: str | None = None) -> LLMResponse:
     return _call_openai_compatible(
         url="https://api.groq.com/openai/v1/chat/completions",
         key=_groq_key(),
-        model=_groq_model(),
+        model=model or _groq_model(),
         messages=messages,
         system=system,
         temperature=temperature,
@@ -782,12 +807,13 @@ def _call_groq(messages: list[dict], system: str | None,
 
 
 def _call_deepseek(messages: list[dict], system: str | None,
-                   temperature: float | None = None) -> LLMResponse:
+                   temperature: float | None = None,
+                   model: str | None = None) -> LLMResponse:
     # DeepSeek expone una API compatible con OpenAI (base https://api.deepseek.com).
     return _call_openai_compatible(
         url="https://api.deepseek.com/v1/chat/completions",
         key=_deepseek_key(),
-        model=_deepseek_model(),
+        model=model or _deepseek_model(),
         messages=messages,
         system=system,
         temperature=temperature,
@@ -795,7 +821,8 @@ def _call_deepseek(messages: list[dict], system: str | None,
 
 
 def _call_openrouter(messages: list[dict], system: str | None,
-                     temperature: float | None = None) -> LLMResponse:
+                     temperature: float | None = None,
+                     model: str | None = None) -> LLMResponse:
     # OpenRouter recomienda enviar HTTP-Referer y X-Title para atribución;
     # opcionales, pero útiles para ver el tráfico en su dashboard.
     referer = os.getenv("OPENROUTER_SITE_URL", "").strip()
@@ -806,7 +833,7 @@ def _call_openrouter(messages: list[dict], system: str | None,
     return _call_openai_compatible(
         url="https://openrouter.ai/api/v1/chat/completions",
         key=_openrouter_key(),
-        model=_openrouter_model(),
+        model=model or _openrouter_model(),
         messages=messages,
         system=system,
         extra_headers=extra,
@@ -815,7 +842,8 @@ def _call_openrouter(messages: list[dict], system: str | None,
 
 
 def _call_gemini(messages: list[dict], system: str | None,
-                 temperature: float | None = None) -> LLMResponse:
+                 temperature: float | None = None,
+                 model: str | None = None) -> LLMResponse:
     """Llama a Google Gemini (AI Studio).
 
     Diferencias con Anthropic/OpenAI:
@@ -823,7 +851,7 @@ def _call_gemini(messages: list[dict], system: str | None,
     - El rol del asistente se llama ``model``, no ``assistant``.
     - El system prompt va aparte como ``system_instruction``.
     """
-    model = _gemini_model()
+    model = model or _gemini_model()
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={_gemini_key()}"
