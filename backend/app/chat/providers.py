@@ -49,6 +49,16 @@ _EXTRACCION_SKIP_LOCAL: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "auditbrain_extraccion_skip_local", default=False
 )
 
+# La otra cara del failover: si al recurrir a la nube resulta que TODOS los
+# proveedores de nube están sin saldo/cuota (billing), no hay a dónde ir. En ese
+# caso el servidor local —aunque lento— es lo único que funciona, así que se
+# termina en el local SIN recortar por presupuesto (dejándolo completar) y se
+# marca sticky para que los bloques siguientes vayan directo al local sin volver a
+# perder tiempo probando una nube muerta. Contextvar por request (se limpia sola).
+_EXTRACCION_CLOUD_MUERTO: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "auditbrain_extraccion_cloud_muerto", default=False
+)
+
 
 class _ExtraccionLocalLenta(Exception):
     """El servidor local excedió el presupuesto de tiempo de extracción."""
@@ -180,8 +190,21 @@ def _openai_model() -> str:
 
 
 def _gemini_model() -> str:
-    # Default a Gemini 2.0 Flash (cuota gratis muy generosa en AI Studio).
-    return os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
+    # Default a Gemini 2.5 Flash-Lite: barato ($0.10/$0.40 por 1M tok) y con capa
+    # gratuita en AI Studio. (El anterior gemini-2.0-flash fue RETIRADO por Google
+    # el 2026-06-01 → devolvía error; este es su reemplazo oficial, mismo precio.)
+    return os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
+
+
+def _deepseek_key() -> str:
+    return os.getenv("DEEPSEEK_API_KEY", "").strip()
+
+
+def _deepseek_model() -> str:
+    # DeepSeek V3 (deepseek-chat): barato y de alta calidad, API compatible con
+    # OpenAI. Para razonamiento existe "deepseek-reasoner" (más lento, no ideal
+    # para extracción). Configurable con DEEPSEEK_MODEL.
+    return os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip()
 
 
 def _groq_model() -> str:
@@ -276,8 +299,8 @@ def _providers_with_keys() -> list[str]:
 
     Preferencia: el valor explícito de AUDITBRAIN_LLM_PROVIDER primero, y luego
     el resto. Sin override, el servidor de IA LOCAL va primero (privacidad +
-    coste cero), y los gratuitos antes que los de pago como respaldo:
-        local > gemini > groq > openrouter > anthropic > openai
+    coste cero), y los baratos/gratuitos antes que los caros como respaldo:
+        local > gemini > groq > deepseek > openrouter > anthropic > openai
     """
     have = {
         # "local" está disponible con solo la base URL configurada; la key es
@@ -287,12 +310,13 @@ def _providers_with_keys() -> list[str]:
         "openai": bool(_openai_key()),
         "gemini": bool(_gemini_key()),
         "groq": bool(_groq_key()),
+        "deepseek": bool(_deepseek_key()),
         "openrouter": bool(_openrouter_key()),
     }
     preferred = _provider()
     if preferred == "google":
         preferred = "gemini"
-    default_order = ["local", "gemini", "groq", "openrouter", "anthropic", "openai"]
+    default_order = ["local", "gemini", "groq", "deepseek", "openrouter", "anthropic", "openai"]
     order: list[str] = []
     if preferred in have and have[preferred]:
         order.append(preferred)
@@ -346,6 +370,7 @@ def estado_proveedores() -> dict:
             "local": bool(_local_base_url()),
             "gemini": bool(_gemini_key()),
             "groq": bool(_groq_key()),
+            "deepseek": bool(_deepseek_key()),
             "openrouter": bool(_openrouter_key()),
             "anthropic": bool(_anthropic_key()),
             "openai": bool(_openai_key()),
@@ -370,6 +395,8 @@ def _dispatch(provider: str, messages: list[dict], system: str | None,
         return _call_gemini(messages, system, temperature)
     if provider == "groq":
         return _call_groq(messages, system, temperature)
+    if provider == "deepseek":
+        return _call_deepseek(messages, system, temperature)
     if provider == "openrouter":
         return _call_openrouter(messages, system, temperature)
     raise ProviderUnavailable(f"Proveedor desconocido: {provider}")
@@ -500,42 +527,44 @@ def completar_para_extraccion(messages, system=None) -> LLMResponse:
     Durante toda la llamada se activa ``_EN_EXTRACCION`` para que el proveedor
     local reciba su timeout de extracción (ver ``_local_timeout``).
 
-    Failover por lentitud: el intento local tiene un PRESUPUESTO wall-clock
-    (``_extraccion_budget``); si lo excede (un local lento que streamea despacio
-    y nunca dispara el timeout de lectura), se descarta y se recurre a la nube.
-    Y queda STICKY (``_EXTRACCION_SKIP_LOCAL``): los bloques siguientes del mismo
-    documento van directo a la nube, para no esperar al local bloque a bloque."""
+    Failover por lentitud, resiliente a una nube sin saldo: el intento local tiene
+    un PRESUPUESTO wall-clock (``_extraccion_budget``); si lo excede (un local lento
+    que streamea despacio y nunca dispara el timeout de lectura), se recurre a la
+    nube y queda STICKY (``_EXTRACCION_SKIP_LOCAL``). PERO si la nube también falla
+    (todos los proveedores sin saldo/cuota), el local —aunque lento— es lo único que
+    funciona: se vuelve a él SIN presupuesto para que complete, y se marca
+    ``_EXTRACCION_CLOUD_MUERTO`` para que los bloques siguientes vayan directo al
+    local sin volver a perder tiempo probando una nube muerta."""
     _tok = _EN_EXTRACCION.set(True)
     try:
-        # El local ya demostró ser lento en este documento: directo a la nube.
-        if _EXTRACCION_SKIP_LOCAL.get():
-            return chat_complete(messages, system, temperature=0, exclude=("local",))
-        try:
-            partes: list[str] = []
-            modelo = ""
-            inicio = time.monotonic()
-            presupuesto = _extraccion_budget()
-            for delta in stream_chat_complete(messages, system, temperature=0):
-                tipo = delta.get("type")
-                if tipo == "token":
-                    partes.append(delta.get("text", ""))
-                elif tipo == "done":
-                    modelo = delta.get("model") or modelo
-                if time.monotonic() - inicio > presupuesto:
-                    raise _ExtraccionLocalLenta()
-            texto = "".join(partes).strip()
+        # La nube ya demostró estar sin saldo: el local es lo único; déjalo completar.
+        if _EXTRACCION_CLOUD_MUERTO.get():
+            texto, modelo = _stream_local_extraccion(messages, system, presupuesto=None)
             if texto:
-                return LLMResponse(content=texto, model=modelo or "local", tokens_in=None, tokens_out=None)
+                return LLMResponse(content=texto, model=modelo, tokens_in=None, tokens_out=None)
+            return chat_complete(messages, system, temperature=0)
+        # El local ya demostró ser lento y la nube respondía: directo a la nube.
+        # Si ahora la nube se quedó sin saldo, se cae al local sin presupuesto.
+        if _EXTRACCION_SKIP_LOCAL.get():
+            try:
+                return chat_complete(messages, system, temperature=0, exclude=("local",))
+            except ProviderUnavailable:
+                return _completar_en_local_sin_nube(messages, system)
+        try:
+            texto, modelo = _stream_local_extraccion(messages, system, presupuesto=_extraccion_budget())
+            if texto:
+                return LLMResponse(content=texto, model=modelo, tokens_in=None, tokens_out=None)
             # Stream vacío (p. ej. solo reasoning sin content): se reintenta no-stream.
         except _ExtraccionLocalLenta:
-            # Local demasiado lento: descartar su salida parcial, marcar el skip
-            # sticky y recurrir a la nube para este y los siguientes bloques.
-            _EXTRACCION_SKIP_LOCAL.set(True)
-            _LOG.warning(
-                "Extracción: el servidor local excedió el presupuesto de %ss; failover a la nube para el resto del documento.",
-                presupuesto,
-            )
-            return chat_complete(messages, system, temperature=0, exclude=("local",))
+            # Local demasiado lento: intentar la nube para este y los siguientes
+            # bloques; si la nube está muerta (sin saldo), volver al local sin límite.
+            try:
+                r = chat_complete(messages, system, temperature=0, exclude=("local",))
+                _EXTRACCION_SKIP_LOCAL.set(True)
+                _LOG.warning("Extracción: local lento; failover a la nube para el resto del documento.")
+                return r
+            except ProviderUnavailable:
+                return _completar_en_local_sin_nube(messages, system)
         except ProviderUnavailable:
             # Primario no streameable o fallo antes/durante el stream → no-stream
             # (la cadena completa, que ya hace su propio failover a la nube).
@@ -543,6 +572,39 @@ def completar_para_extraccion(messages, system=None) -> LLMResponse:
         return chat_complete(messages, system, temperature=0)
     finally:
         _EN_EXTRACCION.reset(_tok)
+
+
+def _stream_local_extraccion(messages, system, *, presupuesto):
+    """Consume el stream (local primero) acumulando el texto, ignorando el
+    ``reasoning`` de gpt-oss. Si ``presupuesto`` no es None y el wall-clock lo
+    excede, levanta :class:`_ExtraccionLocalLenta` (para failover). Devuelve
+    ``(texto, modelo)`` con texto ya stripeado («» si vino vacío)."""
+    partes: list[str] = []
+    modelo = ""
+    inicio = time.monotonic()
+    for delta in stream_chat_complete(messages, system, temperature=0):
+        tipo = delta.get("type")
+        if tipo == "token":
+            partes.append(delta.get("text", ""))
+        elif tipo == "done":
+            modelo = delta.get("model") or modelo
+        if presupuesto is not None and time.monotonic() - inicio > presupuesto:
+            raise _ExtraccionLocalLenta()
+    return "".join(partes).strip(), (modelo or "local")
+
+
+def _completar_en_local_sin_nube(messages, system) -> LLMResponse:
+    """La nube está sin saldo: completar en el servidor local SIN presupuesto
+    (dejándolo terminar aunque sea lento) y recordar que la nube está muerta para
+    que los bloques siguientes vayan directo al local."""
+    _EXTRACCION_CLOUD_MUERTO.set(True)
+    _EXTRACCION_SKIP_LOCAL.set(False)
+    _LOG.warning("Extracción: la nube está sin saldo/cuota; se completa en el servidor local (sin recorte de tiempo).")
+    texto, modelo = _stream_local_extraccion(messages, system, presupuesto=None)
+    if texto:
+        return LLMResponse(content=texto, model=modelo, tokens_in=None, tokens_out=None)
+    # Ni local por streaming: último intento por la cadena no-streaming completa.
+    return chat_complete(messages, system, temperature=0)
 
 
 def _http_post(url: str, headers: dict[str, str], payload: dict, timeout: int = 60) -> dict:
@@ -717,6 +779,19 @@ def _call_groq(messages: list[dict], system: str | None,
     )
 
 
+def _call_deepseek(messages: list[dict], system: str | None,
+                   temperature: float | None = None) -> LLMResponse:
+    # DeepSeek expone una API compatible con OpenAI (base https://api.deepseek.com).
+    return _call_openai_compatible(
+        url="https://api.deepseek.com/v1/chat/completions",
+        key=_deepseek_key(),
+        model=_deepseek_model(),
+        messages=messages,
+        system=system,
+        temperature=temperature,
+    )
+
+
 def _call_openrouter(messages: list[dict], system: str | None,
                      temperature: float | None = None) -> LLMResponse:
     # OpenRouter recomienda enviar HTTP-Referer y X-Title para atribución;
@@ -796,7 +871,7 @@ def _call_gemini(messages: list[dict], system: str | None,
 # toda la cadena de failover. Una vez emitido el primer token ya no hay
 # failover transparente (se propaga el error con el parcial ya entregado).
 
-_STREAMABLE = {"local", "openai", "groq", "openrouter"}
+_STREAMABLE = {"local", "openai", "groq", "deepseek", "openrouter"}
 
 
 def _stream_openai_compatible(url, key, model, messages, system, timeout, extra_headers=None,
@@ -889,6 +964,11 @@ def _stream_provider(provider, messages, system, temperature=None):
         return _stream_openai_compatible(
             "https://api.openai.com/v1/chat/completions", _openai_key(),
             _openai_model(), messages, system, 60, temperature=temperature,
+        )
+    if provider == "deepseek":
+        return _stream_openai_compatible(
+            "https://api.deepseek.com/v1/chat/completions", _deepseek_key(),
+            _deepseek_model(), messages, system, 60, temperature=temperature,
         )
     if provider == "groq":
         return _stream_openai_compatible(
