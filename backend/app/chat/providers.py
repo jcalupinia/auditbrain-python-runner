@@ -270,6 +270,45 @@ def _local_timeout() -> int:
     return base
 
 
+def _local_context_window() -> int:
+    """Ventana de contexto (max-model-len) del modelo que sirve el gateway local.
+
+    vLLM/LiteLLM rechaza con ContextWindowExceededError si input + output supera
+    este límite. El default 24576 es el que reportó el gateway en el incidente;
+    ajústalo a lo que sirva tu modelo con LOCAL_LLM_CONTEXT_WINDOW (p. ej. subir
+    vLLM a --max-model-len 32768 y poner 32768 aquí da espacio al techo completo).
+    """
+    try:
+        return max(2048, int(os.getenv("LOCAL_LLM_CONTEXT_WINDOW", "24576")))
+    except ValueError:
+        return 24576
+
+
+def _local_max_tokens(messages: list[dict], system: str | None) -> int:
+    """Techo de SALIDA para el servidor local, acotado a SU ventana de contexto.
+
+    El bug del incidente: la extracción pedía 16384 de salida y, con ~8193 de
+    entrada, superaba por 1 token la ventana de 24576 del modelo local → el local
+    (primero en la cadena) fallaba SIEMPRE y la extracción caía a la nube (sin
+    saldo). Solución: para el local, recortar la salida a lo que de verdad cabe
+    (input estimado + margen). La nube no pasa por aquí: tiene ventanas grandes y
+    conserva el techo completo de `_max_tokens()`.
+    """
+    pedido = _max_tokens()
+    ctx = _local_context_window()
+    chars = len(system or "") + sum(len(m.get("content") or "") for m in messages)
+    # Estimación CONSERVADORA de tokens de entrada (sobre-estima para no pasarse):
+    # ~1.5 chars/token en español con estructura JSON.
+    input_est = int(chars / 1.5) + 1
+    margen = 512
+    disponible = ctx - input_est - margen
+    if disponible < 1024:
+        # El prompt casi llena la ventana del local: deja un mínimo operativo. Si
+        # ni eso cabe, el gateway rechazará y la cadena cae a la nube (resiliencia).
+        return 1024
+    return min(pedido, disponible)
+
+
 def _max_tokens() -> int:
     # Techo de tokens de SALIDA del LLM. Default alto para permitir documentos
     # largos (contratos, dictámenes, informes) sin que la respuesta se corte.
@@ -726,10 +765,13 @@ def _call_openai_compatible(
     extra_headers: dict[str, str] | None = None,
     timeout: int = 60,
     temperature: float | None = None,
+    max_tokens: int | None = None,
 ) -> LLMResponse:
     """Backend común para OpenAI, Groq, OpenRouter y el gateway local (mismo
     wire format). ``timeout`` permite un tope de lectura propio por proveedor
-    (el local usa uno corto para degradar rápido a la nube)."""
+    (el local usa uno corto para degradar rápido a la nube). ``max_tokens``
+    permite un techo de salida propio (el local lo acota a su ventana de
+    contexto); si es None usa el techo general ``_max_tokens()``."""
     msgs: list[dict] = []
     if system:
         msgs.append({"role": "system", "content": system})
@@ -740,7 +782,11 @@ def _call_openai_compatible(
     }
     if extra_headers:
         headers.update(extra_headers)
-    payload: dict = {"model": model, "messages": msgs, "max_tokens": _max_tokens()}
+    payload: dict = {
+        "model": model,
+        "messages": msgs,
+        "max_tokens": max_tokens if max_tokens is not None else _max_tokens(),
+    }
     if temperature is not None:
         payload["temperature"] = temperature
     data = _http_post(
@@ -777,6 +823,9 @@ def _call_local(messages: list[dict], system: str | None,
         system=system,
         timeout=_local_timeout(),
         temperature=temperature,
+        # Acota la salida a la ventana del modelo local para no superar su
+        # max-model-len (input + output). La nube no recibe este recorte.
+        max_tokens=_local_max_tokens(messages, system),
     )
 
 
@@ -905,7 +954,7 @@ _STREAMABLE = {"local", "openai", "groq", "deepseek", "openrouter"}
 
 
 def _stream_openai_compatible(url, key, model, messages, system, timeout, extra_headers=None,
-                              temperature=None):
+                              temperature=None, max_tokens=None):
     """Generador de deltas desde un endpoint OpenAI-compatible con stream=True.
 
     Emite dicts: {"type": "token", "text": ...} y al final
@@ -922,7 +971,7 @@ def _stream_openai_compatible(url, key, model, messages, system, timeout, extra_
     cuerpo: dict = {
         "model": model,
         "messages": msgs,
-        "max_tokens": _max_tokens(),
+        "max_tokens": max_tokens if max_tokens is not None else _max_tokens(),
         "stream": True,
         "stream_options": {"include_usage": True},
     }
@@ -989,6 +1038,7 @@ def _stream_provider(provider, messages, system, temperature=None):
         return _stream_openai_compatible(
             f"{base}/chat/completions", _local_key() or "sk-noauth",
             _local_model(), messages, system, _local_timeout(), temperature=temperature,
+            max_tokens=_local_max_tokens(messages, system),
         )
     if provider == "openai":
         return _stream_openai_compatible(
