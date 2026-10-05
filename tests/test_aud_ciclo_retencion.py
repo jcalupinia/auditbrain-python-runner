@@ -2,9 +2,13 @@
 
 Decisión del dueño (2026-10-04):
 - El Command Center no guarda las pruebas: se borran solas tras la descarga (gracia)
-  y, en todo caso, a las 8 h de creadas. Aplica a TODAS (aprobadas incluidas).
+  y, en todo caso, a las 8 h de creadas (aprobadas incluidas).
 - No se permite crear una prueba nueva si ya hay una ABIERTA de la misma herramienta
   en el mismo ejercicio: hay que modificar la existente.
+
+Ajuste 2026-10-05: el trabajo EN CURSO (prueba ABIERTA, estado ≠ APROBADO, sin
+descargar) NO se autopurga aunque pase de las 8 h; el tope duro solo alcanza a las
+aprobadas o ya descargadas. Evita perder una planificación a medio armar.
 """
 import datetime
 
@@ -35,24 +39,49 @@ def _mk_prueba(db, project_id, *, estado="PRUEBA_SELECCIONADA", creada_en=None, 
     return p.id
 
 
-def test_purga_a_las_8h_incluso_aprobadas(client):
+def test_purga_a_las_8h_aprobadas_pero_no_el_trabajo_en_curso(client):
     _tok, pid = _staff_con_proyecto(client)
     db = SessionLocal()
     try:
-        vieja = _mk_prueba(db, pid, creada_en=_ahora() - datetime.timedelta(hours=9))
+        # En curso (no aprobada) y sin descargar: NO se borra aunque pase de 8 h
+        # (protege la planificación a medio armar). Cambio 2026-10-05.
+        vieja_en_curso = _mk_prueba(db, pid, creada_en=_ahora() - datetime.timedelta(hours=9))
+        # Aprobada y vieja: sí se borra (papel terminado, lugar de paso).
         vieja_aprob = _mk_prueba(db, pid, estado="APROBADO", creada_en=_ahora() - datetime.timedelta(hours=9))
         reciente = _mk_prueba(db, pid, creada_en=_ahora() - datetime.timedelta(hours=1))
     finally:
         db.close()
 
     res = retencion.purgar_once()
-    assert res["purgadas"] >= 2
+    assert res["purgadas"] >= 1
 
     db = SessionLocal()
     try:
-        assert db.get(Prueba, vieja) is None               # borrada por el tope de 8 h
-        assert db.get(Prueba, vieja_aprob) is None          # aprobada también se borra (lugar de paso)
-        assert db.get(Prueba, reciente) is not None         # la reciente sigue
+        assert db.get(Prueba, vieja_en_curso) is not None   # trabajo en curso protegido
+        assert db.get(Prueba, vieja_aprob) is None           # aprobada sí se borra
+        assert db.get(Prueba, reciente) is not None          # la reciente sigue
+    finally:
+        db.close()
+
+
+def test_en_curso_descargada_si_se_purga_pasada_la_gracia(client):
+    """Si una prueba en curso SÍ se descargó, ya se archivó: se purga tras la gracia
+    (la protección es solo para el trabajo en curso que nunca se bajó)."""
+    _tok, pid = _staff_con_proyecto(client)
+    gracia = settings.AUD_CICLO_POST_DOWNLOAD_TTL_MINUTES
+    db = SessionLocal()
+    try:
+        en_curso_descargada = _mk_prueba(
+            db, pid, creada_en=_ahora() - datetime.timedelta(hours=1),
+            descargada_en=_ahora() - datetime.timedelta(minutes=gracia + 5))
+    finally:
+        db.close()
+
+    retencion.purgar_once()
+
+    db = SessionLocal()
+    try:
+        assert db.get(Prueba, en_curso_descargada) is None
     finally:
         db.close()
 

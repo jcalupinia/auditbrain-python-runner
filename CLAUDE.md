@@ -859,9 +859,17 @@ pruebas de la auditoría de ese cliente). El servidor es un lugar de paso y limp
 
 - **Retención.** Una prueba se borra automáticamente cuando el usuario descarga el papel
   (tras una breve **gracia** para bajar varios formatos) y, en todo caso, **nunca pasa de 8 h**
-  desde que se creó. Aplica a **TODAS** las pruebas, **aprobadas incluidas**: el borrado
-  automático **levanta** la regla `APROBADA_NO_SE_TOCA` (que sigue protegiendo el borrado
-  MANUAL del usuario). Es **definitivo**: fila, evidencia, bitácora y archivos del disco.
+  desde que se creó. Aplica a las pruebas **terminadas o ya descargadas**, **aprobadas
+  incluidas**: el borrado automático **levanta** la regla `APROBADA_NO_SE_TOCA` (que sigue
+  protegiendo el borrado MANUAL del usuario). Es **definitivo**: fila, evidencia, bitácora y
+  archivos del disco.
+  - **Excepción (2026-10-05): el trabajo EN CURSO no se autopurga.** Una prueba que sigue
+    **ABIERTA** (estado ≠ `APROBADO`) y que **nunca se descargó** queda intocable por el
+    borrado automático, aunque pase de las 8 h. El tope duro destruía una planificación
+    (NIA 300) a medio armar mientras el auditor la trabajaba (síntoma: «Prueba no encontrada»
+    al extraer/confirmar). El lugar de paso limpia lo terminado/descargado, no lo activo. La
+    lógica vive en `retencion._vencida`; se puede apagar del todo con
+    `AUD_CICLO_RETENCION_ENABLED=false` o alargar con `AUD_CICLO_PRUEBA_TTL_HORAS`.
   - Implementación: `backend/app/aud/niif/ciclo/retencion.py` (`purgar_once`, `purgar_loop`,
     `purgar_prueba`), arrancado en `app.py` como el cleanup AUD/OF. La descarga del papel marca
     `registro["descargada_en"]` vía `servicio.marcar_descargada` (reinicia la gracia en cada
