@@ -511,6 +511,7 @@ def _hoja_ejecutiva(ws, S, h, titulo_prueba, nav, hojas=None, anexo=None):
             dim.hidden = True
             dim.outlineLevel = 1
     _colores_nivel(ws, h, fila_enc + 1, fila_enc + len(h["rows"]))
+    _colores_signo(ws, h, fila_enc + 1, fila_enc + len(h["rows"]))
     if any((e or {}).get("grupo") for e in h.get("estilos") or []):
         ws.sheet_properties.outlinePr.summaryBelow = False   # la cuenta superior va arriba de sus subcuentas
     ws.freeze_panes = f"A{fila_enc + 1}"
@@ -539,6 +540,27 @@ def _colores_nivel(ws, h: dict, fila_ini: int, fila_fin: int):
                 FormulaRule(formula=[f'OR({celda}="{clave}",LEFT({celda},{len(clave) + 1})="{clave} ")'], stopIfTrue=True,
                             fill=PatternFill(start_color=relleno, end_color=relleno, fill_type="solid"),
                             font=Font(color=texto, bold=True)))
+
+
+def _colores_signo(ws, h: dict, fila_ini: int, fila_fin: int):
+    """Tiñe por SIGNO el texto de las columnas numéricas declaradas en ``signo`` (Variación,
+    Variación %…): positivo en verde, negativo en rojo (el cero y el vacío quedan neutros).
+    Replica la lectura de variaciones del artefacto HTML. Es formato condicional, así que el
+    color sigue a la fórmula si el auditor cambia un saldo. No usa relleno (respeta la zebra)."""
+    from openpyxl.formatting.rule import CellIsRule
+
+    if fila_fin < fila_ini:
+        return
+    nombres = [c[0] for c in h["cols"]]
+    verde = Font(color="166534", bold=True)
+    rojo = Font(color="991B1B", bold=True)
+    for col in h.get("signo") or []:
+        if col not in nombres:
+            continue
+        letra = get_column_letter(nombres.index(col) + 1)
+        rng = f"{letra}{fila_ini}:{letra}{fila_fin}"
+        ws.conditional_formatting.add(rng, CellIsRule(operator="greaterThan", formula=["0"], font=verde))
+        ws.conditional_formatting.add(rng, CellIsRule(operator="lessThan", formula=["0"], font=rojo))
 
 
 def _q(titulo: str) -> str:
