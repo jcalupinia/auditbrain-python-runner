@@ -147,3 +147,16 @@ describe("artefacto de planificación: al activar una sección solo esa queda vi
     expect(visibles(dom)).not.toEqual(["materia"]);
   });
 });
+
+describe("Modo sección única (un HTML autónomo por botón)", () => {
+  it("el template trae el cableado de sección única", () => {
+    // Bandera que el backend hornea (artefacto_html.render seccion=…).
+    expect(HTML).toContain("var AUDITIA_SOLO=__AUDITIA_SOLO__;");
+    // Función que activa solo esa sección y marca el body.
+    expect(HTML).toContain("function activarSolo(");
+    // Enganche en el arranque.
+    expect(HTML).toContain("if(typeof AUDITIA_SOLO!=='undefined' && AUDITIA_SOLO){ activarSolo(AUDITIA_SOLO); }");
+    // CSS que oculta carga/navegación/otras secciones en modo sección única.
+    expect(HTML).toContain("body[data-solo]");
+  });
+});

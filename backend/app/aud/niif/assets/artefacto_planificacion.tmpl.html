@@ -173,6 +173,20 @@ details.collapse summary{cursor:pointer;padding:12px 0;font-weight:600;font-size
   .tabs,.footer-actions{display:none!important;}
 }
 
+/* Modo "sección única": cada botón descarga/abre un HTML autónomo con SOLO su
+   sección. El backend hornea data-solo="<tab>" en el body (var AUDITIA_SOLO) y el
+   arranque activa esa pestaña; aquí se oculta la carga de archivos, la navegación y
+   las demás secciones, dejando solo el contenido de esa sección. */
+body[data-solo] .hero,
+body[data-solo] .wrap > .card:not(#cardResults),
+body[data-solo] #tabBar,
+body[data-solo] #depthRow,
+body[data-solo] .footer-actions,
+body[data-solo] #cardResults > .step-head{display:none!important;}
+body[data-solo]:not([data-solo="dashboard"]) #checkBanner,
+body[data-solo]:not([data-solo="dashboard"]) #statGrid{display:none!important;}
+body[data-solo] #cardResults{border:none;box-shadow:none;margin:0;}
+
 .report-table td.num-cell,.report-table th.num-cell{text-align:right;font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap;}
 .report-table .acct-name{display:inline-block;}
 .report-table .lvl1 td{background:var(--navy);color:#fff;font-weight:700;border-top:1.5px solid var(--teal);}
@@ -592,6 +606,7 @@ var RISKS=[
 <script>
 var AUDITIA=__AUDITIA_CFG__;
 var LANSEY=__AUDITIA_LANSEY__;
+var AUDITIA_SOLO=__AUDITIA_SOLO__;  /* "materia" | "riesgos" | … | null → HTML de una sola sección */
 </script>
 <script>
 var PROG=[
@@ -2967,6 +2982,16 @@ function boot(){
   state.currentCompany=els.companyName.value.trim();
   renderResults(); els.cardResults.classList.remove('locked');
   updateStatusChip(); initCaps();
+  if(typeof AUDITIA_SOLO!=='undefined' && AUDITIA_SOLO){ activarSolo(AUDITIA_SOLO); }
+}
+/* HTML de una sola sección: activa esa pestaña (su contenido se pinta al activarla)
+   y marca el body para que el CSS oculte carga/navegación/otras secciones. */
+function activarSolo(tab){
+  try{
+    var b=document.querySelector('.tab-btn[data-tab="'+tab+'"]');
+    if(b){ b.click(); document.title=b.textContent.trim()+' · '+(state.currentCompany||(AUDITIA&&AUDITIA.company)||'Planificación'); }
+    document.body.setAttribute('data-solo', tab);
+  }catch(e){}
 }
 if(window.claude&&window.claude.hot){ window.claude.hot.ready?window.claude.hot.ready(boot):boot(); } else { boot(); }
 
