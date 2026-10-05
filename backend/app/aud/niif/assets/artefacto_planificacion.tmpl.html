@@ -186,6 +186,10 @@ body[data-solo] #cardResults > .step-head{display:none!important;}
 body[data-solo]:not([data-solo="dashboard"]) #checkBanner,
 body[data-solo]:not([data-solo="dashboard"]) #statGrid{display:none!important;}
 body[data-solo] #cardResults{border:none;box-shadow:none;margin:0;}
+.solo-cerrar{margin-left:auto;background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.35);
+  border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.solo-cerrar:hover{background:rgba(255,255,255,.22);}
+@media print{ .solo-cerrar{display:none!important;} }
 
 .report-table td.num-cell,.report-table th.num-cell{text-align:right;font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap;}
 .report-table .acct-name{display:inline-block;}
@@ -2991,6 +2995,22 @@ function activarSolo(tab){
     var b=document.querySelector('.tab-btn[data-tab="'+tab+'"]');
     if(b){ b.click(); document.title=b.textContent.trim()+' · '+(state.currentCompany||(AUDITIA&&AUDITIA.company)||'Planificación'); }
     document.body.setAttribute('data-solo', tab);
+    // Botón para cerrar/volver: como cada sección abre en su propia pestaña, ocultar
+    // la navegación dejaba sin salida. Se agrega un "Cerrar" en la barra superior.
+    var bar=document.querySelector('.topbar-inner');
+    if(bar && !document.getElementById('soloCerrar')){
+      var x=document.createElement('button');
+      x.id='soloCerrar'; x.type='button'; x.className='solo-cerrar';
+      x.textContent='✕ Cerrar';
+      x.title='Cerrar esta sección y volver';
+      x.addEventListener('click',function(){
+        // Si la pestaña la abrió la plataforma (window.open), se cierra; si se abrió
+        // el archivo directo, al menos vuelve atrás en el historial.
+        window.close();
+        setTimeout(function(){ if(history.length>1){ history.back(); } },120);
+      });
+      bar.appendChild(x);
+    }
   }catch(e){}
 }
 if(window.claude&&window.claude.hot){ window.claude.hot.ready?window.claude.hot.ready(boot):boot(); } else { boot(); }
