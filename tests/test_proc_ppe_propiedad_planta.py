@@ -325,7 +325,7 @@ def test_hojas_y_definicion():
         # Las cédulas devueltas son un subconjunto del catálogo CEDULAS (las de análisis sin datos se ocultan);
         # el orden de presentación lo fija el procesador (trabajo primero, soporte/diagnóstico al final).
         assert set(nombres) <= set(orden)
-        assert nombres[0] == "23_Sumaria"            # el papel abre con la sumaria (flujo del auditor)
+        assert nombres[0] == "02_Parametros"   # abre con los parametros (incluye la fecha de corte)
         for core in nucleo:
             assert core in nombres, core
         for h in hs:
@@ -379,10 +379,12 @@ def test_sumaria_movimiento_y_conciliacion():
         assert k in hs, k
     assert len(hs["23_Sumaria"]["rows"]) == len(E["datasets"]["variaciones"])
     assert len(hs["24_Movimiento_mayor"]["rows"]) >= 1
+    # Conciliación por cuenta en bloques; el total de cada bloque lleva el nombre del concepto.
     conc = {row[0]: row for row in hs["25_Conciliacion"]["rows"]}
     assert "Costo" in conc and "Depreciación acumulada" in conc
-    # Diferencia = auxiliar − balance.
-    assert abs(_cv(conc["Costo"][3]) - (_cv(conc["Costo"][1]) - _cv(conc["Costo"][2]))) < 0.01
+    # Columnas: [Código, Cuenta, Balance (libros), Según auditoría, Diferencia, Observación].
+    # |Diferencia| = |balance − auditoría| (la orientación del signo depende del bloque).
+    assert abs(abs(_cv(conc["Costo"][4])) - abs(_cv(conc["Costo"][2]) - _cv(conc["Costo"][3]))) < 0.01
     # El ejemplo no concilia a propósito → se reportan los hallazgos de la sumaria.
     assert "SUMARIA_NO_CONCILIA" in _codigos(r)
 
