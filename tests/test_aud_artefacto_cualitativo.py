@@ -34,6 +34,10 @@ def test_construir_cualitativos_desde_cedulas():
     texto_ident = " ".join(c for fila in ident for c in fila)
     assert "LANSEY" not in texto_ident
     assert set(cual["perfil"]) == {"ident", "obs", "ctx"}
+    # Programa de auditoría: del procesador (hoja 19), no de LANSEY (sin RECAMIER).
+    assert cual["prog"], "debe haber programa"
+    assert len(cual["prog"][0]) == 4 and cual["prog"][0][0].startswith("PT")
+    assert "RECAMIER" not in " ".join(c for fila in cual["prog"] for c in fila)
 
 
 def test_render_inyecta_override_con_datos_reales():
@@ -41,7 +45,7 @@ def test_render_inyecta_override_con_datos_reales():
     html = A.render({}, {"client": "Comercial Andina de Ejemplo S.A."}, ej.get("parametros", {}),
                     ej.get("datasets"), hojas=hojas).decode()
     # El override reasigna los globales ANTES del render del motor.
-    assert "RISKS=A.risks" in html and "PERFIL=A.perfil" in html
+    assert "RISKS=A.risks" in html and "PERFIL=A.perfil" in html and "PROG=A.prog" in html
     assert "__AUDITIA_OVERRIDE__" not in html  # placeholder siempre reemplazado
     # AUDITIA lleva los datos reales.
     m = re.search(r"var AUDITIA=(\{.*?\});", html)

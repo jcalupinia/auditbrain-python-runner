@@ -196,9 +196,28 @@ def _perfil_de(hojas) -> dict | None:
     return {"ident": ident, "obs": obs, "ctx": ctx}
 
 
+def _prog_de(hojas) -> list:
+    """Programa de auditoría del artefacto desde la hoja 19_Programa del procesador.
+    El artefacto muestra 4 columnas [PT, área, riesgo, procedimiento]; de la hoja se toman
+    las columnas 0 (PT), 1 (área), 2 (riesgo) y 4 (procedimiento sustantivo)."""
+    out = []
+    for r in _hoja_rows(hojas, "19_Programa"):
+        if not r:
+            continue
+        pt = str(_v(r[0]) or "").strip()
+        if not re.match(r"^PT", pt):     # salta títulos / filas sin PT
+            continue
+
+        def g(i):
+            return _v(r[i]) if i < len(r) else None
+
+        out.append([pt, str(g(1) or ""), str(g(2) or ""), str(g(4) or "")])
+    return out
+
+
 def construir_cualitativos(hojas) -> dict:
-    """Secciones cualitativas reales (perfil, matriz de riesgos) para inyectar en AUDITIA.
-    Solo incluye una clave si hay datos; si falta, la plantilla cae al ejemplo LANSEY."""
+    """Secciones cualitativas reales (perfil, matriz de riesgos, programa) para inyectar en
+    AUDITIA. Solo incluye una clave si hay datos; si falta, la plantilla cae al ejemplo LANSEY."""
     out = {}
     risks = _risks_de(hojas)
     if risks:
@@ -206,6 +225,9 @@ def construir_cualitativos(hojas) -> dict:
     perfil = _perfil_de(hojas)
     if perfil:
         out["perfil"] = perfil
+    prog = _prog_de(hojas)
+    if prog:
+        out["prog"] = prog
     return out
 
 
@@ -256,6 +278,8 @@ def render(files: dict, engagement: dict, parametros: dict, datasets: dict | Non
         partes.append("if(A.risks&&A.risks.length){RISKS=A.risks;}")
     if cfg.get("perfil"):
         partes.append("if(A.perfil){PERFIL=A.perfil;}")
+    if cfg.get("prog"):
+        partes.append("if(A.prog&&A.prog.length){PROG=A.prog;}")
     override = ("try{var A=AUDITIA;if(A){" + "".join(partes) + "}}catch(e){}") if partes else ""
     html = (tmpl
             .replace("__AUDITIA_TITLE__", _html.escape(titulo))
