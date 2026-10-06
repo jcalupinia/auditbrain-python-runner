@@ -29,8 +29,13 @@ def _fixture(datasets, params, corte):
     def rows(ds):
         return [{"doc": r["id"], "cliente": r.get("cliente", ""), "tipo": r.get("tipo", ""),
                  "vence": r["vence"], "saldo": r["saldo"]} for r in ds]
+    prov = [{"saldo_anterior": r.get("saldo_anterior"), "saldo_actual": r.get("saldo_actual")}
+            for r in (datasets.get("provision") or [])]
+    may = {suf: [{"constitucion": r.get("constitucion"), "reversion": r.get("reversion"), "castigos": r.get("castigos")}
+                 for r in (datasets.get(f"mayor_{suf}") or [])] for suf in ("t2", "t1", "t")}
     return {"corte": corte, "params": params, "cartera_t2": rows(datasets["cartera_t2"]),
-            "cartera_t1": rows(datasets["cartera_t1"]), "cartera_t": rows(datasets["cartera_t"])}
+            "cartera_t1": rows(datasets["cartera_t1"]), "cartera_t": rows(datasets["cartera_t"]),
+            "provision": prov, "mayor_t2": may["t2"], "mayor_t1": may["t1"], "mayor_t": may["t"]}
 
 
 def _py(datasets, params, corte):

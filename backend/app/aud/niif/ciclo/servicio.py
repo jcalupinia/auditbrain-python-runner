@@ -105,6 +105,13 @@ def pruebas_de(definicion: dict) -> list[str]:
 #   - "pce": PCE declarativa reemplazada por el procesador `pce_cohortes_niif9` (AUD-ECL-01).
 OCULTAR_CATALOGO = {"pce"}
 
+# Procesadores que ya no se ofrecen en el LISTADO porque otra herramienta los reemplaza. Se
+# ocultan tanto si aparecen como ficha NIIF (del workspace del usuario) como si tuvieran RUBRO.
+# Siguen siendo resolubles en `_definicion_de`, para no romper pruebas o fichas ya creadas.
+#   - "pce_simplificada_niif9": reemplazado por `pce_cohortes_niif9` (una sola prueba NIIF 9,
+#     decisión del dueño, 2026-10-06: «deseo que solo quede una prueba, la otra ocúltala»).
+OCULTAR_PROCESADOR = {"pce_simplificada_niif9"}
+
 
 def herramientas_disponibles(db: Session) -> list[dict]:
     """Catálogo del sitio más las fichas NIIF con definición probada."""
@@ -117,7 +124,7 @@ def herramientas_disponibles(db: Session) -> list[dict]:
         select(NiifFicha).where(NiifFicha.estado.in_(ESTADOS_FICHA_USABLE)).order_by(NiifFicha.nombre)
     ).scalars()
     for f in fichas:
-        if f.definicion:
+        if f.definicion and (f.definicion.get("processor") not in OCULTAR_PROCESADOR):
             # `estado` separa lo publicado en el catálogo («enviada») de lo que aún
             # espera aprobación («probada»); `marcos` dice a qué marco sirve.
             lista.append({"origen": f"ficha:{f.id}", "nombre": f.nombre, "area": f.rubro, "tipo": "ficha NIIF",
@@ -126,7 +133,7 @@ def herramientas_disponibles(db: Session) -> list[dict]:
     # Herramientas fabricadas directamente en el catálogo: cada procesador con RUBRO aparece en la
     # tarjeta de su rubro sin pasar por «Diseñar fichas» (decisión del dueño, 2026-09-22).
     for pid, mod in procesadores.PROCESADORES.items():
-        if getattr(mod, "RUBRO", None):
+        if getattr(mod, "RUBRO", None) and pid not in OCULTAR_PROCESADOR:
             d = mod.definicion()
             lista.append({"origen": f"proc:{pid}", "nombre": d["name"], "area": mod.RUBRO, "tipo": "herramienta NIIF",
                           "estado": getattr(mod, "ESTADO", "probada"), "marcos": d.get("frameworks") or [],

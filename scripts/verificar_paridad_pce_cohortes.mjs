@@ -101,13 +101,11 @@ function run(fx) {
     cells.push({ s, b, e, tasaObs: TASA[s][b], tasaApl: t, pce: p });
   }));
 
-  const may = ['t2', 't1', 't'].map(suf => ({
-    ini: num(P['provIni_' + suf]), con: num(P['provCon_' + suf]), rev: num(P['provRev_' + suf]),
-    cas: num(P['provCas_' + suf]), bal: num(P['provBal_' + suf]),
-  }));
-  may.forEach(m => m.fin = m.ini + m.con - m.rev - m.cas);
-  const provReg = may[2].bal || may[2].fin;
-  const castAcum = may.reduce((a, m) => a + m.cas, 0);
+  // Provisión del anexo inicial (sumaria) y movimiento de los mayores por ejercicio (opcionales).
+  const prov = fx.provision || [];
+  const provReg = prov.reduce((a, r) => a + num(r.saldo_actual), 0);
+  const castAcum = ['t2', 't1', 't'].reduce(
+    (a, suf) => a + (fx['mayor_' + suf] || []).reduce((x, r) => x + num(r.castigos), 0), 0);
   const cohorteBase = BN.reduce((a, b) => a + SEG.reduce((x, s) => x + CO[s][b].e, 0), 0);
   const tasaCastigo = cohorteBase > 0 ? castAcum / cohorteBase : 0;
 

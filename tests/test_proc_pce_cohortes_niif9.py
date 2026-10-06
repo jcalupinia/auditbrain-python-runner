@@ -54,16 +54,32 @@ def test_desdoblamiento_de_la_banda_abierta():
 
 def test_hallazgos_ccceer_del_ejemplo():
     codes = {e["code"] for e in _run()["exceptions"]}
-    # el ejemplo dispara varios hallazgos y avisos
-    assert {"H-PROSPECTIVO", "H-CARTERA-ANTIGUA", "H-SEGMENTACION", "H-NOTA-INCONSISTENTE",
+    # el ejemplo (provisión estática, sin movimiento en los mayores) dispara varios hallazgos y avisos
+    assert {"H-PROSPECTIVO", "H-CARTERA-ANTIGUA", "H-SEGMENTACION", "H-PROV-ESTATICA",
             "W-SIN-DATOS", "AJUSTE"} <= codes
 
 
 def test_validacion_del_metodo_contra_castigos():
-    # castigos materiales (≥ 5 % de la cohorte) ⇒ aviso
-    r = _run({"provCas_t": 2000})   # cohorte base = 4000 ⇒ 50 %
+    # castigos materiales (≥ 5 % de la cohorte) en el mayor del ejercicio t ⇒ aviso
+    ds = {**m.EJEMPLO["datasets"],
+          "mayor_t": [{"concepto": "Castigo de cartera", "constitucion": "", "reversion": "", "castigos": "2000"}]}
+    r = m.ejecutar(ds, m.EJEMPLO["parametros"], m.EJEMPLO["corte"])   # cohorte base = 4000 ⇒ 50 %
     assert any(e["code"] == "W-CASTIGOS-MATERIALES" for e in r["exceptions"])
     assert r["detalle"]["tasaCastigo"] == pytest.approx(0.5)
+
+
+def test_movimiento_opcional_sin_mayores_no_hay_movimiento():
+    # Sin mayores cargados, el movimiento es cero y la provisión no cambia (decisión del dueño).
+    d = _run()["detalle"]
+    assert d["cargoAcum"] == 0 and d["revAcum"] == 0 and d["castAcum"] == 0
+    assert d["finMov"] == d["provIni"]
+
+
+def test_anexo_inicial_es_una_sumaria():
+    # El anexo inicial replica una sumaria: código, descripción, saldo anterior y actual.
+    d = _run()["detalle"]
+    assert d["provSumaria"] and set(d["provSumaria"][0]) >= {"codigo", "descripcion", "anterior", "actual"}
+    assert d["provIni"] == pytest.approx(1000) and d["provReg"] == pytest.approx(1000)
 
 
 def test_trazabilidad_entre_cortes():
@@ -103,5 +119,6 @@ def test_definicion_valida():
     d = m.definicion()
     assert m.validar_definicion(d) is d
     assert d["processor"] == "pce_cohortes_niif9"
-    assert [r["dataset"] for r in d["requests"] if r.get("dataset")] == ["cartera_t2", "cartera_t1", "cartera_t"]
+    assert [r["dataset"] for r in d["requests"] if r.get("dataset")] == [
+        "cartera_t2", "cartera_t1", "cartera_t", "provision", "mayor_t2", "mayor_t1", "mayor_t"]
     assert len(d["program"]) >= 5
