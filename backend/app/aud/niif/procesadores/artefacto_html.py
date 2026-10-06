@@ -110,6 +110,105 @@ def construir_config(files: dict, engagement: dict, parametros: dict) -> dict:
     }
 
 
+# --- secciones CUALITATIVAS: datos reales del cliente en vez del ejemplo LANSEY ---
+# El motor del artefacto recalcula las pestañas CON NÚMEROS desde las balanzas reales,
+# pero el Perfil del encargo y la Matriz de riesgos venían HARDCODEADOS con el ejemplo
+# LANSEY. Aquí se arman esas secciones desde las cédulas que ya calculó el procesador
+# (hoja 14_Perfil, hoja 12_Riesgos_CCI) y se inyectan en ``AUDITIA`` (AUDITIA.perfil /
+# AUDITIA.risks); la plantilla las usa si vienen y cae al ejemplo LANSEY si faltan.
+
+def _v(cell):
+    """Valor de una celda del run: ``{"f":…,"v":…}`` → ``v``; valor plano → tal cual."""
+    return cell.get("v") if isinstance(cell, dict) else cell
+
+
+def _hoja_rows(hojas, name) -> list:
+    for h in hojas or []:
+        if h.get("name") == name:
+            return h.get("rows") or []
+    return []
+
+
+def _nivel(valor) -> str:
+    """Nivel de riesgo al código del artefacto (clase CSS y texto): ALTO/MEDIO/BAJO/PEND."""
+    s = str(valor or "").strip().lower()
+    if s.startswith("alto"):
+        return "ALTO"
+    if s.startswith("medio"):
+        return "MEDIO"
+    if s.startswith("bajo"):
+        return "BAJO"
+    return "PEND"  # «Pendiente de calificación» u otro
+
+
+def _risks_de(hojas) -> list:
+    """Matriz de riesgos del artefacto desde la hoja 12_Riesgos_CCI del procesador.
+    Columnas: 0 id · 1 área · 2 descripción · 3 afirmaciones · 4 P · 5 I · 6 C ·
+    7 inherente · 8 residual · 9 nivel · 10 respuesta."""
+    out = []
+    for r in _hoja_rows(hojas, "12_Riesgos_CCI"):
+        if not r:
+            continue
+        rid = str(_v(r[0]) or "").strip()
+        if not re.match(r"^R\d", rid):      # salta títulos / filas sin id de riesgo
+            continue
+
+        def g(i):
+            return _v(r[i]) if i < len(r) else None
+
+        out.append({
+            "id": rid,
+            "proc": str(g(1) or ""),        # área / proceso (línea en negrita)
+            "desc": str(g(2) or ""),
+            "aser": str(g(3) or ""),
+            "p": num(g(4), 0.0), "i": num(g(5), 0.0), "c": num(g(6), 0.0),
+            "inh": num(g(7), 0.0), "res": num(g(8), 0.0),
+            "cls": _nivel(g(9)),
+            "resp": str(g(10) or ""),
+        })
+    return out
+
+
+def _perfil_de(hojas) -> dict | None:
+    """Perfil del encargo del artefacto desde la hoja 14_Perfil del procesador.
+    Columnas: 0 tipo · 1 concepto · 2 detalle · 4 fuente. Tipos: Identificación,
+    Entendimiento, Contexto. Devuelve ``{ident, obs, ctx}`` (como el artefacto)."""
+    ident, obs_b, ctx = [], [], []
+    for r in _hoja_rows(hojas, "14_Perfil"):
+        if not r:
+            continue
+        # Fila de título de sección: col0 string y el resto vacío → se omite.
+        if isinstance(r[0], str) and all(x in (None, "") for x in r[1:]):
+            continue
+        tipo = str(_v(r[0]) or "").strip().lower()
+        concepto = str(_v(r[1]) or "").strip() if len(r) > 1 else ""
+        detalle = str(_v(r[2]) or "").strip() if len(r) > 2 else ""
+        fuente = str(_v(r[4]) or "").strip() if len(r) > 4 else ""
+        if tipo.startswith("identif"):
+            ident.append([concepto, detalle, fuente])
+        elif tipo.startswith("entend"):
+            obs_b.append([concepto, detalle])
+        elif tipo.startswith("context"):
+            ctx.append([concepto, detalle])
+    if not ident:
+        return None
+    obs = [{"t": "Entendimiento de la entidad y su entorno", "b": obs_b}] if obs_b else []
+    return {"ident": ident, "obs": obs, "ctx": ctx}
+
+
+def construir_cualitativos(hojas) -> dict:
+    """Secciones cualitativas reales (perfil, matriz de riesgos) para inyectar en AUDITIA.
+    Solo incluye una clave si hay datos; si falta, la plantilla cae al ejemplo LANSEY."""
+    out = {}
+    risks = _risks_de(hojas)
+    if risks:
+        out["risks"] = risks
+    perfil = _perfil_de(hojas)
+    if perfil:
+        out["perfil"] = perfil
+    return out
+
+
 # Pestañas válidas del artefacto (whitelist para el modo "sección única"; evita
 # inyectar nada arbitrario en el HTML por el parámetro ``seccion``).
 SECCIONES = ("dashboard", "perfil", "situacion", "resultados", "analitico",
@@ -117,7 +216,7 @@ SECCIONES = ("dashboard", "perfil", "situacion", "resultados", "analitico",
 
 
 def render(files: dict, engagement: dict, parametros: dict, datasets: dict | None = None,
-           seccion: str | None = None) -> bytes:
+           seccion: str | None = None, hojas: list | None = None) -> bytes:
     """HTML del papel con el motor del artefacto.
 
     ``files`` = ``{"prior":{"b64","name","sheet"?}|None, "current":{…}, "eri":{…}|None}``
@@ -130,6 +229,10 @@ def render(files: dict, engagement: dict, parametros: dict, datasets: dict | Non
     """
     files = {k: v for k, v in (files or {}).items() if v and v.get("b64")}
     cfg = construir_config(files, engagement, parametros)
+    # Secciones cualitativas reales del cliente (perfil, matriz de riesgos) desde las
+    # cédulas del procesador; si no hay, la plantilla usa el ejemplo LANSEY de respaldo.
+    if hojas:
+        cfg.update(construir_cualitativos(hojas))
 
     usa_crudo = bool(files.get("prior") and files.get("current"))
     if usa_crudo:
@@ -145,11 +248,21 @@ def render(files: dict, engagement: dict, parametros: dict, datasets: dict | Non
         tmpl = fh.read()
     titulo = (cfg.get("company") or "Planificación").replace("<", "").replace(">", "")
     solo = seccion if seccion in SECCIONES else None
+    # Override de las secciones cualitativas: reasigna los globales RISKS/PERFIL (que la
+    # plantilla trae con el ejemplo LANSEY) por los datos reales inyectados en AUDITIA,
+    # ANTES de que el motor dibuje las pestañas. Vacío si no hay datos reales (usa LANSEY).
+    partes = []
+    if cfg.get("risks"):
+        partes.append("if(A.risks&&A.risks.length){RISKS=A.risks;}")
+    if cfg.get("perfil"):
+        partes.append("if(A.perfil){PERFIL=A.perfil;}")
+    override = ("try{var A=AUDITIA;if(A){" + "".join(partes) + "}}catch(e){}") if partes else ""
     html = (tmpl
             .replace("__AUDITIA_TITLE__", _html.escape(titulo))
             .replace("__AUDITIA_CFG__", json.dumps(cfg, ensure_ascii=False))
             .replace("__AUDITIA_LANSEY__", lansey)
-            .replace("__AUDITIA_SOLO__", json.dumps(solo)))
+            .replace("__AUDITIA_SOLO__", json.dumps(solo))
+            .replace("__AUDITIA_OVERRIDE__", override))
     return html.encode("utf-8")
 
 
