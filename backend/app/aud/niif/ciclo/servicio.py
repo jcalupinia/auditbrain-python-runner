@@ -1122,7 +1122,10 @@ def papel_artefacto_html(db: Session, p: Prueba, seccion: str | None = None) -> 
             continue
         files[rol] = artefacto_html.archivo_b64(contenido, a.nombre, mp.get("sheet"))
     eng.update(_periodos_planificacion(eng, par))
-    return artefacto_html.render(files, eng, par, reg.get("datasets"), seccion=seccion)
+    # Secciones cualitativas reales (perfil, matriz de riesgos) desde las cédulas ya
+    # calculadas por el procesador; sin ellas, el artefacto cae al ejemplo LANSEY.
+    hojas = (reg.get("run") or {}).get("hojas")
+    return artefacto_html.render(files, eng, par, reg.get("datasets"), seccion=seccion, hojas=hojas)
 
 
 # --- evidencia ---------------------------------------------------------------
