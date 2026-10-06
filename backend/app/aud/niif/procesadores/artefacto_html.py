@@ -215,17 +215,33 @@ def _prog_de(hojas) -> list:
     return out
 
 
-def construir_cualitativos(hojas) -> dict:
-    """Secciones cualitativas reales (perfil, matriz de riesgos, programa) para inyectar en
-    AUDITIA. Solo incluye una clave si hay datos; si falta, la plantilla cae al ejemplo LANSEY."""
-    out = {}
+def construir_cualitativos(hojas, siempre: bool = False) -> dict:
+    """Secciones cualitativas del cliente (perfil, matriz de riesgos, programa) para inyectar
+    en AUDITIA, armadas desde las cédulas que ya calculó el procesador con lo que el auditor
+    cargó en los requerimientos:
+      - Perfil ← hoja 14_Perfil (informe del año anterior RQ-005, certificado de RUC RQ-008).
+      - Matriz de riesgos ← hoja 12_Riesgos_CCI (carta de control interno).
+      - Programa ← hoja 19_Programa (derivado de los riesgos y las cuentas a revisar).
+
+    ``siempre=True`` (corrida real de un cliente): se usan SIEMPRE los datos de ese cliente,
+    aunque una sección quede vacía porque aún no se cargó su requerimiento. Así NUNCA se
+    muestra el ejemplo LANSEY en la planificación de una compañía real. ``siempre=False``
+    (artefacto de demostración, sin corrida): solo se incluye lo que haya; lo que falte cae
+    al ejemplo LANSEY de la plantilla."""
     risks = _risks_de(hojas)
+    perfil = _perfil_de(hojas)
+    prog = _prog_de(hojas)
+    if siempre:
+        return {
+            "risks": risks,                                            # [] si falta la carta
+            "perfil": perfil or {"ident": [], "obs": [], "ctx": []},   # vacío si falta el informe/RUC
+            "prog": prog,                                              # [] si no hay programa aún
+        }
+    out = {}
     if risks:
         out["risks"] = risks
-    perfil = _perfil_de(hojas)
     if perfil:
         out["perfil"] = perfil
-    prog = _prog_de(hojas)
     if prog:
         out["prog"] = prog
     return out
@@ -251,10 +267,13 @@ def render(files: dict, engagement: dict, parametros: dict, datasets: dict | Non
     """
     files = {k: v for k, v in (files or {}).items() if v and v.get("b64")}
     cfg = construir_config(files, engagement, parametros)
-    # Secciones cualitativas reales del cliente (perfil, matriz de riesgos) desde las
-    # cédulas del procesador; si no hay, la plantilla usa el ejemplo LANSEY de respaldo.
-    if hojas:
-        cfg.update(construir_cualitativos(hojas))
+    # Secciones cualitativas del cliente (perfil, matriz de riesgos, programa) desde las
+    # cédulas del procesador. En una corrida real (hay cédulas) SIEMPRE manda lo del cliente,
+    # aunque una sección quede vacía por un requerimiento no cargado: así nunca se muestra el
+    # ejemplo LANSEY en la planificación de una compañía real. Sin cédulas (artefacto de
+    # demostración) se conserva el ejemplo LANSEY de la plantilla.
+    if hojas is not None:
+        cfg.update(construir_cualitativos(hojas, siempre=True))
 
     usa_crudo = bool(files.get("prior") and files.get("current"))
     if usa_crudo:
@@ -273,13 +292,15 @@ def render(files: dict, engagement: dict, parametros: dict, datasets: dict | Non
     # Override de las secciones cualitativas: reasigna los globales RISKS/PERFIL (que la
     # plantilla trae con el ejemplo LANSEY) por los datos reales inyectados en AUDITIA,
     # ANTES de que el motor dibuje las pestañas. Vacío si no hay datos reales (usa LANSEY).
+    # Reasigna por PRESENCIA de la clave (no por longitud): en una corrida real una sección
+    # vacía debe quedar vacía (lo del cliente), nunca volver al ejemplo LANSEY.
     partes = []
-    if cfg.get("risks"):
-        partes.append("if(A.risks&&A.risks.length){RISKS=A.risks;}")
-    if cfg.get("perfil"):
-        partes.append("if(A.perfil){PERFIL=A.perfil;}")
-    if cfg.get("prog"):
-        partes.append("if(A.prog&&A.prog.length){PROG=A.prog;}")
+    if "risks" in cfg:
+        partes.append("RISKS=A.risks;")
+    if "perfil" in cfg:
+        partes.append("PERFIL=A.perfil;")
+    if "prog" in cfg:
+        partes.append("PROG=A.prog;")
     override = ("try{var A=AUDITIA;if(A){" + "".join(partes) + "}}catch(e){}") if partes else ""
     html = (tmpl
             .replace("__AUDITIA_TITLE__", _html.escape(titulo))

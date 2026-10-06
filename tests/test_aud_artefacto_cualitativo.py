@@ -56,6 +56,46 @@ def test_render_inyecta_override_con_datos_reales():
     assert "LANSEY" not in json.dumps(cfg.get("risks")) + json.dumps(cfg.get("perfil"))
 
 
+def test_corrida_real_sin_carta_no_muestra_lansey():
+    """En una corrida real de un cliente, si falta el requerimiento de una sección (p. ej. la
+    carta de control interno para los riesgos), esa sección queda VACÍA (del cliente), NUNCA
+    con el ejemplo LANSEY. `siempre=True` fuerza el override aunque la sección esté vacía."""
+    hojas = [
+        {"name": "14_Perfil", "rows": [
+            ["Identificación del encargo", None, None, None, None, None, None],
+            [{"v": "Identificación"}, "Entidad auditada", {"v": "EMPRESA B S.A."}, None, {"v": "Informe B"}, "", ""],
+        ]},
+        {"name": "12_Riesgos_CCI", "rows": []},   # no se cargó la carta → sin riesgos
+        {"name": "19_Programa", "rows": []},
+    ]
+    cual = A.construir_cualitativos(hojas, siempre=True)
+    assert cual["risks"] == [] and cual["prog"] == []         # vacíos, no LANSEY
+    assert cual["perfil"]["ident"], "el perfil sí tiene lo cargado"
+    html = A.render({}, {"client": "EMPRESA B S.A."}, {}, {}, hojas=hojas).decode()
+    # El override reasigna igual (presencia de clave), dejando las secciones vacías del cliente.
+    assert "RISKS=A.risks;" in html and "PROG=A.prog;" in html
+    import json
+    cfg = json.loads(re.search(r"var AUDITIA=(\{.*?\});", html).group(1))
+    assert cfg["risks"] == [] and "EMPRESA B" in json.dumps(cfg["perfil"])
+
+
+def test_dos_companias_dan_datos_distintos():
+    """La misma herramienta, dos compañías con requerimientos distintos → perfiles y riesgos
+    distintos (se actualiza según la empresa y lo cargado en el requerimiento)."""
+    hojas_b = [
+        {"name": "14_Perfil", "rows": [
+            [{"v": "Identificación"}, "Entidad auditada", {"v": "EMPRESA B S.A."}, None, {"v": "Informe B"}, "", ""]]},
+        {"name": "12_Riesgos_CCI", "rows": [
+            ["R01", {"v": "Tesorería"}, {"v": "Riesgo propio de EMPRESA B"}, {"v": "Existencia"},
+             {"v": 5}, {"v": 4}, {"v": 3}, {"v": 20}, {"v": 12.0}, {"v": "Medio"}, {"v": "Procedimiento B"}]]},
+    ]
+    a = A.construir_cualitativos(_hojas_ejemplo()[0], siempre=True)
+    b = A.construir_cualitativos(hojas_b, siempre=True)
+    assert a["perfil"]["ident"][0][1] != b["perfil"]["ident"][0][1]
+    assert a["risks"][0]["desc"] != b["risks"][0]["desc"]
+    assert "EMPRESA B" in b["perfil"]["ident"][0][1]
+
+
 def test_render_sin_hojas_cae_al_respaldo_lansey():
     html = A.render({}, {"client": "X"}, {}, {}, hojas=None).decode()
     # Sin cédulas no hay override: la plantilla usa el ejemplo LANSEY de respaldo.
