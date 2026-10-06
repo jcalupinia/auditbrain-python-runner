@@ -6,6 +6,8 @@ regla que el resto del portal (``user_can_access_project``).
 """
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -450,6 +452,10 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", seccion: str | None =
         # artefacto de referencia). Los demás formatos y las demás herramientas usan `libro`.
         if formato == "html" and p.definicion.get("processor") == "planificacion_nia":
             contenido = servicio.papel_artefacto_html(db, p, seccion=seccion)
+        elif formato == "html":
+            # Las demás herramientas: HTML autónomo de `libro`; con `seccion` arranca en esa
+            # sola cédula (landing por tarjeta). Si la sección no existe, render la ignora.
+            contenido = libro.html(*servicio.args_papel(db, p), seccion=seccion)
         else:
             contenido = getattr(libro, funcion)(*servicio.args_papel(db, p))
     except libro.PDFNoDisponible as e:
@@ -457,8 +463,8 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", seccion: str | None =
     servicio.marcar_descargada(db, p)  # retención: el servidor es lugar de paso; se borra tras la descarga (gracia) y a las 8 h
     # Nombre del archivo: por sección si se pidió una (Materialidad.html, etc.).
     from backend.app.aud.niif.procesadores import artefacto_html as _art
-    if formato == "html" and seccion in _art.SECCIONES:
-        nombre = f"{seccion}.{ext}"
+    if formato == "html" and seccion and (seccion in _art.SECCIONES or seccion.startswith("sec-")):
+        nombre = f"{re.sub(r'[^\\w-]+', '_', seccion)[:50]}.{ext}"
     else:
         nombre = f"Papel_v{p.version}.{ext}"
     return Response(contenido, media_type=mime,
