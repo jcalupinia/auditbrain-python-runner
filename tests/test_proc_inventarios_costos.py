@@ -398,3 +398,55 @@ def test_sumaria_por_bodega_y_por_tipo_cuadra_con_el_total():
     assert filas["BOD1"][2]["f"].startswith("SUMIFS(") and filas["BOD1"][1]["f"].startswith("COUNTIFS(")
     # La sección «Por bodega» lista una fila por bodega del ejemplo (BOD1..BOD4).
     assert {"BOD1", "BOD2", "BOD3", "BOD4"} <= set(filas)
+
+
+# --- Movimiento del Libro Mayor por cuenta e Integridad (cliente vs. recálculo) ------------------
+
+def test_movimiento_mayor_por_cuenta_cuadra_con_la_conciliacion():
+    """La hoja Movimiento desglosa el Libro Mayor por cuenta (Debe, Haber y saldo neto). El total
+    del saldo neto es el saldo del mayor que usa la conciliación kardex–mayor."""
+    res = _run()
+    hojas = m.hojas(res)
+    h = next(x for x in hojas if x["name"] == "19_Movimiento")
+    val = lambda c: (c["v"] if isinstance(c, dict) else c)
+    # Una fila por cuenta del mayor del ejemplo (4), con el saldo neto = Debe − Haber por fórmula.
+    assert len(h["rows"]) == len(res["detalle"]["mayorCuentas"]) == 4
+    assert h["rows"][0][4]["f"] == "C5-D5"  # movimiento neto = Debe − Haber (fila 1, Excel fila 5)
+    # El TOTAL del movimiento neto == saldo del mayor del ejemplo (41.300) == el que usa la conciliación.
+    assert val(h["total"][4]) == res["detalle"]["mayorTotal"] == 41300.0
+    assert val(h["total"][2]) == 41300.0 and val(h["total"][3]) == 0.0  # Σ Debe / Σ Haber
+
+
+def test_movimiento_mayor_agrupa_varias_filas_de_la_misma_cuenta():
+    datasets = copy.deepcopy(E["datasets"])
+    datasets["mayor"] = [
+        {"cuenta": "1.1.08.01", "nombre": "Inventario", "debe": 5000, "haber": 0},
+        {"cuenta": "1.1.08.01", "nombre": "Inventario", "debe": 3000, "haber": 1000},  # misma cuenta
+        {"cuenta": "1.1.08.02", "nombre": "Materia prima", "debe": 2000, "haber": 0},
+    ]
+    res = m.ejecutar(datasets, {**E["parametros"], "saldoMayor": None}, E["corte"])
+    cuentas = {c["cuenta"]: c for c in res["detalle"]["mayorCuentas"]}
+    assert len(cuentas) == 2  # se agrupó por cuenta
+    assert cuentas["1.1.08.01"]["debe"] == 8000 and cuentas["1.1.08.01"]["haber"] == 1000
+    assert cuentas["1.1.08.01"]["neto"] == 7000.0
+
+
+def test_integridad_cliente_vs_recalculo_con_las_cifras_del_ejemplo():
+    """La hoja de integridad enfrenta el valor del cliente (kardex) con el recálculo del auditor
+    en cuatro pruebas; la diferencia remite por fórmula y el semáforo marca «Revisar» si no cuadra."""
+    res = _run()
+    hojas = m.hojas(res)
+    h = next(x for x in hojas if x["name"] == "20_Integridad")
+    val = lambda c: (c["v"] if isinstance(c, dict) else c)
+    filas = {r[0]: r for r in h["rows"]}
+    t, conc = res["detalle"]["tot"], res["detalle"]["conc"]
+    # Valor del cliente en todas las pruebas = valor del kardex (41.000).
+    assert all(val(r[1]) == conc["vk"] for r in h["rows"])
+    # Diferencias == los totales ya calculados (física 16, extensión −100, conciliación 300).
+    assert val(filas["Existencia: conteo físico vs kardex"][3]) == t["difFisicas"] == 16.0
+    assert val(filas["Extensión: cantidad × costo unitario"][3]) == t["difExtension"] == -100.0
+    assert val(filas["Valuación: costo auditado (soporte y conteo)"][3]) == round(t["costoAuditado"] - conc["vk"], 2)
+    assert val(filas["Conciliación: kardex vs saldo del mayor"][3]) == round(conc["mayor"] - conc["vk"], 2) == 300.0
+    # La diferencia es una fórmula (recálculo − cliente) y el estado es «Revisar» donde no cuadra.
+    assert filas["Extensión: cantidad × costo unitario"][3]["f"].startswith("C")
+    assert val(filas["Conciliación: kardex vs saldo del mayor"][4]) == "Revisar"
