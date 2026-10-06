@@ -325,14 +325,15 @@ def test_hojas_y_definicion():
         # Las cédulas devueltas son un subconjunto del catálogo CEDULAS (las de análisis sin datos se ocultan);
         # el orden de presentación lo fija el procesador (trabajo primero, soporte/diagnóstico al final).
         assert set(nombres) <= set(orden)
-        assert nombres[0] == "01_Resumen"            # el resumen (Inicio) abre el papel
+        assert nombres[0] == "23_Sumaria"            # el papel abre con la sumaria (flujo del auditor)
         for core in nucleo:
             assert core in nombres, core
         for h in hs:
             assert len(h["name"]) <= 31
             for f in h["rows"] + ([h["total"]] if h.get("total") else []):
                 assert len(f) == len(h["cols"]), h["name"]
-        assert [f[0] for f in hs[0]["rows"]] == list(r["labels"].values())
+        resumen = next(h for h in hs if h["name"] == "01_Resumen")
+        assert [f[0] for f in resumen["rows"]] == list(r["labels"].values())
     d = m.validar_definicion(m.definicion())
     assert d["processor"] == "ppe_propiedad_planta" and len(d["program"]) >= 5
     assert m.RUBRO == "ACTIVOS_FIJOS" and m.CONTROL in {c["key"] for c in m.CAMPOS[m.PRINCIPAL]}
