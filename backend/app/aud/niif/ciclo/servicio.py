@@ -52,15 +52,35 @@ def leer_ficha(db: Session, project_id: int) -> dict | None:
     return f.datos if f else None
 
 
+def encargado_de(db: Session, project_id: int) -> str | None:
+    """Correo del encargado (dueño) del encargo, o None si no está asignado."""
+    f = db.get(FichaEncargo, project_id)
+    return (f.encargado or None) if f else None
+
+
+def es_encargado(db: Session, project_id: int, user) -> bool:
+    """¿``user`` puede las acciones que afectan a TODO el encargo (reiniciar/eliminar
+    la prueba, cambiar la ficha)? Lo son el encargado del encargo y los admin globales.
+    Si el encargo no tiene encargado asignado, solo un admin puede."""
+    if str(getattr(getattr(user, "role", None), "value", getattr(user, "role", ""))).lower() == "admin":
+        return True
+    due = encargado_de(db, project_id)
+    return bool(due) and (user.email or "").lower() == due.lower()
+
+
 def guardar_ficha(db: Session, project_id: int, datos: dict, actor: str) -> dict:
     limpia = reglas.validar_ficha_encargo(datos, completa=True)
     f = db.get(FichaEncargo, project_id)
     if f is None:
-        f = FichaEncargo(project_id=project_id, datos=limpia, actualizada_por=actor)
+        # Primera vez que se guarda la ficha de este encargo: quien la crea queda
+        # como encargado (dueño). No se cambia en actualizaciones posteriores.
+        f = FichaEncargo(project_id=project_id, datos=limpia, actualizada_por=actor, encargado=actor)
         db.add(f)
     else:
         f.datos = limpia
         f.actualizada_por = actor
+        if not f.encargado:  # backfill perezoso para encargos sin dueño asignado
+            f.encargado = actor
     db.commit()
     return limpia
 
@@ -1567,21 +1587,36 @@ def crear_encargo(db: Session, user, datos: dict) -> dict:
         nombre = str(datos.get("cliente") or ficha.get("client") or "").strip()[:200]
         if len(nombre) < 2:
             raise ReglaIncumplida("Indique el cliente.")
-        cliente = db.execute(
-            select(Client).where(Client.organization_id == user.organization_id,
-                                 func.lower(Client.name) == nombre.lower())
-        ).scalars().first()
+        ruc = str(ficha.get("ruc") or "").strip()
+        # Anti-duplicado: reutiliza la empresa existente si coincide el RUC (identificador
+        # fuerte) o, en su defecto, el nombre (sin distinguir mayúsculas). Evita crear la
+        # misma empresa dos veces cuando un asistente la tipea distinto o sin elegir la
+        # que ya existe. (El frontend ofrece además elegir la empresa existente.)
+        cliente = None
+        if ruc:
+            cliente = db.execute(
+                select(Client).where(Client.organization_id == user.organization_id,
+                                     Client.tax_id == ruc)
+            ).scalars().first()
+        if cliente is None:
+            cliente = db.execute(
+                select(Client).where(Client.organization_id == user.organization_id,
+                                     func.lower(Client.name) == nombre.lower())
+            ).scalars().first()
         if cliente is None:
             cliente = Client(organization_id=user.organization_id, name=nombre,
-                             tax_id=ficha.get("ruc") or None)
+                             tax_id=ruc or None)
             db.add(cliente)
             db.flush()
+        elif ruc and not cliente.tax_id:
+            cliente.tax_id = ruc  # completa el RUC si la empresa existía sin él
     nombre_encargo = str(datos.get("nombre") or "").strip()[:200] or f"Auditoría {ficha['year']}"
     proyecto = Project(organization_id=user.organization_id, client_id=cliente.id, name=nombre_encargo,
                        module_code="AUD", period_label=f"AF {ficha['year']}")
     db.add(proyecto)
     db.flush()
-    db.add(FichaEncargo(project_id=proyecto.id, datos=ficha, actualizada_por=user.email))
+    db.add(FichaEncargo(project_id=proyecto.id, datos=ficha, actualizada_por=user.email,
+                        encargado=user.email))
     db.commit()
     return {"id": proyecto.id, "nombre": proyecto.name, "cliente": cliente.name, "client_id": cliente.id,
             "periodo": proyecto.period_label, "marco": ficha["framework"], "corte": ficha["cutoff"], "pruebas": 0}

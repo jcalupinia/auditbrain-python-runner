@@ -85,7 +85,7 @@ def test_solo_proyectos_aud(client):
 
 def test_la_ficha_se_valida_con_la_regla_del_sitio(client):
     tok, pid = _staff_con_proyecto(client)
-    assert client.get(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok)).json() == {"ficha": None}
+    assert client.get(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok)).json()["ficha"] is None
     r = client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok), json={**FICHA, "ruc": "123"})
     assert r.status_code == 400 and "RUC de 13 dígitos" in r.json()["detail"]
     r = client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok), json=FICHA)

@@ -356,8 +356,21 @@ export function Revision({ prueba, onAccion, onRecargar, ocupado }) {
       )}
       {REABRIBLES.includes(prueba.estado) && <Reabrir onAccion={onAccion} ocupado={ocupado} />}
       {!temprana && reg.sourcesVerified && !prueba.definicion.processor && <Plantilla prueba={prueba} onAccion={onAccion} ocupado={ocupado} />}
-      {prueba.estado !== "APROBADO" && <FichaConAlcance prueba={prueba} onAccion={onAccion} ocupado={ocupado} />}
-      <EncerarEliminar prueba={prueba} onAccion={onAccion} ocupado={ocupado} />
+      {/* Las acciones que afectan a TODO el encargo (cambiar la ficha, encerar, eliminar)
+          son solo del encargado del encargo o de un admin; los asistentes colaboran pero no
+          pueden estas. El servidor también lo valida (403). `es_encargado` undefined => se
+          muestra (compat); el backend sigue protegiendo. */}
+      {prueba.es_encargado === false ? (
+        <p className="muted">
+          Reiniciar, eliminar o cambiar la ficha es solo del encargado del encargo
+          {prueba.encargado ? ` (${prueba.encargado})` : " (aún sin asignar; contacte a un administrador)"} o de un administrador.
+        </p>
+      ) : (
+        <>
+          {prueba.estado !== "APROBADO" && <FichaConAlcance prueba={prueba} onAccion={onAccion} ocupado={ocupado} />}
+          <EncerarEliminar prueba={prueba} onAccion={onAccion} ocupado={ocupado} />
+        </>
+      )}
     </>
   );
 }

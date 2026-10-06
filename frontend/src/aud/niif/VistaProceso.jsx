@@ -545,9 +545,11 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
           <button
             type="button"
             className="nf-ef-grande rojo"
-            disabled={bloqueado || !puedeEncerar(estado)}
+            disabled={bloqueado || !puedeEncerar(estado) || prueba.es_encargado === false}
             onClick={() => setEncerando((v) => !v)}
-            title={puedeEncerar(estado) ? undefined : "La versión aprobada es evidencia del encargo (NIA 230): no se encera."}
+            title={prueba.es_encargado === false
+              ? "Solo el encargado del encargo o un administrador puede encerar la prueba."
+              : (puedeEncerar(estado) ? undefined : "La versión aprobada es evidencia del encargo (NIA 230): no se encera.")}
           >
             <span className="nf-ef-grande-t">Encerar</span>
             <span className="nf-ef-grande-s">Limpia la información y resultados</span>
@@ -556,7 +558,14 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
         {!puedeEncerar(estado) && (
           <p className="nf-ef-aviso">Esta versión está aprobada (NIA 230): no se reinicia ni se elimina. Cree una nueva versión para corregirla.</p>
         )}
-        {encerando && puedeEncerar(estado) && (
+        {/* Encerar afecta a todo el encargo: solo el encargado o un admin (el servidor también lo valida). */}
+        {puedeEncerar(estado) && prueba.es_encargado === false && (
+          <p className="nf-ef-aviso">
+            Encerar es solo del encargado del encargo
+            {prueba.encargado ? ` (${prueba.encargado})` : ""} o de un administrador. Como asistente puedes trabajar y cargar, pero no reiniciar la prueba.
+          </p>
+        )}
+        {encerando && puedeEncerar(estado) && prueba.es_encargado !== false && (
           <div className="nf-ef-encerar">
             <p>Escriba el nombre del cliente tal como está en la ficha («{reg.engagement?.client}») para confirmar. Encerar borra evidencia, resultados e historial.</p>
             <div className="nf-ef-encerar-row">

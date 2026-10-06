@@ -925,8 +925,10 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         <button
           type="button"
           className="pc-chip"
-          disabled={prueba.estado === "APROBADO"}
-          title={prueba.estado === "APROBADO" ? "Versión aprobada: cree una nueva versión para cambiar los datos." : "Cambiar la ficha del encargo"}
+          disabled={prueba.estado === "APROBADO" || prueba.es_encargado === false}
+          title={prueba.es_encargado === false
+            ? "Solo el encargado del encargo o un administrador puede cambiar la ficha."
+            : (prueba.estado === "APROBADO" ? "Versión aprobada: cree una nueva versión para cambiar los datos." : "Cambiar la ficha del encargo")}
           onClick={() => abrir(`ficha-${prueba.id}`)}
         >
           ✎ Editar datos
@@ -998,7 +1000,9 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
         >
           Ejercicio modelo
         </button>
-        <button type="button" className="pc-chip danger" onClick={abrirEncerar}>Encerar</button>
+        <button type="button" className="pc-chip danger" disabled={prueba.es_encargado === false}
+          title={prueba.es_encargado === false ? "Solo el encargado del encargo o un administrador puede encerar." : undefined}
+          onClick={abrirEncerar}>Encerar</button>
       </div>
       {modeloAbierto && <EjercicioModelo prueba={prueba} onCerrar={() => setModeloAbierto(false)} />}
       {pendientesMapeo?.length > 0 && (
