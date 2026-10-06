@@ -314,3 +314,62 @@ def test_parametro_saldo_mayor_gana_sobre_el_libro_mayor():
     res = m.ejecutar(datasets, params, E["corte"])
     assert _t(res, "saldoMayor") == 41300.00
     assert res["detalle"]["mayorDelLibro"] is True  # el libro vino, pero el parámetro explícito prevalece
+
+
+# --- Comparación con el ejercicio anterior (RQ-012) ----------------------------------------------
+
+def test_comparacion_anio_anterior_detecta_inventario_sin_movimiento():
+    """El inventario del año anterior (RQ-012) se compara con el actual. El ítem que existe en ambos
+    años con la MISMA cantidad y el MISMO valor no rotó: «Sin movimiento». En el ejemplo B-011 (3.200)
+    y C-100 (1.800) no se movieron → inventario sin movimiento 5.000."""
+    res = _run()
+    d = res["detalle"]
+    assert d["hayAnterior"] is True
+    assert d["compTot"]["sinMovimiento"] == 5000.00
+    assert d["compTot"]["valAnt"] == 38200.00
+    assert d["compTot"]["valAct"] == 41000.00  # == vk_t del ejemplo
+    assert d["compTot"]["variacion"] == 2800.00
+    estados = {c["id"]: c["estado"] for c in d["comp"]}
+    assert estados["B-011"] == "Sin movimiento" and estados["C-100"] == "Sin movimiento"
+    assert estados["E-302"] == "Nueva"   # no estaba el año anterior
+    assert estados["X-999"] == "Baja"    # ya no está este año
+    assert estados["A-001"] == "Varía"
+    prob = {e["code"]: float(e["amount"]) for e in res["exceptions"]}
+    assert prob["INVENTARIO_SIN_MOVIMIENTO"] == 5000.00
+    assert "SIN_INVENTARIO_ANTERIOR" not in prob
+
+
+def test_sin_inventario_anterior_avisa_y_no_marca_sin_movimiento():
+    datasets = copy.deepcopy(E["datasets"])
+    datasets.pop("inventario_anterior", None)
+    res = m.ejecutar(datasets, E["parametros"], E["corte"])
+    assert res["detalle"]["hayAnterior"] is False
+    assert res["detalle"]["comp"] == []
+    codes = {e["code"] for e in res["exceptions"]}
+    assert "SIN_INVENTARIO_ANTERIOR" in codes
+    assert "INVENTARIO_SIN_MOVIMIENTO" not in codes
+
+
+def test_comparacion_importe_sin_movimiento_queda_como_formula():
+    """El importe del problema «inventario sin movimiento» remite por fórmula al TOTAL de la columna
+    «Valor sin movimiento» de la hoja 17 (nunca una cifra pegada)."""
+    from backend.app.aud.niif.procesadores import problemas
+    res = _run()
+    hojas = m.hojas(res)
+    h17 = next(h for h in hojas if h["name"] == "17_Comparacion")
+    assert [c[0] for c in h17["cols"]][:6] == ["Código", "Descripción", "Existencia año anterior",
+                                               "Valor año anterior", "Existencia año actual", "Valor año actual"]
+    salida, pend = problemas.enlazar(hojas, m.REF_PROBLEMAS)
+    hp = next(h for h in salida if h["name"] == "13_Problemas")
+    fila = next(r for r in hp["rows"] if r[0] == "INVENTARIO_SIN_MOVIMIENTO")
+    assert isinstance(fila[2], dict) and fila[2]["f"].startswith("'17_Comparacion'!J") and fila[2]["v"] == 5000.00
+    assert not [x for x in pend if x["codigo"] == "INVENTARIO_SIN_MOVIMIENTO"]
+
+
+def test_rq012_en_la_definicion_y_dataset_en_campos():
+    d = m.definicion()
+    ids = {r["id"]: r for r in d["requests"]}
+    assert "RQ-012" in ids
+    assert ids["RQ-012"]["dataset"] == "inventario_anterior" and ids["RQ-012"]["required"] is False
+    assert "inventario_anterior" in m.CAMPOS and "inventario_anterior" in m.TIPOS
+    assert ["17_Comparacion", "Comparación con el ejercicio anterior"] in [list(c) for c in d["cedulas"]]

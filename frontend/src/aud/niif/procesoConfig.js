@@ -205,6 +205,7 @@ const INVENTARIOS = {
     { id: "RQ-003", titulo: "Movimiento por Línea Vendida", icono: "list", color: "blue", tipos: ".xlsx / .csv" },
     { id: "RQ-004", titulo: "Documentos de Corte", icono: "calendar", color: "teal", tipos: ".xlsx / .csv" },
     { id: "RQ-011", titulo: "Libro Mayor de Inventario", icono: "book", color: "gold", tipos: ".xlsx / .csv" },
+    { id: "RQ-012", titulo: "Inventario del Año Anterior", icono: "clock", color: "blue", tipos: ".xlsx / .csv" },
     { id: "RQ-005", titulo: "Actas de Recuento Físico", icono: "doc", color: "purple", tipos: ".pdf / .docx" },
     { id: "RQ-006", titulo: "Ventas y Precios Posteriores", icono: "bank", color: "teal", tipos: ".xlsx / .pdf" },
     { id: "RQ-008", titulo: "Política de Obsolescencia", icono: "shield", color: "red", tipos: ".pdf / .docx" },
@@ -230,6 +231,8 @@ const INVENTARIOS = {
       subtitulo: "Materias primas cuyo producto se vende con utilidad.", icono: "shield", color: "purple", relacionados: ["RQ-006"], seccion: "sec-11_Excepcion_MP" },
     { clave: "corte", titulo: "Corte de Inventarios",
       subtitulo: "Prueba de corte de compras y ventas.", icono: "calendar", color: "blue", relacionados: ["RQ-004"], seccion: "sec-12_Corte" },
+    { clave: "comparacion", titulo: "Comparación Año a Año",
+      subtitulo: "Inventario sin movimiento (no rotó) vs. año anterior.", icono: "refresh", color: "teal", relacionados: ["RQ-012", "RQ-001"], seccion: "sec-17_Comparacion" },
   ],
 };
 
