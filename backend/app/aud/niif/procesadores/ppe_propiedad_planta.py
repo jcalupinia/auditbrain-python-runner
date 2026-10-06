@@ -1797,21 +1797,54 @@ def hojas(res: dict) -> list[dict]:
         "N° asientos": "Cantidad de movimientos (asientos) registrados en la cuenta durante el período.",
     }
 
-    # 25 · conciliación de saldos: auxiliar (anexo) vs balance (sumaria).
+    # 25 · conciliación de saldos por CUENTA (como el papel de trabajo): bloque de Costos y bloque de
+    # Depreciación acumulada; por cada cuenta del balance se contrasta el saldo en libros con el saldo según
+    # auditoría (anexo agrupado por clase) y se calcula la diferencia. El total de cada bloque conserva el
+    # nombre «Costo» / «Depreciación acumulada» para que el hallazgo SUMARIA_NO_CONCILIA enlace a su celda.
+    import unicodedata as _udc
+    _nrm = lambda s: "".join(c for c in _udc.normalize("NFD", str(s or "").strip().lower()) if _udc.category(c) != "Mn")
+    _tolc = _p(p, "tolerancia") or 0.0
+    costo_cls, dep_cls = {}, {}
+    for a in A:
+        if a["estado"] == "Baja":
+            continue
+        k = _nrm(a["clase"])
+        costo_cls[k] = costo_cls.get(k, 0.0) + a["costo"]
+        dep_cls[k] = dep_cls.get(k, 0.0) + ((a["dai"] or 0) + (a["dreg"] or 0))
+    VARC = d.get("variaciones") or []
     co = d.get("conciliacion") or {}
     concil_rows = []
-    def _concil_fila(concepto, aux, bal, dif):
+    def _obs(dif):
+        return "Cruzado sin diferencia" if dif is None or abs(dif) <= _tolc else "Revisar: diferencia con el anexo"
+    def _bloque(tipo, titulo, aud_por_clase, aux_tot, dif_tot, signo):
+        cuentas = [v for v in VARC if v["tipo"] == tipo]
+        if not cuentas and aux_tot is None:
+            return
+        for v in cuentas:
+            r = FILA0 + len(concil_rows)
+            bal = v["act"]
+            aud = signo * aud_por_clase.get(_nrm(v["desc"]), 0.0)
+            concil_rows.append([v["cuenta"], v["desc"], fx("", bal), fx("", aud),
+                                fx(f'IF(OR(C{r}="",D{r}=""),"",C{r}-D{r})', bal - aud), _obs(bal - aud)])
+        # Total del bloque (su primera celda es el concepto para que el hallazgo enlace aquí).
         r = FILA0 + len(concil_rows)
-        concil_rows.append([concepto, fx("", aux), fx("", bal), fx(f'IF(OR(B{r}="",C{r}=""),"",B{r}-C{r})', dif)])
-    if co.get("costo_bal") is not None:
-        _concil_fila("Costo", co["costo_aux"], co["costo_bal"], co["dif_costo"])
-    if co.get("dep_bal") is not None:
-        _concil_fila("Depreciación acumulada", co["dep_aux"], co["dep_bal"], co["dif_dep"])
+        bal_tot = sum(v["act"] for v in cuentas) if cuentas else (None if aux_tot is None else signo * aux_tot)
+        aud_tot = signo * (aux_tot or 0.0) if aux_tot is not None else None
+        dif = None if (bal_tot is None or aud_tot is None) else bal_tot - aud_tot
+        concil_rows.append([titulo, "TOTALES", fx("", bal_tot), fx("", aud_tot),
+                            fx(f'IF(OR(C{r}="",D{r}=""),"",C{r}-D{r})', dif), _obs(dif)])
+    # Costo: balance y auditoría positivos. Depreciación acumulada: saldo acreedor (negativo), como en el balance.
+    if co.get("costo_bal") is not None or any(v["tipo"] == "Costo" for v in VARC):
+        _bloque("Costo", "Costo", costo_cls, co.get("costo_aux"), co.get("dif_costo"), 1)
+    if co.get("dep_bal") is not None or any(v["tipo"] == "Depreciación" for v in VARC):
+        _bloque("Depreciación acumulada", "Depreciación acumulada", dep_cls, co.get("dep_aux"), co.get("dif_dep"), -1)
     ex_concil = {
-        "Concepto": "Saldo conciliado: costo o depreciación acumulada.",
-        "Auxiliar": "Saldo al corte según el anexo de activos fijos.",
-        "Balance": "Saldo al corte según la sumaria del balance (variaciones).",
-        "Diferencia": "Auxiliar menos balance; fuera de tolerancia se reporta como hallazgo.",
+        "Código": "Cuenta contable del balance (o el total del bloque: Costo / Depreciación acumulada).",
+        "Cuenta": "Nombre de la cuenta contable.",
+        "Balance (libros)": "Saldo al corte según el balance del cliente (sumaria / variaciones).",
+        "Según auditoría": "Saldo al corte según el anexo de activos fijos, agrupado por la clase que corresponde a la cuenta.",
+        "Diferencia": "Balance en libros menos el saldo según auditoría; fuera de tolerancia se revisa y se reporta.",
+        "Observación": "Resultado del cruce de la cuenta.",
     }
 
     # 26 · vaucheo de facturas (extraídas por IA de los PDF) contra las adiciones y las bajas.
@@ -1962,8 +1995,9 @@ def hojas(res: dict) -> list[dict]:
         hoja("24_Movimiento_mayor", "Movimiento del período (libro mayor)",
              [["Cuenta", "t"], ["Descripción", "t"], ["Débitos", "n"], ["Créditos", "n"], ["Movimiento neto", "n"], ["N° asientos", "i"]],
              movim, total_mov, explica=ex_mov),
-        hoja("25_Conciliacion", "Conciliación de saldos (auxiliar vs balance)",
-             [["Concepto", "t"], ["Auxiliar", "n"], ["Balance", "n"], ["Diferencia", "n"]],
+        hoja("25_Conciliacion", "Conciliación de saldos (libros vs auditoría)",
+             [["Código", "t"], ["Cuenta", "t"], ["Balance (libros)", "n"], ["Según auditoría", "n"],
+              ["Diferencia", "n"], ["Observación", "t"]],
              concil_rows, explica=ex_concil),
         hoja("26_Vaucheo", "Vaucheo de facturas (adiciones y bajas)",
              [["Tipo", "t"], ["Código del activo", "t"], ["Proveedor / Cliente", "t"], ["RUC", "t"], ["Fecha", "d"],
@@ -1990,12 +2024,12 @@ def hojas(res: dict) -> list[dict]:
     # el auditor (sumaria desde variaciones → conciliación → recálculo de depreciación → cédulas de análisis que
     # apliquen → movimiento del mayor → vaucheo → hallazgos); luego el soporte y el diagnóstico (que viajan OCULTOS
     # cuando la prueba declara `hojas_visibles`, pero se conservan porque el recálculo y el tablero los referencian).
-    _ORDEN = ["23_Sumaria", "25_Conciliacion", "21_Comparativo",
+    _ORDEN = ["02_Parametros", "23_Sumaria", "25_Conciliacion", "21_Comparativo",
               "06_Componentes", "07_Bajas", "08_Revaluacion", "09_Deterioro", "10_Adiciones",
               "11_Prestamos", "12_Capitalizacion", "13_Desmantelamiento",
               "24_Movimiento_mayor", "26_Vaucheo", "16_Problemas",
               "01_Resumen", "05_Vidas_residual", "20_Fiscal", "22_Guia_NIIF_SRI", "14_Roll_forward",
-              "03_Auxiliar", "04_Depreciacion", "02_Parametros", "15_Ajustes",
+              "03_Auxiliar", "04_Depreciacion", "15_Ajustes",
               "17_Conclusion", "18_Lectura", "19_Resumen_estado", "27_Resumen_hallazgos"]
     _idx = {n: i for i, n in enumerate(_ORDEN)}
     visibles = [h for h in _todas if _mostrar.get(h["name"], True)]
@@ -2019,7 +2053,7 @@ def definicion() -> dict:
         # recálculo y el tablero las referencian por fórmula (ocultar evita romper con #REF!). «Procedimiento» es
         # 00_Programa. Las cédulas de análisis (bajas, revaluación, deterioro, adiciones, préstamos,
         # capitalización) solo existen —y por tanto solo se ven— cuando el cliente tiene ese hecho económico.
-        "hojas_visibles": ["00_Programa", "23_Sumaria", "25_Conciliacion", "21_Comparativo",
+        "hojas_visibles": ["00_Programa", "02_Parametros", "23_Sumaria", "25_Conciliacion", "21_Comparativo",
                            "06_Componentes", "07_Bajas", "08_Revaluacion", "09_Deterioro", "10_Adiciones",
                            "11_Prestamos", "12_Capitalizacion", "24_Movimiento_mayor", "26_Vaucheo", "16_Problemas"],
         "frameworks": [MARCO_COMPLETAS, MARCO_PYMES],
