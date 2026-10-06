@@ -667,6 +667,11 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
                 filas = info.get("rows") or []
                 if ds not in por_ds or not filas:
                     continue
+                # No duplicar: si ese MISMO archivo ya entró por el mapeo tabular (un xlsx del
+                # anexo que el auditor además extrajo con IA), sus filas ya están en filas_ds.
+                # Manda el mapeo (lectura estructurada por columnas); se ignora su extracción.
+                if str(fid).isdigit() and int(fid) in ya:
+                    continue
                 base = len(filas_ds.setdefault(ds, []))
                 nuevas = [{**f, "_row": base + j + 1} for j, f in enumerate(filas)]
                 filas_ds[ds] += nuevas

@@ -191,3 +191,49 @@ def test_estado_de_cuenta_pdf_se_extrae_confirma_y_alimenta_el_dataset(client, m
         "cuentas": [{"fileId": arch["RQ-001"], "sheet": "Datos", "header": 1, "mapping": mapa}]}}).json()
     ec = p["registro"]["datasets"]["estado_cuenta"]
     assert len(ec) == 2 and "MARCA_IA_EC" in json.dumps(ec, ensure_ascii=False)
+
+
+def test_anexo_mapeado_y_extraido_con_ia_no_se_duplica(client, monkeypatch):
+    """El anexo de cuentas (xlsx) se carga por el mapeo tabular; si además el auditor
+    lo «Extrae con IA» (ahora posible porque `cuentas` es extraíble), al Procesar NO
+    debe contarse dos veces. Manda el mapeo; su extracción se ignora. (Bug del dueño,
+    2026-10-06: la Sumaria salía con las cuentas y el total DUPLICADOS.)"""
+    n = len(m.EJEMPLO["datasets"]["cuentas"])
+    # La IA (falsa) devuelve las MISMAS cuentas del anexo.
+    cuentas_ia = [{k: f.get(k, "") for k in (c["key"] for c in m.CAMPOS["cuentas"])}
+                  for f in m.EJEMPLO["datasets"]["cuentas"]]
+    monkeypatch.setattr(extraccion_ia, "texto_de_documento", lambda nombre, datos: "Texto del anexo de cuentas.")
+    monkeypatch.setattr(extraccion_ia, "_chat_por_defecto", lambda: _chat_con(cuentas_ia))
+
+    tok, pid = _staff_con_proyecto(client)
+    ficha = {**FICHA, "visit": "Preliminar"}
+    assert client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok), json=ficha).status_code == 200
+    p = client.post(f"{BASE}/proyectos/{pid}/pruebas", headers=_h(tok),
+                    json={"origen": "proc:efectivo_equivalentes"}).json()
+    p = _accion(client, tok, p, "research").json()
+    p = _accion(client, tok, p, "generate_program").json()
+    prog = p["registro"]["program"]
+    fuentes = p["registro"]["sources"]
+    for s in fuentes:
+        s.update(verified=True, section="párr. aplicable", date="vigente", procedures=[x["code"] for x in prog])
+    p = _accion(client, tok, p, "approve_program", {"program": prog, "sources": fuentes}).json()
+    p = _accion(client, tok, p, "generate_request").json()
+    p = _accion(client, tok, p, "approve_request", {"requests": p["registro"]["requests"]}).json()
+
+    p = _leer(client, tok, p)
+    assert _subir(client, tok, p, "RQ-001", "Anexo.xlsx", _modelo_cuentas(client, tok, p)).status_code == 201
+    p = _leer(client, tok, p)
+    rq1 = next(a["id"] for a in p["archivos"] if a["requerimiento"] == "RQ-001")
+
+    # El auditor ADEMÁS extrae el anexo con IA (el xlsx es extraíble por ser `cuentas`).
+    r = _accion(client, tok, p, "extraer_ia", {"fileId": rq1})
+    assert r.status_code == 200, r.text
+    p = r.json()
+    assert p["registro"]["extraccion"][str(rq1)]["dataset"] == "cuentas"
+
+    # Al Procesar, el MISMO archivo entra por el mapeo tabular: su extracción NO se suma.
+    mapa = {c["key"]: i for i, c in enumerate(m.CAMPOS["cuentas"])}
+    p = _accion(client, tok, p, "map_validate", {"datasets": {
+        "cuentas": [{"fileId": rq1, "sheet": "Datos", "header": 1, "mapping": mapa}]}}).json()
+    cuentas = p["registro"]["datasets"]["cuentas"]
+    assert len(cuentas) == n, f"se duplicaron las cuentas: {len(cuentas)} != {n}"
