@@ -229,6 +229,19 @@ def init_db() -> None:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE niif_fichas ADD COLUMN definicion JSON"))
 
+    # Migración aditiva en ``aud_ficha_encargo``: ``encargado`` (dueño del encargo).
+    # Solo el encargado o un admin pueden reiniciar/eliminar la prueba o cambiar la
+    # ficha; los asistentes colaboran sin esas acciones destructivas. Backfill: el
+    # encargado inicial de los encargos ya existentes es quien creó/actualizó su ficha
+    # (``actualizada_por``); si no hay dato, queda NULL => solo-admin hasta asignarlo.
+    if "aud_ficha_encargo" in inspector.get_table_names():
+        if "encargado" not in {c["name"] for c in inspector.get_columns("aud_ficha_encargo")}:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE aud_ficha_encargo ADD COLUMN encargado VARCHAR(320)"))
+                conn.execute(text(
+                    "UPDATE aud_ficha_encargo SET encargado = actualizada_por WHERE encargado IS NULL"
+                ))
+
     if "tool_jobs" in inspector.get_table_names():
         existing_cols = {c["name"] for c in inspector.get_columns("tool_jobs")}
         for col_def in [

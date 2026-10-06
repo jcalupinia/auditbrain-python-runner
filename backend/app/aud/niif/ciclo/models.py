@@ -34,6 +34,11 @@ class FichaEncargo(Base):
     )
     datos: Mapped[dict] = mapped_column(JSON, nullable=False)
     actualizada_por: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    # Encargado (dueño) del encargo: el correo de quien lo creó. Solo él —o un
+    # admin— puede reiniciar/eliminar la prueba o cambiar la ficha del encargo
+    # (los asistentes colaboran pero no pueden esas acciones destructivas que
+    # afectan a todo el equipo). Se fija al CREAR la ficha y no cambia al actualizarla.
+    encargado: Mapped[str | None] = mapped_column(String(320), nullable=True)
     actualizada_en: Mapped[datetime.datetime] = mapped_column(
         DateTime, default=_ahora, onupdate=_ahora, nullable=False
     )

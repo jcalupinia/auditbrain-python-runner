@@ -92,12 +92,24 @@ def _regla(fn):
 @router.get("/proyectos/{project_id}/ficha")
 def leer_ficha(project_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
     _proyecto(db, user, project_id)
-    return {"ficha": servicio.leer_ficha(db, project_id)}
+    return {"ficha": servicio.leer_ficha(db, project_id),
+            "encargado": servicio.encargado_de(db, project_id),
+            "es_encargado": servicio.es_encargado(db, project_id, user)}
 
 
 @router.put("/proyectos/{project_id}/ficha")
 def guardar_ficha(project_id: int, body: dict, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
     _proyecto(db, user, project_id)
+    # Crear la primera ficha es libre (quien la crea queda como encargado). MODIFICAR
+    # una ficha ya existente cambia RUC/corte/marco para todo el equipo: solo encargado o admin.
+    if servicio.leer_ficha(db, project_id) is not None and not servicio.es_encargado(db, project_id, user):
+        due = servicio.encargado_de(db, project_id)
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail=("Solo el encargado del encargo"
+                    + (f" ({due})" if due else " (aún sin asignar; contacte a un administrador)")
+                    + " o un administrador puede modificar la ficha del encargo."),
+        )
     return {"ficha": _regla(lambda: servicio.guardar_ficha(db, project_id, body, user.email))}
 
 
@@ -159,6 +171,10 @@ def leer(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(req
         salida["registro"] = {**_reg, "requests": reqs}
     return {
         **salida,
+        # Para que el frontend oculte/deshabilite los botones que afectan a todo el
+        # encargo (reiniciar/eliminar/editar contexto) a quien no sea el encargado.
+        "encargado": servicio.encargado_de(db, p.project_id),
+        "es_encargado": servicio.es_encargado(db, p.project_id, user),
         "archivos": [
             {"id": a.id, "requerimiento": a.requerimiento, "componente": a.componente, "nombre": a.nombre,
              "tamano": a.tamano, "sha256": a.sha256, "estado": a.estado, "subido_por": a.subido_por,
@@ -187,6 +203,15 @@ def leer(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(req
 @router.post("/pruebas/{prueba_id}/acciones")
 def accion(prueba_id: int, body: AccionIn, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
     p = _prueba(db, user, prueba_id)
+    # Acciones que afectan a TODO el encargo (reinician/eliminan la prueba o reescriben
+    # la ficha y resetean las pruebas abiertas): solo el encargado del encargo o un admin.
+    # Los asistentes colaboran en el resto del circuito, pero no pueden estas.
+    if body.accion in ("erase", "delete", "edit_context") and not servicio.es_encargado(db, p.project_id, user):
+        due = servicio.encargado_de(db, p.project_id)
+        detalle = ("Solo el encargado del encargo"
+                   + (f" ({due})" if due else " (aún sin asignar; contacte a un administrador)")
+                   + " o un administrador puede reiniciar, eliminar o cambiar la ficha de esta prueba.")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=detalle)
     # Acciones que no son un paso del circuito (route.ts las atiende antes).
     especiales = {
         "new_version": lambda: _salida(servicio.nueva_version(db, p, body.revision, user.email, body.datos.get("motivo"))),
