@@ -1085,6 +1085,7 @@ REF_PROBLEMAS = {
     "DEPRECIACION_DIFERENTE": _codigo("04_Depreciacion", "Diferencia"),                 # depreciación recalculada − registrada
     "DEPRECIACION_EN_CONSTRUCCION": _codigo("04_Depreciacion", "Depreciación registrada"),  # depreciación registrada de la obra
     "TOTALMENTE_DEPRECIADO_EN_USO": _codigo("05_Vidas_residual", "Costo"),             # costo del activo depreciado en uso
+    "VEHICULO_TOPE_FISCAL": _codigo("20_Fiscal", "Exceso vehículo no deducible"),      # depreciación sobre el exceso del tope (SRI)
     "RESIDUAL_EXCEDE_COSTO": _residual_excede,                                         # valor residual − costo
     "BAJA_MAL_CALCULADA": _codigo("07_Bajas", "Diferencia"),                           # resultado recalculado − registrado
     "BAJA_SIN_RESULTADO": _codigo("07_Bajas", "Resultado recalculado"),                # resultado de baja no registrado
