@@ -86,6 +86,19 @@ def test_fechas_del_banco_sin_anio_se_normalizan_con_el_corte():
     assert v["ok"], v["errors"]  # ya no hay «fecha inválida»
 
 
+def test_estado_de_cuenta_sin_codigo_de_cuenta_no_bloquea():
+    """El estado de cuenta del banco trae el número de cuenta solo en el encabezado,
+    no en cada movimiento (y el auditor NO puede modificar ese archivo). Los
+    movimientos sin «código de cuenta» NO deben bloquear la validación."""
+    assert next(c for c in m.CAMPOS["estado_cuenta"] if c["key"] == "cuenta")["required"] is False
+    filas = [
+        {"cuenta": "", "fecha": "2025-08-31", "documento": "31442836", "debito": 18537.43, "credito": ""},
+        {"cuenta": "", "fecha": "2025-08-31", "documento": "31442461", "debito": 6935.99, "credito": ""},
+    ]
+    v = m.validar_filas("estado_cuenta", filas)
+    assert v["ok"], v["errors"]  # ya no sale «Falta Código de cuenta»
+
+
 def test_normalizador_de_fecha_del_documento():
     assert ex._fecha_doc_a_iso("07/AGO", 2025) == "2025-08-07"
     assert ex._fecha_doc_a_iso("7 de agosto de 2024", 2025) == "2024-08-07"
