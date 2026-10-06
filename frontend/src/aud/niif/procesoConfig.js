@@ -235,6 +235,10 @@ const INVENTARIOS = {
       subtitulo: "Inventario sin movimiento (no rotó) vs. año anterior.", icono: "refresh", color: "teal", relacionados: ["RQ-012", "RQ-001"], seccion: "sec-17_Comparacion" },
     { clave: "sumaria", titulo: "Sumaria del Inventario",
       subtitulo: "Resumen por bodega y por tipo de inventario.", icono: "table", color: "gold", relacionados: ["RQ-001"], seccion: "sec-18_Sumaria" },
+    { clave: "movimiento_mayor", titulo: "Movimiento del Libro Mayor",
+      subtitulo: "Debe, Haber y saldo por cuenta del mayor.", icono: "book", color: "blue", relacionados: ["RQ-011"], seccion: "sec-19_Movimiento" },
+    { clave: "integridad", titulo: "Pruebas de Integridad",
+      subtitulo: "Lo del cliente frente al recálculo del auditor.", icono: "search", color: "purple", relacionados: ["RQ-001", "RQ-011"], seccion: "sec-20_Integridad" },
   ],
 };
 

@@ -358,13 +358,24 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     # Libro Mayor (opcional): un asiento por fila. El saldo contable por cuenta se deriva como
     # Σ Debe − Σ Haber (incluye el saldo inicial si viene como fila). Si se cargó el mayor y el
     # auditor NO fijó el parámetro, el total del mayor alimenta la conciliación kardex–mayor.
-    mayor_cuentas = []
+    # Se agrupa por cuenta (puede venir más de un asiento por fila): Σ Debe y Σ Haber por cuenta,
+    # y el saldo contable (movimiento neto) = Σ Debe − Σ Haber. Alimenta la hoja Movimiento y la conciliación.
+    mayor_idx, mayor_cuentas = {}, []
     for f in datasets.get("mayor") or []:
         cta = _txt(f.get("cuenta"))
         d, h = _opt(f.get("debe")) or 0.0, _opt(f.get("haber")) or 0.0
         if not cta and d == 0.0 and h == 0.0:
             continue
-        mayor_cuentas.append({"cuenta": cta or "(sin cuenta)", "nombre": _txt(f.get("nombre")), "neto": d - h})
+        clave = cta or "(sin cuenta)"
+        if clave not in mayor_idx:
+            mayor_idx[clave] = {"cuenta": clave, "nombre": _txt(f.get("nombre")), "debe": 0.0, "haber": 0.0}
+            mayor_cuentas.append(mayor_idx[clave])
+        mayor_idx[clave]["debe"] += d
+        mayor_idx[clave]["haber"] += h
+        if not mayor_idx[clave]["nombre"]:
+            mayor_idx[clave]["nombre"] = _txt(f.get("nombre"))
+    for c in mayor_cuentas:
+        c["neto"] = round(c["debe"] - c["haber"], 2)
     mayor_total = round(sum(c["neto"] for c in mayor_cuentas), 2) if mayor_cuentas else None
     mayor_del_libro = bool(mayor_cuentas)
     if mayor_del_libro and p["saldoMayor"] is None:
@@ -589,6 +600,8 @@ CEDULAS = [
     ("16_Resumen_obsol", "Inventario y provisión por tramo"),
     ("17_Comparacion", "Comparación con el ejercicio anterior"),
     ("18_Sumaria", "Sumaria del inventario (por bodega y por tipo)"),
+    ("19_Movimiento", "Movimiento del Libro Mayor por cuenta"),
+    ("20_Integridad", "Pruebas de integridad (cliente vs. recálculo)"),
 ]
 PARK = ["corte", "marco", "obsDias1", "obsPct1", "obsDias2", "obsPct2", "obsDias3", "obsPct3", "saldoMayor", "provisionRegistrada"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -763,7 +776,8 @@ def hojas(res: dict) -> list[dict]:
     p, t, c = d["parametros"], d["tot"], d["conc"]
     its, prod, mov, cor = d["items"], d["prod"], d["mov"], d["cortes"]
     comp, comp_tot = d.get("comp") or [], d.get("compTot") or {"valAnt": 0.0, "valAct": 0.0, "variacion": 0.0, "sinMovimiento": 0.0}
-    ni, npd, nm, nc, ncomp = len(its), len(prod), len(mov), len(cor), len(comp)
+    mcs = d.get("mayorCuentas") or []
+    ni, npd, nm, nc, ncomp, nmc = len(its), len(prod), len(mov), len(cor), len(comp), len(mcs)
     pymes = d["pymes"]
     norma = (f"NIIF para las PYMES {d['edicion']} · secciones 13 y 27" if pymes else "NIIF completas · NIC 2")
 
@@ -1191,6 +1205,43 @@ def hojas(res: dict) -> list[dict]:
         "Inventario neto": "Inventario al costo auditado menos la provisión estimada del grupo.",
     }
 
+    # 19 · Movimiento del Libro Mayor por cuenta (RQ-011). Debe y Haber son datos del cliente (valores);
+    # el movimiento neto (saldo contable = Σ Debe − Σ Haber) es fórmula y su total alimenta la conciliación.
+    movimiento_cuentas = []
+    for cc in mcs:
+        r = FILA0 + len(movimiento_cuentas)
+        movimiento_cuentas.append([cc["cuenta"], cc["nombre"], cc["debe"], cc["haber"], fx(f"C{r}-D{r}", cc["neto"])])
+    mov_total = (["TOTAL", "", _tot("C", nmc, S(x["debe"] for x in mcs)), _tot("D", nmc, S(x["haber"] for x in mcs)),
+                 _tot("E", nmc, d.get("mayorTotal") or 0.0)] if nmc else None)
+    ex_movimiento = {"Movimiento neto": "Debe menos Haber de la cuenta: es el saldo contable del período que suma a la "
+                                        "conciliación kardex–mayor (hoja 06)."}
+
+    # 20 · Pruebas de integridad: lo que presenta el cliente frente al recálculo del auditor, con la
+    # diferencia y el semáforo. Cada cifra remite por fórmula a la hoja donde se calcula (03, 04, 05, 02).
+    vk_sum = f"SUM({_rg(INV, 'G', ni)})"
+    recalc_sum = S(i["recalc"] for i in its)
+    integridad = []
+
+    def _int_fila(prueba, cli_f, cli_v, aud_f, aud_v):
+        r = FILA0 + len(integridad)
+        dif = round(aud_v - cli_v, 2)
+        integridad.append([prueba, fx(cli_f, cli_v), fx(aud_f, aud_v), fx(f"C{r}-B{r}", dif),
+                           fx(f'IF(ABS(D{r})>0.005,"Revisar","Conforme")', "Revisar" if abs(dif) > 0.005 else "Conforme")])
+
+    _int_fila("Existencia: conteo físico vs kardex", vk_sum, c["vk"],
+              f"{vk_sum}+SUM({_rg(CON, 'H', ni)})", c["vk"] + t["difFisicas"])
+    _int_fila("Extensión: cantidad × costo unitario", vk_sum, c["vk"], f"SUM({_rg(COS, 'E', ni)})", recalc_sum)
+    _int_fila("Valuación: costo auditado (soporte y conteo)", vk_sum, c["vk"], f"SUM({_rg(INV, 'O', ni)})", t["costoAuditado"])
+    _int_fila("Conciliación: kardex vs saldo del mayor", vk_sum, c["vk"], mayor_f, c["mayor"])
+    ex_integridad = {
+        "Valor del cliente": "Valor del inventario según el kardex del cliente (suma de la hoja 03, Inventario valorado por ítem).",
+        "Recálculo de auditoría": "Recálculo del auditor para cada prueba: existencia = kardex más las diferencias físicas "
+                                  "de la hoja 04; extensión = cantidad × costo unitario de la hoja 05; valuación = costo "
+                                  "auditado de la hoja 03; conciliación = saldo del mayor (hoja 02, o el kardex si está vacío).",
+        "Diferencia": "Recálculo de auditoría menos el valor del cliente.",
+        "Estado": "«Revisar» si la diferencia no es cero; «Conforme» si cuadra.",
+    }
+
     n_ = "n"
     return [
         hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen, explica=ex_resumen),
@@ -1270,6 +1321,12 @@ def hojas(res: dict) -> list[dict]:
              [["Grupo", "t"], ["N.º de ítems", "i"], ["Inventario al costo auditado", n_], ["Provisión estimada", n_],
               ["Inventario neto", n_]],
              sumaria, explica=ex_sumaria, estilos=estilos_sum),
+        hoja("19_Movimiento", CEDULAS[18][1],
+             [["Código", "t"], ["Nombre de la cuenta", "t"], ["Debe", n_], ["Haber", n_], ["Movimiento neto", n_]],
+             movimiento_cuentas, mov_total, explica=ex_movimiento),
+        hoja("20_Integridad", CEDULAS[19][1],
+             [["Prueba", "t"], ["Valor del cliente", n_], ["Recálculo de auditoría", n_], ["Diferencia", n_], ["Estado", "t"]],
+             integridad, explica=ex_integridad, colores=["Estado"]),
     ]
 
 
