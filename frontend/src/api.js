@@ -506,10 +506,12 @@ export async function cicloBajarModelo(pruebaId, requerimiento) {
   return new Uint8Array(await res.arrayBuffer());
 }
 // Excel del papel en curso de una prueba con procesador: lo arma el servidor.
-export async function cicloBajarLibro(pruebaId, formato = "xlsx", seccion = null) {
+export async function cicloBajarLibro(pruebaId, formato = "xlsx", seccion = null, adjuntos = true) {
   // `seccion` (solo HTML de planificación): devuelve un HTML autónomo con SOLO esa
   // sección (Materialidad, Riesgos, …) en vez del papel completo.
-  const q = seccion ? `&seccion=${encodeURIComponent(seccion)}` : "";
+  // `adjuntos=false` (solo HTML, al ABRIR el tablero para verlo): HTML liviano sin los
+  // Office incrustados → carga rápido; se descargan al momento desde la app.
+  const q = (seccion ? `&seccion=${encodeURIComponent(seccion)}` : "") + (adjuntos ? "" : "&adjuntos=0");
   const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/libro?formato=${formato}${q}`, { headers: authHeaders() });
   if (!res.ok) await parse(res);
   return new Uint8Array(await res.arrayBuffer());

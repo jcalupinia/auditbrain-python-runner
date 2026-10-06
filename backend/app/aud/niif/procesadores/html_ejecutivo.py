@@ -426,6 +426,17 @@ function imprime(una){if(una){b.classList.add('imprime-una');document.querySelec
   window.print();}
 window.addEventListener('afterprint',function(){b.classList.remove('imprime-una');});
 document.querySelectorAll('[data-pdf]').forEach(function(x){x.addEventListener('click',function(){var s=x.getAttribute('data-pdf');imprime(s==='todo'?null:s);});});
+// Descargas diferidas: el tablero se abrió liviano (sin incrustar Excel/Word/PowerPoint para
+// que cargue rápido). Cada formato se arma SOLO al pedirlo: se le pide a la app que lo abrió
+// (misma pestaña origen) y ella lo descarga del servidor. Si no hay app opener, se avisa.
+document.querySelectorAll('[data-remota]').forEach(function(x){x.addEventListener('click',function(){
+  var f=x.getAttribute('data-remota');
+  if(window.opener&&!window.opener.closed){
+    window.opener.postMessage({tipo:'auditia-descargar-papel',formato:f},'*');
+    var t=x.textContent;x.textContent='Generando… (mirá la pestaña de AUDIT-IA)';
+    setTimeout(function(){x.textContent=t;},5000);
+  }else{alert('Volvé a la pestaña de AUDIT-IA y usá los botones de descarga de la vista de trabajo.');}
+});});
 // Modo «una sola sección» (abierto desde una tarjeta): muestra esa sección; «Volver» revela la navegación.
 var _solo=b.getAttribute('data-solo');if(_solo)muestra(_solo);
 var _vt=document.getElementById('volver-todo');if(_vt)_vt.addEventListener('click',function(){b.classList.remove('solo-seccion');b.removeAttribute('data-solo');});
@@ -511,7 +522,8 @@ def _calculadora_js(calc: dict) -> str:
 
 def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str, hojas: list[dict],
            adjuntos: list[tuple[str, str, str, bytes]], celda, como_se_calcula, para_pdf: bool = False,
-           calculadora: dict | None = None, seccion: str | None = None) -> str:
+           calculadora: dict | None = None, seccion: str | None = None,
+           descargas_remotas: list[tuple[str, str]] | None = None) -> str:
     e = reg.get("engagement") or {}
     run = reg.get("run") or {}
     mod = graficos.modulo(definicion)
@@ -583,9 +595,19 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
 
     opciones = lambda d, sel: "".join(f'<option value="{k}"{" selected" if k == sel else ""}>{E(v if isinstance(v, str) else v[0])}</option>' for k, v in d.items())  # noqa: E731
     base = re.sub(r"[^\w-]+", "_", nombre or "papel")[:60] + f"_v{version}"
-    descargas = "".join(
-        f'<a class="btn" download="{base}.{ext}" href="data:{mime};base64,{base64.b64encode(datos).decode()}">⬇ {E(etq)}</a>'
-        for ext, etq, mime, datos in adjuntos)
+    if adjuntos:
+        # Artefacto autónomo (offline): cada formato va incrustado como enlace data: base64.
+        descargas = "".join(
+            f'<a class="btn" download="{base}.{ext}" href="data:{mime};base64,{base64.b64encode(datos).decode()}">⬇ {E(etq)}</a>'
+            for ext, etq, mime, datos in adjuntos)
+    elif descargas_remotas:
+        # Tablero liviano (apertura rápida): los Office NO se incrustan; cada botón le pide a la
+        # app que los genere y descargue al momento (ver el handler data-remota en _JS).
+        descargas = "".join(
+            f'<button class="btn" type="button" data-remota="{E(ext)}">⬇ {E(etq)}</button>'
+            for ext, etq in descargas_remotas)
+    else:
+        descargas = ""
     topbar = (
         f'<header class="topbar"><div class="logos"><span class="logo-firma">{_img("auditconsulting_blanco")}</span>'
         f'{_img("audit_ia", "logo-ia")}</div>'

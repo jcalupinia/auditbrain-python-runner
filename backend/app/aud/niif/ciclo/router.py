@@ -453,6 +453,7 @@ def descargar_reproceso_excel(prueba_id: int, db: Session = Depends(get_db),
 
 @router.get("/pruebas/{prueba_id}/libro")
 def descargar_libro(prueba_id: int, formato: str = "xlsx", seccion: str | None = None,
+                    adjuntos: bool = True,
                     db: Session = Depends(get_db),
                     user: User = Depends(require_staff)) -> Response:
     """Papel en curso de una prueba con procesador, armado por el servidor:
@@ -480,7 +481,9 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", seccion: str | None =
         elif formato == "html":
             # Las demás herramientas: HTML autónomo de `libro`; con `seccion` arranca en esa
             # sola cédula (landing por tarjeta). Si la sección no existe, render la ignora.
-            contenido = libro.html(*servicio.args_papel(db, p), seccion=seccion)
+            # `adjuntos=false` (al ABRIR el tablero para verlo) arma un HTML liviano que carga
+            # rápido: no incrusta Excel/Word/PowerPoint; se descargan al momento desde la app.
+            contenido = libro.html(*servicio.args_papel(db, p), seccion=seccion, incluir_adjuntos=adjuntos)
         else:
             contenido = getattr(libro, funcion)(*servicio.args_papel(db, p))
     except libro.PDFNoDisponible as e:

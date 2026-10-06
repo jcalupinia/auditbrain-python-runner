@@ -1001,24 +1001,39 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     return papel_office.pptx(definicion, reg, eventos, version, estado)
 
 
+# Formatos Office que el tablero ofrece descargar (ext del endpoint, etiqueta). El orden
+# es el mismo que el de los adjuntos incrustados.
+_DESCARGAS_REMOTAS = [("xlsx", "Excel con fórmulas"), ("docx", "Word"), ("pptx", "PowerPoint"), ("csv", "CSV (ZIP)")]
+
+
 def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, para_pdf: bool = False,
-         seccion: str | None = None) -> bytes:
+         seccion: str | None = None, incluir_adjuntos: bool = True) -> bytes:
     """HTML autónomo con el dashboard ejecutivo (``html_ejecutivo``): funciona sin
     internet (sin fuentes, scripts ni estilos externos) y trae dentro el Excel con
     fórmulas, el Word, el PowerPoint y el CSV para descargarlos. ``para_pdf=True``
-    devuelve la versión estática (tema Claro, todo visible, sin JS) para el PDF."""
+    devuelve la versión estática (tema Claro, todo visible, sin JS) para el PDF.
+
+    ``incluir_adjuntos=False`` arma un tablero LIVIANO que abre rápido: NO incrusta los
+    Office (que son lo pesado de generar) y en su lugar el menú «Descargas» le pide a la
+    app que los genere al momento de descargarlos (botones ``data-remota``). Se usa al
+    ABRIR el tablero para verlo; la descarga del artefacto autónomo completo sigue
+    incrustándolos (``incluir_adjuntos=True``, el valor por defecto)."""
     from backend.app.aud.niif.procesadores import html_ejecutivo
 
     hojas = cedulas(definicion, reg, eventos, version, estado)
-    adjuntos = [] if para_pdf else [
-        ("xlsx", "Excel con fórmulas", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-         xlsx(definicion, reg, eventos, version, estado)),
-        ("docx", "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-         docx(definicion, reg, eventos, version, estado)),
-        ("pptx", "PowerPoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-         pptx(definicion, reg, eventos, version, estado)),
-        ("zip", "CSV (ZIP)", "application/zip", csv_zip(definicion, reg, eventos, version, estado)),
-    ]
+    adjuntos, descargas_remotas = [], None
+    if not para_pdf and incluir_adjuntos:
+        adjuntos = [
+            ("xlsx", "Excel con fórmulas", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+             xlsx(definicion, reg, eventos, version, estado)),
+            ("docx", "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+             docx(definicion, reg, eventos, version, estado)),
+            ("pptx", "PowerPoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+             pptx(definicion, reg, eventos, version, estado)),
+            ("zip", "CSV (ZIP)", "application/zip", csv_zip(definicion, reg, eventos, version, estado)),
+        ]
+    elif not para_pdf:
+        descargas_remotas = _DESCARGAS_REMOTAS
     calculadora = None
     if definicion.get("declarativa") and not para_pdf:
         # Prueba declarativa: la «Calculadora reutilizable» del sitio, con su motor portable.
@@ -1026,7 +1041,8 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, 
 
         calculadora = declarativo.calculadora(definicion, reg)
     return html_ejecutivo.render(definicion, reg, eventos, version, estado, hojas, adjuntos, _celda, como_se_calcula,
-                                 para_pdf=para_pdf, calculadora=calculadora, seccion=seccion).encode("utf-8")
+                                 para_pdf=para_pdf, calculadora=calculadora, seccion=seccion,
+                                 descargas_remotas=descargas_remotas).encode("utf-8")
 
 
 class PDFNoDisponible(ValueError):
