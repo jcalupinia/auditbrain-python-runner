@@ -50,7 +50,7 @@ _ACTIVOS = [
     campo("clase", "Clase", alias=("grupo", "tipo de activo", "cuenta", "categoria"), ejemplo="Vehículos"),
     campo("elemento", "Elemento al que pertenece (componente)", requerido=False, alias=("componente de", "elemento principal", "activo padre"), ejemplo=""),
     campo("fecha_uso", "Fecha disponible para uso", "date", requerido=False, alias=("fecha de uso", "fecha de activacion", "fecha inicio depreciacion", "fecha de compra"), ejemplo="2023-07-01"),
-    campo("costo_inicial", "Costo al inicio del año", "number", alias=("costo inicial", "saldo inicial costo", "costo historico"), ejemplo="40000"),
+    campo("costo_inicial", "Costo al inicio del año", "number", alias=("costo inicial", "saldo inicial costo", "costo historico", "costo ajustado", "valor adquirido"), ejemplo="40000"),
     campo("adiciones", "Adiciones del año", "number", requerido=False, alias=("altas", "adiciones", "compras del año"), ejemplo="0"),
     campo("residual", "Valor residual", "number", requerido=False, alias=("valor residual", "residual", "valor de salvamento"), ejemplo="4000"),
     campo("vida_meses", "Vida útil (meses)", "number", requerido=False, alias=("vida util", "vida util meses", "meses de vida"), ejemplo="60"),
@@ -117,13 +117,13 @@ _MAYOR = [
 # Facturas (adiciones y salidas): se extraen por IA del PDF (EXTRACCION_DATASETS) y se cruzan con las
 # adiciones del detalle y las bajas del auxiliar en el vaucheo. Los dos datasets comparten estos campos.
 _FACTURA = [
-    campo("codigo_activo", "Código del activo", requerido=False, alias=("codigo", "código", "activo", "codigo activo", "placa"), ejemplo="VEH-01"),
-    campo("proveedor", "Proveedor / Cliente", requerido=False, alias=("proveedor", "razon social", "cliente", "adquiriente", "comprador"), ejemplo="Comercial XYZ S.A."),
-    campo("ruc", "RUC", requerido=False, alias=("ruc", "ruc/ci", "identificacion"), ejemplo="1790012345001"),
-    campo("fecha", "Fecha de emisión", "date", requerido=False, alias=("fecha", "fecha emision", "fecha de emision"), ejemplo="2026-03-15"),
-    campo("numero", "N° de factura", requerido=False, alias=("factura", "numero", "número", "comprobante", "no factura"), ejemplo="001-001-000001234"),
-    campo("total", "Total", "number", requerido=False, alias=("total", "valor total", "importe", "monto", "valor"), ejemplo="40000"),
-    campo("descripcion", "Detalle", requerido=False, alias=("detalle", "descripcion", "concepto", "bien o servicio"), ejemplo="Camioneta 4x4"),
+    campo("codigo_activo", "Código del activo", requerido=False, alias=("codigo", "código", "activo", "codigo activo", "placa"), ejemplo="2145"),
+    campo("proveedor", "Proveedor / Cliente", requerido=False, alias=("proveedor", "razon social", "cliente", "adquiriente", "comprador", "emisor"), ejemplo="Comercial XYZ S.A."),
+    campo("ruc", "RUC / Identificación", requerido=False, alias=("ruc", "ruc/ci", "identificacion", "cedula", "ci"), ejemplo="1790012345001"),
+    campo("fecha", "Fecha de emisión", "date", requerido=False, alias=("fecha", "fecha emision", "fecha de emision"), ejemplo="2026-06-30"),
+    campo("numero", "N° de factura (estab-ptoEmisión-secuencial)", requerido=False, alias=("factura", "numero", "número", "comprobante", "no factura", "secuencial"), ejemplo="001-041-000000528"),
+    campo("total", "Total (subtotal sin IVA)", "number", requerido=False, alias=("total", "valor total", "importe", "monto", "valor", "subtotal", "subtotal sin impuestos", "base imponible"), ejemplo="52.17"),
+    campo("descripcion", "Detalle", requerido=False, alias=("detalle", "descripcion", "concepto", "bien o servicio"), ejemplo="Equipo celular"),
 ]
 # Política contable de PP&E: una fila por rubro con la vida útil y, si consta, el umbral de capitalización.
 # Se extrae por IA del PDF/Word de la política (RQ-004) para la columna «vida útil según política».
@@ -141,10 +141,36 @@ DATASETS = tuple(TIPOS)
 PRINCIPAL = "activos"
 # Datasets que se pueblan extrayendo por IA el texto de los PDF/Word (facturas y política), con revisión del auditor.
 EXTRACCION_DATASETS = ("facturas_adiciones", "facturas_salidas", "politica")
+# Guía común para leer una factura electrónica del SRI (RIDE), que trae DOS partes (emisor y adquirente) y el
+# secuencial partido en tres bloques. La instrucción se indexa por DATASET (no por tipo): servicio.py busca
+# EXTRACCION_INSTRUCCIONES[dataset], así que las claves deben ser «facturas_adiciones» y «facturas_salidas».
+_FACTURA_RIDE = (
+    "El documento es una FACTURA ELECTRÓNICA del SRI de Ecuador (RIDE). Devuelve UNA sola fila por factura. "
+    "Estructura del RIDE: en la CABECERA constan la razón social y el R.U.C. de 13 dígitos del EMISOR (quien vende "
+    "o emite); más abajo, en «Razón Social / Nombres y Apellidos» e «Identificación», constan los del ADQUIRENTE "
+    "(el comprador). Reglas de transcripción, campo por campo:\n"
+    "- numero: arma el comprobante completo con sus TRES partes establecimiento-puntoEmisión-secuencial unidas con "
+    "guiones (por ejemplo 001-041-000000528), aunque en el documento vengan en líneas o celdas separadas.\n"
+    "- fecha: la «Fecha Emisión» del comprobante.\n"
+    "- total: el «SUBTOTAL SIN IMPUESTOS» (la base imponible, sin IVA), que es el valor que se capitaliza y se "
+    "registra en el mayor; solo si el documento no desglosa impuestos, usa el «VALOR TOTAL».\n"
+    "- codigo_activo: si en «Referencias» o en «Información Adicional» consta el código del activo (por ejemplo "
+    "«Activo Fijo 2145»), tómalo de ahí; NO uses el código genérico de la línea del detalle (por ejemplo «AFI»).\n"
+    "- descripcion: el detalle del bien de la línea.\n"
+    "No inventes datos: lo que no aparezca, déjalo vacío (null)."
+)
 EXTRACCION_INSTRUCCIONES = {
-    "factura": ("Cada factura es un comprobante. Extraiga una fila por factura con el proveedor o cliente, su RUC, "
-                "la fecha de emisión, el número de la factura (serie-secuencial), el total y el detalle del bien. "
-                "Si el comprobante trae el código del activo, inclúyalo. No invente datos: lo que no aparezca, déjelo vacío."),
+    "facturas_adiciones":
+        _FACTURA_RIDE + "\nEsta es una factura de COMPRA (adición de activo fijo). En «proveedor» pon la razón social "
+        "del EMISOR (el proveedor que vende, el de la cabecera) y en «ruc» su R.U.C. de 13 dígitos; NO pongas los "
+        "datos del comprador. Estos datos (proveedor, RUC, fecha y número) sirven para cotejar que la compra conste "
+        "en el libro mayor y para el vaucheo.",
+    "facturas_salidas":
+        _FACTURA_RIDE + "\nEsta es una factura de VENTA o baja de activo fijo, que normalmente emite el propio cliente "
+        "auditado. En «proveedor» (que aquí es el CLIENTE/comprador) pon la razón social del ADQUIRENTE («Razón Social "
+        "/ Nombres y Apellidos») y en «ruc» su identificación; NO pongas los datos del emisor (el cliente auditado). "
+        "Estos datos (cliente, RUC, fecha y número) sirven para cotejar que la venta conste en el libro mayor y para "
+        "el vaucheo.",
     "politica": ("La política contable fija la vida útil por rubro de propiedad, planta y equipo. Extraiga una fila por "
                  "rubro (edificios, maquinaria, muebles, vehículos, equipos de cómputo, etc.) con su vida útil en años y, "
                  "si consta, el umbral mínimo para capitalizar. No invente: lo que no aparezca, déjelo vacío."),
@@ -258,8 +284,10 @@ def _es_terreno(clase: str) -> bool:
 
 def _clase_bucket(clase: str):
     """Mapea la clase / tipo de activo del auxiliar a su cubeta de vida útil por clase (parámetros del auditor).
-    Devuelve None para terrenos (no se deprecian) o clases no reconocidas: la vida queda pendiente de confirmar."""
-    c = (clase or "").lower()
+    Devuelve None para terrenos (no se deprecian) o clases no reconocidas: la vida queda pendiente de confirmar.
+    Es robusto a tildes para que «Vehículos», «Eq. Cómputo», etc. caigan en su cubeta."""
+    import unicodedata as _ud
+    c = "".join(ch for ch in _ud.normalize("NFD", (clase or "").lower()) if _ud.category(ch) != "Mn")
     if not c or _es_terreno(c):
         return None
     for clave, palabras in _BUCKETS_VIDA:
@@ -285,6 +313,11 @@ TOPE_VEHICULO = 35000.0
 DIAS_ANIO_VIDA = 365
 _TASA_FISCAL = {"vidaInmuebles": 0.05, "vidaInstalacionesMaquinaria": 0.10, "vidaMuebles": 0.10,
                 "vidaVehiculos": 0.20, "vidaEquipoComputo": 0.3333}
+# Vida útil por defecto según la normativa del SRI (inversa de la tasa máxima del Art. 28): cuando el auxiliar NO
+# trae vida útil y el auditor no la fijó por parámetro, el papel usa esta vida del SRI para recalcular (criterio de
+# auditoría), en vez de dejar el activo sin recálculo. El activo queda marcado como «vida según SRI».
+_VIDA_SRI_ANIOS = {"vidaInmuebles": 20, "vidaInstalacionesMaquinaria": 10, "vidaMuebles": 10,
+                   "vidaVehiculos": 5, "vidaEquipoComputo": 3}
 
 
 def _tasa_fiscal(clase):
@@ -313,18 +346,23 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         vida = _opc(f.get("vida_meses"))
         if vida is not None and vida <= 0:
             raise ValueError(f"Activo {_t(f.get('id'))}: la vida útil debe ser mayor que cero.")
-        # Vida útil NIIF por clase confirmada por el auditor: se aplica solo cuando el activo no trae vida propia y
-        # su clase tiene vida confirmada en los parámetros; si no, queda pendiente (sin defaults automáticos).
-        vida_por_clase = False
+        # Vida útil NIIF cuando el activo no trae vida propia: primero la que confirmó el auditor por clase (parámetro);
+        # si no la fijó, se usa por defecto la vida del SRI (Art. 28) para recalcular como criterio de auditoría. Solo
+        # las clases no reconocidas (o terrenos) quedan pendientes.
+        vida_por_clase = vida_sri = False
         if vida is None:
             _bkt = _clase_bucket(clase)
             _anios = _p(p, _bkt) if _bkt else None
+            if (_anios is None or _anios <= 0) and _bkt:
+                _anios = _VIDA_SRI_ANIOS.get(_bkt)  # fallback: vida útil del SRI
+                vida_sri = _anios is not None
             if _anios is not None and _anios > 0:
                 vida, vida_por_clase = _anios * 12, True
         a = {"id": _t(f.get("id")), "desc": _t(f.get("descripcion")), "clase": clase, "elemento": _t(f.get("elemento")),
              "uso": fecha(f.get("fecha_uso")) if _t(f.get("fecha_uso")) else None, "ci": _opc(f.get("costo_inicial")) or 0.0,
-             "ad": _opc(f.get("adiciones")), "res": _opc(f.get("residual")), "vida": vida, "vidaPorClase": vida_por_clase, "metodo": _t(f.get("metodo")),
-             "dai": _opc(f.get("dep_acum_inicial")), "dreg": _opc(f.get("dep_registrada")), "dac": _opc(f.get("dep_acum_cliente")),
+             "ad": _opc(f.get("adiciones")), "res": _opc(f.get("residual")), "vida": vida, "vidaPorClase": vida_por_clase, "vidaSRI": vida_sri, "metodo": _t(f.get("metodo")),
+             "dai": _opc(f.get("dep_acum_inicial")) if _t(f.get("dep_acum_inicial")) != "" else _opc(f.get("dep_acum_cliente")),
+             "dreg": _opc(f.get("dep_registrada")), "dac": _opc(f.get("dep_acum_cliente")),
              "det": _opc(f.get("deterioro_acum")),
              "rec": _opc(f.get("importe_recuperable")), "rev": _opc(f.get("valor_revaluado")), "sup": _opc(f.get("superavit_previo")),
              "decPrev": _opc(f.get("decremento_previo")),
@@ -1047,6 +1085,7 @@ REF_PROBLEMAS = {
     "DEPRECIACION_DIFERENTE": _codigo("04_Depreciacion", "Diferencia"),                 # depreciación recalculada − registrada
     "DEPRECIACION_EN_CONSTRUCCION": _codigo("04_Depreciacion", "Depreciación registrada"),  # depreciación registrada de la obra
     "TOTALMENTE_DEPRECIADO_EN_USO": _codigo("05_Vidas_residual", "Costo"),             # costo del activo depreciado en uso
+    "VEHICULO_TOPE_FISCAL": _codigo("20_Fiscal", "Exceso vehículo no deducible"),      # depreciación sobre el exceso del tope (SRI)
     "RESIDUAL_EXCEDE_COSTO": _residual_excede,                                         # valor residual − costo
     "BAJA_MAL_CALCULADA": _codigo("07_Bajas", "Diferencia"),                           # resultado recalculado − registrado
     "BAJA_SIN_RESULTADO": _codigo("07_Bajas", "Resultado recalculado"),                # resultado de baja no registrado
@@ -1774,7 +1813,14 @@ def hojas(res: dict) -> list[dict]:
     ex_vauch = {
         "Tipo": "Adición (factura de compra) o Baja (factura de venta).",
         "Código del activo": "Código del activo relacionado en el anexo, para cruzar con el detalle.",
-        "Total": "Total de la factura extraído del PDF (revíselo: la IA solo transcribe lo que leyó).",
+        "Proveedor / Cliente": "Razón social del proveedor (en una compra) o del cliente/adquirente (en una venta), "
+                               "extraída del RIDE; sirve para cotejarla contra el tercero del libro mayor.",
+        "RUC": "R.U.C. o identificación de la contraparte, extraído del RIDE; permite confirmar que la compra o "
+               "venta registrada en el mayor corresponde a ese tercero.",
+        "Fecha": "Fecha de emisión de la factura; debe caer en el período y cruzar con la fecha del asiento en el mayor.",
+        "N° factura": "Secuencial completo del comprobante (estab-ptoEmisión-secuencial); se cruza con el N° de "
+                      "documento del movimiento en el libro mayor.",
+        "Total": "Subtotal sin IVA de la factura extraído del PDF (revíselo: la IA solo transcribe lo que leyó).",
         "Registrado en libros": "Importe de la adición (detalle) o de la baja (producto de la venta) que cruza por código.",
         "Diferencia": "Total de la factura menos lo registrado; fuera de tolerancia se reporta como hallazgo.",
         "Estado": "Conciliado, Diferencia o Sin registro en libros.",
@@ -1798,7 +1844,7 @@ def hojas(res: dict) -> list[dict]:
         "Importe (valor absoluto)": "Suma del valor absoluto de los importes de los hallazgos de la categoría.",
     }
 
-    return [
+    _todas = [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex_resumen),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros, explica=ex_par),
         hoja("03_Auxiliar", "Auxiliar de activos (datos del cliente)",
@@ -1915,6 +1961,32 @@ def hojas(res: dict) -> list[dict]:
              [["Categoría", "t"], ["N° de hallazgos", "i"], ["Importe (valor absoluto)", "n"]],
              resumen_hz, total_hz, explica=ex_hz),
     ]
+    # Cédulas de análisis que solo se muestran cuando el cliente tiene ese hecho económico: si la empresa no tuvo
+    # bajas, revaluación, deterioro, adiciones, préstamos, capitalización, componentes ni desmantelamiento, esas
+    # pestañas no aparecen (el papel se queda con las cédulas que aplican a los datos cargados).
+    _mostrar = {
+        "06_Componentes": bool(componentes),
+        "07_Bajas": bool(B),
+        "08_Revaluacion": bool(R),
+        "09_Deterioro": bool(D),
+        "10_Adiciones": bool(nad),
+        "11_Prestamos": bool(npr),
+        "12_Capitalizacion": bool(ncap),
+        "13_Desmantelamiento": ds.get("costo") is not None,
+    }
+    # Orden de presentación: primero las cédulas de trabajo del auditor (resumen, recálculo comparativo por días,
+    # fiscal SRI, guía, roll-forward, sumaria, movimiento, conciliación, vaucheo); luego las de análisis que apliquen;
+    # y al final el soporte y el diagnóstico (auxiliar, recálculo por activo, parámetros, ajustes, problemas,
+    # conclusión, lectura, resumen por estado y resumen de hallazgos).
+    _ORDEN = ["01_Resumen", "21_Comparativo", "20_Fiscal", "22_Guia_NIIF_SRI", "14_Roll_forward",
+              "23_Sumaria", "24_Movimiento_mayor", "25_Conciliacion", "26_Vaucheo", "05_Vidas_residual",
+              "06_Componentes", "07_Bajas", "08_Revaluacion", "09_Deterioro", "10_Adiciones",
+              "11_Prestamos", "12_Capitalizacion", "13_Desmantelamiento",
+              "03_Auxiliar", "04_Depreciacion", "02_Parametros", "15_Ajustes", "16_Problemas",
+              "17_Conclusion", "18_Lectura", "19_Resumen_estado", "27_Resumen_hallazgos"]
+    _idx = {n: i for i, n in enumerate(_ORDEN)}
+    visibles = [h for h in _todas if _mostrar.get(h["name"], True)]
+    return sorted(visibles, key=lambda h: _idx.get(h["name"], 999))
 
 
 # --- definición -------------------------------------------------------------------
@@ -1928,6 +2000,9 @@ def definicion() -> dict:
         "name": "Propiedad, planta y equipo",
         "area": "Propiedad, planta y equipo",
         "processor": "ppe_propiedad_planta",
+        # El papel abre con las cédulas de trabajo del auditor; la documentación (carátula, programa, base
+        # técnica, anexo técnico) y el cierre (conclusión y control de revisión) viajan al final.
+        "documentacion_al_final": True,
         "frameworks": [MARCO_COMPLETAS, MARCO_PYMES],
         "summary": ("Recalcula por activo la depreciación, el valor neto en libros y el resultado de las bajas; evalúa vidas útiles, "
                     "residuales, componentes, revaluación, deterioro y la provisión de desmantelamiento; con el anexo de préstamos separa los "

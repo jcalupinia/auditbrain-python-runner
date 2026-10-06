@@ -674,6 +674,12 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     wb = Workbook()
     wb.remove(wb.active)
     hojas = cedulas(definicion, reg, eventos, version, estado)
+    # Si la prueba lo declara, la documentación (carátula, firmas, programa, base técnica) y el cierre
+    # (conclusión y control) viajan DESPUÉS de las cédulas de trabajo, no antes (el papel abre con el análisis).
+    # 00_Inicio y 00_Datos_graficos se crean aparte y siguen al frente; las demás pruebas no declaran el flag.
+    if definicion.get("documentacion_al_final"):
+        _cierre = lambda h: h["name"].startswith("00_") or h["name"] in (HOJA_CONCLUSION, HOJA_CONTROL)
+        hojas = [h for h in hojas if not _cierre(h)] + [h for h in hojas if _cierre(h)]
     titulos = _titulos_unicos(hojas)
     titulo_prueba = f"{definicion.get('name', '')} · {(reg.get('engagement') or {}).get('client', '')} · corte {(reg.get('engagement') or {}).get('cutoff', '')}"
 

@@ -314,10 +314,20 @@ def test_resumen_por_estado():
 
 
 def test_hojas_y_definicion():
+    orden = [n for n, _ in m.CEDULAS]
+    nucleo = ("01_Resumen", "03_Auxiliar", "04_Depreciacion", "05_Vidas_residual", "14_Roll_forward",
+              "20_Fiscal", "21_Comparativo", "22_Guia_NIIF_SRI", "23_Sumaria", "24_Movimiento_mayor",
+              "25_Conciliacion", "26_Vaucheo")
     for _, ds, p, c in m.ESCENARIOS:
         r = m.ejecutar(ds, p, c)
         hs = m.hojas(r)
-        assert [h["name"] for h in hs] == [n for n, _ in m.CEDULAS]
+        nombres = [h["name"] for h in hs]
+        # Las cédulas devueltas son un subconjunto del catálogo CEDULAS (las de análisis sin datos se ocultan);
+        # el orden de presentación lo fija el procesador (trabajo primero, soporte/diagnóstico al final).
+        assert set(nombres) <= set(orden)
+        assert nombres[0] == "01_Resumen"            # el resumen (Inicio) abre el papel
+        for core in nucleo:
+            assert core in nombres, core
         for h in hs:
             assert len(h["name"]) <= 31
             for f in h["rows"] + ([h["total"]] if h.get("total") else []):
@@ -403,6 +413,46 @@ def test_facturas_son_extraibles_por_ia():
     reqs = {r["id"]: r for r in m.definicion()["requests"]}
     assert reqs["RQ-012"]["dataset"] == "facturas_adiciones" and "pdf" in reqs["RQ-012"]["formats"]
     assert reqs["RQ-009"]["dataset"] == "facturas_salidas" and "pdf" in reqs["RQ-009"]["formats"]
+
+
+def test_cedulas_analisis_se_ocultan_sin_datos():
+    """Si solo se carga el auxiliar (sin bajas, revaluación, deterioro, adiciones, préstamos, etc.),
+    esas cédulas de análisis no aparecen; sí las cédulas núcleo."""
+    ds = {"activos": [
+        {"id": "MAQ-1", "clase": "Maquinaria y equipo", "fecha_uso": "2024-01-10",
+         "costo_inicial": "10000", "vida_meses": "120", "dep_acum_cliente": "1500", "_row": 2},
+    ]}
+    r = m.ejecutar(ds, dict(m.PARAMETROS), E["corte"])
+    nombres = {h["name"] for h in m.hojas(r)}
+    for oculta in ("06_Componentes", "07_Bajas", "08_Revaluacion", "09_Deterioro",
+                   "10_Adiciones", "11_Prestamos", "12_Capitalizacion", "13_Desmantelamiento"):
+        assert oculta not in nombres, oculta
+    for visible in ("04_Depreciacion", "21_Comparativo", "23_Sumaria", "26_Vaucheo"):
+        assert visible in nombres
+
+
+def test_vida_util_fallback_sri():
+    """Si el auxiliar no trae vida útil, se usa por defecto la vida del SRI por clase y se recalcula."""
+    ds = {"activos": [
+        {"id": "VH-1", "clase": "Vehículos", "fecha_uso": "2025-11-01", "costo_inicial": "20000", "_row": 2},
+    ]}
+    r = m.ejecutar(ds, dict(m.PARAMETROS), E["corte"])
+    a = r["detalle"]["activos"][0]
+    assert a["vidaSRI"] is True and a["vida"] == 5 * 12  # vehículos: 5 años (SRI Art. 28)
+    assert a["dep"] is not None and a["dep"] > 0          # se recalcula (no queda pendiente)
+
+
+def test_instrucciones_extraccion_indexadas_por_dataset():
+    """servicio.py busca EXTRACCION_INSTRUCCIONES[dataset]; cada dataset extraíble debe tener su
+    instrucción no vacía (si se indexara por tipo, p. ej. «factura», la guía nunca se aplicaría)."""
+    for ds in m.EXTRACCION_DATASETS:
+        instr = m.EXTRACCION_INSTRUCCIONES.get(ds)
+        assert instr, f"falta instrucción de extracción para el dataset «{ds}»"
+    # Las facturas distinguen al proveedor (compra = emisor) del cliente (venta = adquirente).
+    assert "EMISOR" in m.EXTRACCION_INSTRUCCIONES["facturas_adiciones"]
+    assert "ADQUIRENTE" in m.EXTRACCION_INSTRUCCIONES["facturas_salidas"]
+    # La clave antigua por tipo ya no debe usarse como instrucción efectiva.
+    assert "factura" not in m.EXTRACCION_INSTRUCCIONES
 
 
 def test_politica_alimenta_vida_util_y_guia():

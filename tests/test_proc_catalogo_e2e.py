@@ -118,7 +118,12 @@ def test_ejercicio_modelo_de_principio_a_fin(client, disco_temporal, pid):
     directo = m.ejecutar(p["registro"]["datasets"], {**param, "_marco": marco, "_edicion": edicion}, ej["corte"])
     assert p["registro"]["run"]["totals"] == directo["totals"]
     nombres = [x["name"] for x in p["registro"]["run"]["hojas"]]
-    assert [n for n in nombres if not re.match(r"D\d+_", n)] == [n for n, _ in m.CEDULAS]
+    # Las cédulas del libro (sin las D_ de datos del cliente) son exactamente las que produce hojas() para este
+    # resultado —en su mismo orden—; un procesador puede ocultar o reordenar cédulas (p. ej. PP&E solo muestra las
+    # que aplican a los datos cargados), así que se compara contra su salida real, no contra el catálogo fijo.
+    cedulas_run = [n for n in nombres if not re.match(r"D\d+_", n)]
+    assert cedulas_run == [h["name"] for h in m.hojas(directo)]
+    assert set(cedulas_run) <= {n for n, _ in m.CEDULAS}
     # Datos del cliente dentro del libro: una hoja por anexo entregado (procesadores/datos_cliente.py).
     entregados = [r["dataset"] for r in m.definicion()["requests"] if r.get("dataset") and p["registro"]["datasets"].get(r["dataset"])]
     assert [x["dataset"] for x in p["registro"]["run"]["hojas"] if re.match(r"D\d+_", x["name"])] == entregados
