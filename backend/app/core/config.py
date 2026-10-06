@@ -56,14 +56,21 @@ class Settings:
 
     # --- Retención de pruebas del ciclo AUD (Command Center = lugar de paso) ---
     # Decisión del dueño (2026-10-04): las pruebas no quedan grabadas; el auditor
-    # las descarga y las archiva en su propia base. El servidor las borra solas:
-    # al descargar el papel (tras una breve gracia para bajar varios formatos) y,
-    # en todo caso, nunca pasan de 8 h desde que se crearon. Aplica a TODAS las
-    # pruebas, aprobadas incluidas (el borrado automático levanta la regla
-    # APROBADA_NO_SE_TOCA, que sigue protegiendo el borrado MANUAL).
+    # las descarga y las archiva en su propia base. El servidor las borra solas.
+    # Previsualizar ≠ archivar (decisión del dueño, 2026-10-06): el trabajo EN CURSO
+    # (estado ≠ APROBADO) NUNCA se autopurga por previsualizar ni descargar el papel;
+    # solo se limpia tras una inactividad larga (AUD_CICLO_ABIERTA_INACTIVA_HORAS),
+    # medida desde la última actividad (no desde la creación). El borrado por descarga
+    # (tras una breve gracia para bajar varios formatos) y el tope duro de 8 h desde la
+    # creación aplican SOLO a pruebas TERMINADAS (APROBADO) — el borrado automático
+    # levanta ahí la regla APROBADA_NO_SE_TOCA, que sigue protegiendo el borrado MANUAL.
     AUD_CICLO_RETENCION_ENABLED: bool = os.getenv("AUD_CICLO_RETENCION_ENABLED", "true").lower() == "true"
     AUD_CICLO_PRUEBA_TTL_HORAS: int = int(os.getenv("AUD_CICLO_PRUEBA_TTL_HORAS", "8"))
     AUD_CICLO_POST_DOWNLOAD_TTL_MINUTES: int = int(os.getenv("AUD_CICLO_POST_DOWNLOAD_TTL_MINUTES", "30"))
+    # Tope por inactividad para el trabajo ABIERTO (en curso): un borrador que nadie toca
+    # por este número de horas se limpia (backstop para no acumular drafts abandonados);
+    # mientras se trabaje o previsualice, la última actividad se refresca y no se borra.
+    AUD_CICLO_ABIERTA_INACTIVA_HORAS: int = int(os.getenv("AUD_CICLO_ABIERTA_INACTIVA_HORAS", "72"))
     AUD_CICLO_CLEANUP_INTERVAL_SECONDS: int = int(os.getenv("AUD_CICLO_CLEANUP_INTERVAL_SECONDS", "300"))
 
     @property

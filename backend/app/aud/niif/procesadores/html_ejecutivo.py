@@ -426,6 +426,9 @@ function imprime(una){if(una){b.classList.add('imprime-una');document.querySelec
   window.print();}
 window.addEventListener('afterprint',function(){b.classList.remove('imprime-una');});
 document.querySelectorAll('[data-pdf]').forEach(function(x){x.addEventListener('click',function(){var s=x.getAttribute('data-pdf');imprime(s==='todo'?null:s);});});
+// Modo «una sola sección» (abierto desde una tarjeta): muestra esa sección; «Volver» revela la navegación.
+var _solo=b.getAttribute('data-solo');if(_solo)muestra(_solo);
+var _vt=document.getElementById('volver-todo');if(_vt)_vt.addEventListener('click',function(){b.classList.remove('solo-seccion');b.removeAttribute('data-solo');});
 })();"""
 
 
@@ -508,7 +511,7 @@ def _calculadora_js(calc: dict) -> str:
 
 def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str, hojas: list[dict],
            adjuntos: list[tuple[str, str, str, bytes]], celda, como_se_calcula, para_pdf: bool = False,
-           calculadora: dict | None = None) -> str:
+           calculadora: dict | None = None, seccion: str | None = None) -> str:
     e = reg.get("engagement") or {}
     run = reg.get("run") or {}
     mod = graficos.modulo(definicion)
@@ -556,8 +559,16 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
     if calc:
         secciones.append(("s-calc", "Calculadora", _calculadora_html(calc)))
 
+    # Modo «una sola sección»: al abrir el HTML desde una tarjeta de ejecución (p. ej.
+    # «Resumen de Conciliaciones»), se arranca mostrando SOLO esa sección, se oculta la
+    # barra de pestañas y aparece «← Volver a todas las secciones». `seccion` se valida
+    # contra los ids reales (anti-inyección); si no coincide, se ignora (papel completo).
+    sids = [sid for sid, _, _ in secciones]
+    solo = seccion if (seccion in sids and not para_pdf) else None
+    _activa = lambda sid, k: (sid == solo) if solo else (k == 0)  # noqa: E731
+
     cuerpo_secc = "".join(
-        f'<section class="seccion{" on" if k == 0 else ""}{" no-imprime" if sid == "s-calc" else ""}" id="{sid}" aria-label="{E(etq)}">{html_}</section>'
+        f'<section class="seccion{" on" if _activa(sid, k) else ""}{" no-imprime" if sid == "s-calc" else ""}" id="{sid}" aria-label="{E(etq)}">{html_}</section>'
         for k, (sid, etq, html_) in enumerate(secciones))
     css = _css()
     if para_pdf:
@@ -587,13 +598,17 @@ def render(definicion: dict, reg: dict, eventos: list, version: int, estado: str
         '<button class="btn" type="button" data-pdf="todo">⬇ Guardar como PDF · papel completo</button></div></details>'
         "</div></header>")
     nav = ('<nav class="nav" role="tablist" aria-label="Secciones">' + "".join(
-        f'<button class="tab{" on" if k == 0 else ""}" role="tab" aria-selected="{"true" if k == 0 else "false"}" data-s="{sid}" type="button">{E(etq)}</button>'
+        f'<button class="tab{" on" if _activa(sid, k) else ""}" role="tab" aria-selected="{"true" if _activa(sid, k) else "false"}" data-s="{sid}" type="button">{E(etq)}</button>'
         for k, (sid, etq, _) in enumerate(secciones)) + "</nav>")
-    clases = " ".join(f"{k}-{v}" for k, v in POR_DEFECTO.items())
+    clases = " ".join(f"{k}-{v}" for k, v in POR_DEFECTO.items()) + (" solo-seccion" if solo else "")
+    attr_solo = f' data-solo="{solo}"' if solo else ""
+    css += (".volver-todo{display:none}body.solo-seccion .nav{display:none}"
+            "body.solo-seccion .volver-todo{display:inline-flex;align-items:center;gap:6px;margin:0 0 12px}")
+    volver = '<button class="btn volver-todo" id="volver-todo" type="button">← Volver a todas las secciones</button>'
     return ("<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             f"<title>{E(nombre)}</title><style>{css}</style></head>"
-            f'<body class="{clases}">{topbar}{nav}<main class="wrap">{_membrete()}{cuerpo_secc}</main>'
+            f'<body class="{clases}"{attr_solo}>{topbar}{nav}<main class="wrap">{volver}{_membrete()}{cuerpo_secc}</main>'
             "<footer>AuditConsulting Auditores Cía. Ltda. · AUDIT-IA · Funciona sin conexión. Pase el cursor sobre un importe "
             "para ver su fórmula; «ⓘ Cómo se calcula esta hoja» explica cada columna. En el Excel las fórmulas son editables y trazables.</footer>"
             f"<script>{_JS % __import__('json').dumps(POR_DEFECTO)}</script>{_calculadora_js(calc) if calc else ''}</body></html>")

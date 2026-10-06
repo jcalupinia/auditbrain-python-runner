@@ -395,7 +395,10 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   // - Efectivo (reproceso) y declarativas: la vista de trabajo detallada de siempre.
   async function abrirEjecucion(item) {
     if (!procesada) return;
-    if (config.processor === "planificacion_nia" && !item.reproceso) {
+    // Si la tarjeta declara una sección, abre el HTML autónomo arrancando en ESA sección
+    // (planificación → artefacto por pestaña; las demás → `libro.html` por cédula). Las
+    // tarjetas sin sección y el reproceso conservan la vista de trabajo detallada (tablas).
+    if (item.seccion && !item.reproceso) {
       await abrirTableroHTML(item.seccion);
       return;
     }

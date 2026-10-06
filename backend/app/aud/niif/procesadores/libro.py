@@ -995,7 +995,8 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     return papel_office.pptx(definicion, reg, eventos, version, estado)
 
 
-def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, para_pdf: bool = False) -> bytes:
+def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, para_pdf: bool = False,
+         seccion: str | None = None) -> bytes:
     """HTML autónomo con el dashboard ejecutivo (``html_ejecutivo``): funciona sin
     internet (sin fuentes, scripts ni estilos externos) y trae dentro el Excel con
     fórmulas, el Word, el PowerPoint y el CSV para descargarlos. ``para_pdf=True``
@@ -1019,7 +1020,7 @@ def html(definicion: dict, reg: dict, eventos: list, version: int, estado: str, 
 
         calculadora = declarativo.calculadora(definicion, reg)
     return html_ejecutivo.render(definicion, reg, eventos, version, estado, hojas, adjuntos, _celda, como_se_calcula,
-                                 para_pdf=para_pdf, calculadora=calculadora).encode("utf-8")
+                                 para_pdf=para_pdf, calculadora=calculadora, seccion=seccion).encode("utf-8")
 
 
 class PDFNoDisponible(ValueError):

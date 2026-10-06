@@ -4,24 +4,31 @@ Decisión del dueño (2026-10-04): las pruebas no se quedan grabadas en el servi
 El auditor descarga el papel y lo archiva en su propia base (donde viven todas las
 pruebas de la auditoría del cliente). El servidor las borra automáticamente:
 
-- **Al descargar + breve gracia:** cuando el usuario baja el papel
-  (`servicio.marcar_descargada`), se registra ``registro["descargada_en"]``. La
-  prueba se borra ``AUD_CICLO_POST_DOWNLOAD_TTL_MINUTES`` después (30 min por
-  defecto), suficiente para bajar varios formatos (Excel, HTML, Word, PDF) sin
-  perderla a mitad.
-- **Tope duro de 8 h:** en todo caso, nunca pasa de ``AUD_CICLO_PRUEBA_TTL_HORAS``
-  (8 h) desde que se creó, se haya descargado o no.
+- **Al descargar + breve gracia (solo pruebas TERMINADAS):** cuando el auditor baja
+  el papel de una prueba APROBADA (`servicio.marcar_descargada`), se registra
+  ``registro["descargada_en"]`` y se borra ``AUD_CICLO_POST_DOWNLOAD_TTL_MINUTES``
+  después (30 min por defecto), suficiente para bajar varios formatos (Excel, HTML,
+  Word, PDF) sin perderla a mitad.
+- **Tope duro de 8 h (solo pruebas TERMINADAS):** una prueba APROBADA nunca pasa de
+  ``AUD_CICLO_PRUEBA_TTL_HORAS`` (8 h) desde que se creó, se haya descargado o no.
 
-Aplica a las pruebas TERMINADAS o ya DESCARGADAS, **aprobadas incluidas**: el
-borrado automático levanta la regla ``APROBADA_NO_SE_TOCA`` (que sigue protegiendo
-el borrado MANUAL del usuario). El borrado es definitivo: fila, evidencia, bitácora
-y archivos del disco.
+Esto aplica a las pruebas TERMINADAS (APROBADO): el borrado automático levanta la
+regla ``APROBADA_NO_SE_TOCA`` (que sigue protegiendo el borrado MANUAL del usuario).
+El borrado es definitivo: fila, evidencia, bitácora y archivos del disco.
 
-**Excepción (2026-10-05): el trabajo EN CURSO no se autopurga.** Una prueba que
-sigue ABIERTA (estado ≠ ``APROBADO``) y que nunca se descargó queda intocable por
-el borrado automático, aunque pase de las 8 h. El tope duro destruía una
-planificación (NIA 300) a medio armar mientras el auditor la trabajaba. El "lugar
-de paso" limpia lo terminado/descargado, no lo activo (ver ``_vencida``).
+**Previsualizar ≠ archivar — el trabajo EN CURSO no se autopurga (2026-10-06).**
+Una prueba que sigue ABIERTA (estado ≠ ``APROBADO``) NUNCA se borra por previsualizar
+ni descargar su papel: en estas herramientas el auditor previsualiza el borrador
+(Excel/HTML/Word/PDF, incluida la landing por sección) decenas de veces mientras lo
+arma, y cada preview pasa por ``marcar_descargada``. Antes, descargar un borrador
+abierto le ponía ``descargada_en`` y lo autodestruía a los 30 min aunque se siguiera
+trabajando: dos auditores, cada uno en su propio encargo, previsualizaban su
+planificación y a los ~30 min el purgador —que es GLOBAL— borraba el trabajo de
+ambos (se percibía como "una persona borró a la otra"). Ahora el trabajo abierto solo
+se limpia tras una **inactividad larga** (``AUD_CICLO_ABIERTA_INACTIVA_HORAS``, 72 h
+por defecto), medida desde la **última actividad** (editar o previsualizar refrescan
+``actualizada_en``): un borrador realmente abandonado se barre, uno activo jamás. El
+"lugar de paso" limpia lo TERMINADO/descargado, no lo activo (ver ``_vencida``).
 
 Corre en un loop de fondo arrancado en ``app.py`` (igual que el cleanup AUD/OF).
 """
@@ -58,29 +65,29 @@ def _parse(iso: str | None) -> datetime.datetime | None:
 def _vencida(p: Prueba, ahora: datetime.datetime) -> bool:
     """¿Esta prueba ya debe borrarse?
 
-    Reglas (actualización 2026-10-05):
-    - **Trabajo en curso protegido:** una prueba que sigue ABIERTA (estado distinto
-      de ``APROBADO``) y que NUNCA se descargó NO se autopurga, aunque pase de las
-      8 h. Antes se borraba a las 8 h "se haya descargado o no", lo que destruía una
-      planificación (NIA 300) a medio armar mientras el auditor aún la trabajaba
-      (síntoma: "Prueba no encontrada" al extraer/confirmar). El "lugar de paso"
-      limpia papeles TERMINADOS o ya DESCARGADOS, no trabajo activo.
-    - **Descargada:** una vez que el auditor bajó el papel (lo archivó en su base),
-      se borra pasada la gracia post-descarga. Aplica a cualquier estado.
-    - **Tope duro de 8 h:** sigue vigente para pruebas APROBADAS (terminadas) o ya
-      descargadas, como backstop para que el servidor no acumule papeles cerrados.
+    Reglas (actualización 2026-10-06, "previsualizar ≠ archivar"):
+    - **Trabajo EN CURSO (estado ≠ ``APROBADO``): intocable por previsualizar/descargar.**
+      No importa si tiene ``descargada_en``: previsualizar un borrador no es archivarlo.
+      Solo se limpia tras una inactividad larga (``AUD_CICLO_ABIERTA_INACTIVA_HORAS``,
+      72 h), medida desde la ÚLTIMA actividad (``actualizada_en``, que se refresca al
+      editar y al previsualizar). Así un borrador abandonado se barre y uno activo no.
+    - **Trabajo TERMINADO (``APROBADO``): lugar de paso.** Se borra pasada la gracia
+      post-descarga y, en todo caso, a las 8 h de creado. El borrado automático levanta
+      aquí ``APROBADA_NO_SE_TOCA`` (que sigue protegiendo el borrado MANUAL).
     """
-    descargada = _parse((p.registro or {}).get("descargada_en"))
     en_curso = (p.estado or "").upper() != "APROBADO"
-    # Trabajo en curso y sin descargar: intocable por el borrado automático.
-    if en_curso and descargada is None:
-        return False
-    # Descargada: ya archivada → purgar pasada la gracia.
+    if en_curso:
+        # Activo: ni previsualizar ni descargar lo borra. Solo cae por inactividad larga.
+        inactiva = settings.AUD_CICLO_ABIERTA_INACTIVA_HORAS
+        ref = p.actualizada_en or p.creada_en
+        return ref is not None and (ahora - ref) >= datetime.timedelta(hours=inactiva)
+    # APROBADO (terminado): purgar tras la gracia de descarga…
+    descargada = _parse((p.registro or {}).get("descargada_en"))
     if descargada is not None:
         gracia = settings.AUD_CICLO_POST_DOWNLOAD_TTL_MINUTES
         if (ahora - descargada) >= datetime.timedelta(minutes=gracia):
             return True
-    # Tope duro desde la creación (ya solo alcanza aprobadas o descargadas).
+    # …y, en todo caso, tope duro de 8 h desde la creación.
     tope_horas = settings.AUD_CICLO_PRUEBA_TTL_HORAS
     if p.creada_en is not None and (ahora - p.creada_en) >= datetime.timedelta(hours=tope_horas):
         return True
