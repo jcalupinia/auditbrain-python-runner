@@ -445,10 +445,18 @@ def _definicion_viva(p: Prueba) -> dict:
     if mod is None or not getattr(mod, "RUBRO", None):
         return d
     try:
-        reqs = mod.definicion().get("requests")
+        viva = mod.definicion()
     except Exception:
         return d
-    return {**d, "requests": list(reqs)} if reqs else d
+    # Requerimientos vivos del catálogo y, además, el anexo `principal` (lo usa el guard de
+    # «Procesar» del frontend): una prueba congelada antes de que la herramienta lo declarara
+    # igual lo recibe, sin re-crearla.
+    out = dict(d)
+    if viva.get("requests"):
+        out["requests"] = list(viva["requests"])
+    if viva.get("principal"):
+        out["principal"] = viva["principal"]
+    return out
 
 
 def _t(p: Prueba) -> dict:
