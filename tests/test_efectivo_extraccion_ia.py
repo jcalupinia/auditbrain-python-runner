@@ -68,6 +68,33 @@ def test_estado_de_cuenta_se_extrae_por_ia_y_valida():
     assert v["ok"], v["errors"]
 
 
+def test_fechas_del_banco_sin_anio_se_normalizan_con_el_corte():
+    """El estado de cuenta trae fechas como «07/AGO» (día/mes en español, sin año: el
+    banco las emite así y el auditor NO puede corregir el archivo). La extracción las
+    normaliza a ISO con el año del corte, de modo que NO salga «fecha inválida»."""
+    filas = [
+        {"cuenta": "0016 XXX 148-7", "fecha": "07/AGO", "documento": "616517", "debito": "", "credito": 15375.53},
+        {"cuenta": "0016 XXX 148-7", "fecha": "11/AGO", "documento": "622378", "debito": "", "credito": 13378.19},
+        {"cuenta": "0016 XXX 148-7", "fecha": "31/AGO", "documento": "583271", "debito": "", "credito": 15.87},
+    ]
+    # El contexto lleva el corte (como en servicio.py): de ahí sale el año.
+    out = ex.extraer_filas(m.CAMPOS[m.kind("estado_cuenta")], "texto del PDF EC BG AGOSTO",
+                           contexto="Corte de la auditoría: 2025-12-31",
+                           instrucciones=m.EXTRACCION_INSTRUCCIONES.get("estado_cuenta"), chat=_chat_con(filas))
+    assert [f["fecha"] for f in out["rows"]] == ["2025-08-07", "2025-08-11", "2025-08-31"]
+    v = m.validar_filas("estado_cuenta", out["rows"])
+    assert v["ok"], v["errors"]  # ya no hay «fecha inválida»
+
+
+def test_normalizador_de_fecha_del_documento():
+    assert ex._fecha_doc_a_iso("07/AGO", 2025) == "2025-08-07"
+    assert ex._fecha_doc_a_iso("7 de agosto de 2024", 2025) == "2024-08-07"
+    assert ex._fecha_doc_a_iso("2025-08-07", 2025) == "2025-08-07"   # ya ISO
+    assert ex._fecha_doc_a_iso("07/08/2025", 2025) == "2025-08-07"   # dd/mm/aaaa
+    assert ex._fecha_doc_a_iso("texto no fecha", 2025) == "texto no fecha"  # intacto
+    assert ex._fecha_doc_a_iso("", 2025) == ""
+
+
 # --------------------------------------------------------------------------- #
 #  Extremo a extremo por HTTP: reproduce el escenario del dueño                 #
 #  (subir el PDF del estado de cuenta → «Extraer con IA» → confirmar →          #

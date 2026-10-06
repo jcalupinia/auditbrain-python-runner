@@ -430,6 +430,11 @@ def extraer_filas(
     texto = texto[:MAX_CHARS]
     claves = {c["key"] for c in campos}
     numericos = {c["key"] for c in campos if c.get("type") == "number"}
+    fechas = {c["key"] for c in campos if c.get("type") == "date"}
+    # Año del corte (del contexto «Corte de la auditoría: 2025-12-31»): completa las
+    # fechas del documento que vienen sin año (p. ej. «07/AGO» de un estado de cuenta).
+    m_anio = re.search(r"\b(19|20)\d{2}\b", contexto or "")
+    anio = int(m_anio.group(0)) if m_anio else None
 
     # Documento largo → se parte en trozos que entran en la ventana de contexto del
     # modelo local y se unen las filas de todos (un documento corto = un solo trozo).
@@ -502,7 +507,7 @@ def extraer_filas(
     # se devuelven las filas obtenidas (un trozo caído no pierde toda la extracción).
     if not todas and fallos:
         raise ExtraccionError("No se pudo extraer la información con la IA: " + "; ".join(fallos))
-    rows = [_normalizar_fila(f, claves, numericos, i) for i, f in enumerate(todas, start=1)]
+    rows = [_normalizar_fila(f, claves, numericos, fechas, anio, i) for i, f in enumerate(todas, start=1)]
     segundos = round(time.perf_counter() - t0, 1)
     log.info("Extracción IA: %d fila(s) de %d trozo(s) con el modelo «%s» en %.1fs.", len(rows), len(trozos), modelo or "?", segundos)
     return {"rows": rows, "modelo": modelo or "", "n": len(rows), "segundos": segundos, "trozos": len(trozos)}
@@ -531,8 +536,66 @@ def _trozos(texto: str, limite: int) -> list[str]:
     return [t for t in trozos if t.strip()]
 
 
-def _normalizar_fila(fila: dict, claves: set, numericos: set, n: int) -> dict:
-    """Se queda con las claves conocidas, vacía los null y numera la fila."""
+# Meses en español (y sus abreviaturas) e inglés → número. Los estados de cuenta y
+# otros documentos del banco traen la fecha como «07/AGO», «11-AGO-2025» o «7 de
+# agosto»: nomenclatura que el banco emite y que el auditor NO puede «corregir» en el
+# archivo. La normalizamos a ISO para que la validación de fechas la acepte.
+_MESES = {
+    "ene": 1, "enero": 1, "jan": 1, "january": 1,
+    "feb": 2, "febrero": 2, "february": 2,
+    "mar": 3, "marzo": 3, "march": 3,
+    "abr": 4, "abril": 4, "apr": 4, "april": 4,
+    "may": 5, "mayo": 5,
+    "jun": 6, "junio": 6, "june": 6,
+    "jul": 7, "julio": 7, "july": 7,
+    "ago": 8, "agosto": 8, "aug": 8, "august": 8,
+    "sep": 9, "set": 9, "sept": 9, "septiembre": 9, "september": 9,
+    "oct": 10, "octubre": 10, "october": 10,
+    "nov": 11, "noviembre": 11, "november": 11,
+    "dic": 12, "diciembre": 12, "dec": 12, "december": 12,
+}
+# «07/AGO», «7-ago-2025», «7 AGO 25», «7 de agosto de 2025» → (día, mes, [año])
+_FECHA_MES_NOMBRE = re.compile(
+    r"^\s*(\d{1,2})\s*(?:de\s+|[/\-. ])\s*([A-Za-zÁÉÍÓÚáéíóúÑñ]{3,})\.?"
+    r"(?:\s*(?:de\s+|[/\-. ])\s*(\d{2,4}))?\s*$"
+)
+
+
+def _fecha_doc_a_iso(valor, anio: Optional[int]) -> Any:
+    """Normaliza una fecha tal como la emite un documento (banco, etc.) a ISO
+    ``AAAA-MM-DD`` para que ``a_fecha``/la validación la acepten. Si el documento no
+    trae el año (p. ej. «07/AGO»), usa ``anio`` (el año del corte de la auditoría).
+    Deja el valor intacto si no es una fecha reconocible (la validación ya avisará)."""
+    if not isinstance(valor, str):
+        return valor
+    s = valor.strip()
+    if not s:
+        return valor
+    from backend.app.aud.niif.procesadores.perdidas_incurridas_s11 import a_fecha
+    d = a_fecha(s)  # ISO, dd/mm/aaaa o serial de Excel ya los entiende
+    if d is not None:
+        return d.isoformat()
+    m = _FECHA_MES_NOMBRE.match(s)
+    if m:
+        mes = _MESES.get(m.group(2).lower())
+        if mes:
+            dia = int(m.group(1))
+            a = int(m.group(3)) if m.group(3) else anio
+            if a is not None:
+                if a < 100:
+                    a += 2000
+                try:
+                    from datetime import date as _date
+                    return _date(a, mes, dia).isoformat()
+                except ValueError:
+                    return valor
+    return valor
+
+
+def _normalizar_fila(fila: dict, claves: set, numericos: set, fechas: set,
+                     anio: Optional[int], n: int) -> dict:
+    """Se queda con las claves conocidas, vacía los null, normaliza las fechas del
+    documento a ISO (con el año del corte si falta) y numera la fila."""
     out: dict[str, Any] = {"_row": n}
     for k in claves:
         v = fila.get(k)
@@ -540,6 +603,8 @@ def _normalizar_fila(fila: dict, claves: set, numericos: set, n: int) -> dict:
             out[k] = ""
         elif k in numericos and isinstance(v, float) and v.is_integer():
             out[k] = int(v)
+        elif k in fechas:
+            out[k] = _fecha_doc_a_iso(v, anio)
         else:
             out[k] = v
     return out
