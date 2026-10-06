@@ -70,11 +70,34 @@ _CARTERA = [
     campo("ruc", "RUC / identificación", "text", False,
           ["ruc", "cedula", "identificacion", "codigo cliente"], ""),
 ]
-CAMPOS = {"cartera": _CARTERA}
-# Tres cortes de cartera. El principal es el corte actual (se concilia con el mayor y los EEFF).
-# El movimiento de la provisión y la cartera EEFF entran como parámetros (soporte RQ-004).
-TIPOS = {"cartera_t2": "cartera", "cartera_t1": "cartera", "cartera_t": "cartera"}
+_PROVISION = [
+    campo("codigo", "Código", "text", True, ["codigo", "código", "cuenta", "cta", "codigo contable"], "1.1.03.02"),
+    campo("descripcion", "Descripción", "text", True, ["descripcion", "descripción", "nombre", "detalle", "concepto"],
+          "(-) Provisión cuentas incobrables"),
+    campo("saldo_anterior", "Saldo año anterior", "number", True,
+          ["saldo anterior", "año anterior", "ano anterior", "anterior", "saldo inicial", "inicial", "apertura"], "1000.00"),
+    campo("saldo_actual", "Saldo año actual", "number", True,
+          ["saldo actual", "año actual", "ano actual", "actual", "saldo final", "final", "cierre", "segun balance"], "900.00"),
+]
+_MAYOR = [
+    campo("concepto", "Concepto / cuenta", "text", False, ["concepto", "cuenta", "detalle", "descripcion", "glosa"],
+          "Constitución del ejercicio"),
+    campo("constitucion", "Constitución (gasto)", "number", False,
+          ["constitucion", "constitución", "dotacion", "dotación", "cargo", "gasto", "debe"], "0.00"),
+    campo("reversion", "Reversión (recuperación)", "number", False,
+          ["reversion", "reversión", "recuperacion", "recuperación", "abono", "haber"], "0.00"),
+    campo("castigos", "Castigos / bajas", "number", False,
+          ["castigo", "castigos", "baja", "bajas", "dado de baja", "write-off"], "0.00"),
+]
+CAMPOS = {"cartera": _CARTERA, "provision": _PROVISION, "mayor": _MAYOR}
+# Obligatorios: 3 cortes de cartera (población) + anexo inicial de la provisión (sumaria con el
+# saldo del año anterior y el actual → provisión inicial, registrada y ajuste).
+# Opcionales: el mayor de la provisión de cada ejercicio (constitución, reversión, castigos).
+# Si no se suben los mayores, se entiende que no hubo movimiento.
+TIPOS = {"cartera_t2": "cartera", "cartera_t1": "cartera", "cartera_t": "cartera",
+         "provision": "provision", "mayor_t2": "mayor", "mayor_t1": "mayor", "mayor_t": "mayor"}
 DATASETS = tuple(TIPOS)
+OPCIONALES = ("mayor_t2", "mayor_t1", "mayor_t")  # sin ellos → sin movimiento
 PRINCIPAL = "cartera_t"
 CONTROL = "saldo"
 TOTAL_EJEMPLO = "pce"
@@ -86,12 +109,8 @@ PARAMETROS = {
     "fT": 1.0, "fR": 1.0,
     "matDesempeno": None, "umbralIndividual": None,
     "castiga": "", "trasladoJuridico": None,
-    # movimiento de la provisión — tres ejercicios (t-2, t-1, t)
-    "provIni_t2": None, "provCon_t2": None, "provRev_t2": None, "provCas_t2": None, "provBal_t2": None,
-    "provIni_t1": None, "provCon_t1": None, "provRev_t1": None, "provCas_t1": None, "provBal_t1": None,
-    "provIni_t": None, "provCon_t": None, "provRev_t": None, "provCas_t": None, "provBal_t": None,
-    # cartera según EEFF — tres ejercicios (no relacionados / relacionados)
-    "eNR_t2": None, "eR_t2": None, "eNR_t1": None, "eR_t1": None, "eNR_t": None, "eR_t": None,
+    # cartera según EEFF — corte actual (no relacionados / relacionados); ancla de la exposición
+    "eNR_t": None, "eR_t": None,
     # política declarada por la entidad (tasa % por banda, opcional)
     **{k: None for k in _POL_KEYS},
 }
@@ -103,15 +122,7 @@ ETIQUETAS_PARAM = {
     "fT": "Factor prospectivo — terceros", "fR": "Factor prospectivo — relacionadas",
     "matDesempeno": "Materialidad de desempeño", "umbralIndividual": "Umbral de evaluación individual",
     "castiga": "¿La entidad castiga cartera? (Sí/No)", "trasladoJuridico": "Día de traslado a gestión jurídica",
-    "provIni_t2": "Provisión inicial (t-2)", "provCon_t2": "Constitución (t-2)", "provRev_t2": "Reversión (t-2)",
-    "provCas_t2": "Castigos (t-2)", "provBal_t2": "Saldo según balance (t-2)",
-    "provIni_t1": "Provisión inicial (t-1)", "provCon_t1": "Constitución (t-1)", "provRev_t1": "Reversión (t-1)",
-    "provCas_t1": "Castigos (t-1)", "provBal_t1": "Saldo según balance (t-1)",
-    "provIni_t": "Provisión inicial (t)", "provCon_t": "Constitución (t)", "provRev_t": "Reversión (t)",
-    "provCas_t": "Castigos (t)", "provBal_t": "Saldo según balance (t)",
-    "eNR_t2": "Cartera EEFF no relacionados (t-2)", "eR_t2": "Cartera EEFF relacionados (t-2)",
-    "eNR_t1": "Cartera EEFF no relacionados (t-1)", "eR_t1": "Cartera EEFF relacionados (t-1)",
-    "eNR_t": "Cartera EEFF no relacionados (t)", "eR_t": "Cartera EEFF relacionados (t)",
+    "eNR_t": "Cartera EEFF no relacionados (corte actual)", "eR_t": "Cartera EEFF relacionados (corte actual)",
     **{f"pol_{b['k']}": f"Política declarada · {b['n']} (%)" for b in BANDAS},
 }
 
@@ -204,6 +215,33 @@ def _p(p, k):
     return 0.0 if v is None else float(v)
 
 
+def _leer_provision(filas: list) -> list:
+    """Anexo inicial de la provisión (sumaria): código, descripción, saldo anterior y actual."""
+    out = []
+    for f in filas or []:
+        cod = str(f.get("codigo", "") or "").strip()
+        desc = str(f.get("descripcion", "") or "").strip()
+        ant = a_num(f.get("saldo_anterior"))
+        act = a_num(f.get("saldo_actual"))
+        if not cod and not desc and ant is None and act is None:
+            continue
+        out.append({"codigo": cod, "descripcion": desc or "(sin descripción)",
+                    "anterior": 0.0 if ant is None else float(ant),
+                    "actual": 0.0 if act is None else float(act), "_row": f.get("_row")})
+    return out
+
+
+def _sumar_mayor(filas: list) -> dict:
+    """Suma el movimiento del mayor de un ejercicio (constitución, reversión, castigos).
+    Mayor opcional: sin filas → todo en cero (sin movimiento)."""
+    con = rev = cas = 0.0
+    for f in filas or []:
+        con += a_num(f.get("constitucion")) or 0.0
+        rev += a_num(f.get("reversion")) or 0.0
+        cas += a_num(f.get("castigos")) or 0.0
+    return {"con": con, "rev": rev, "cas": cas}
+
+
 def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     p = {**PARAMETROS, **{k: v for k, v in (parametros or {}).items() if v is not None and v != ""}}
     corte_t = a_fecha(corte)
@@ -212,6 +250,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if not datasets.get("cartera_t2") or not datasets.get("cartera_t1") or not datasets.get("cartera_t"):
         raise ValueError("Cargue los tres análisis de antigüedad de cartera (t-2, t-1 y t). "
                          "Sin tres cierres no existe una cohorte con ventana completa de 24 meses.")
+    if not datasets.get("provision"):
+        raise ValueError("Cargue el anexo inicial de la provisión (sumaria con el saldo del año anterior "
+                         "y el actual) para medir el ajuste.")
     corte_t1 = _hace_n_anios(corte_t, 1)
     corte_t2 = _hace_n_anios(corte_t, 2)
     rel_key = str(p.get("relKey") or "RELACIONAD").upper()
@@ -299,15 +340,20 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         pce_b = sum(mm["pce"] for mm in matriz if mm["banda"] == b)
         pol_rows.append({"banda": b, "exp": e, "tasa": r, "prov": pv, "pce": pce_b, "dif": pce_b - pv})
 
-    # movimiento de la provisión
+    # anexo inicial de la provisión (sumaria): saldo del año anterior y el actual
+    prov_sumaria = _leer_provision(datasets.get("provision"))
+    prov_ini = sum(x["anterior"] for x in prov_sumaria)
+    prov_reg = sum(x["actual"] for x in prov_sumaria)
+
+    # movimiento de la provisión — mayores opcionales (sin ellos → sin movimiento)
     may = []
-    for suf, corte_y in (("t2", corte_t2), ("t1", corte_t1), ("t", corte_t)):
-        ini, con, rev, cas = _p(p, f"provIni_{suf}"), _p(p, f"provCon_{suf}"), _p(p, f"provRev_{suf}"), _p(p, f"provCas_{suf}")
-        bal = _p(p, f"provBal_{suf}")
-        may.append({"suf": suf, "ini": ini, "con": con, "rev": rev, "cas": cas, "bal": bal, "fin": ini + con - rev - cas})
-    prov_reg = may[2]["bal"] or may[2]["fin"]
+    for suf in ("t2", "t1", "t"):
+        mv = _sumar_mayor(datasets.get(f"mayor_{suf}"))
+        may.append({"suf": suf, "con": mv["con"], "rev": mv["rev"], "cas": mv["cas"]})
     cargo_acum = sum(mmm["con"] for mmm in may)
+    rev_acum = sum(mmm["rev"] for mmm in may)
     cast_acum = sum(mmm["cas"] for mmm in may)
+    fin_mov = prov_ini + cargo_acum - rev_acum - cast_acum   # cierre según el movimiento
     cohorte_base = sum(co[s][b]["e"] for s in SEG for b in bn)
     tasa_castigo = cast_acum / cohorte_base if cohorte_base > 0 else 0.0
 
@@ -354,9 +400,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         ex.append(problema("W-SIN-ANCLA", "No se informó la cartera según EEFF del corte: el recálculo NO está "
                            "conciliado con la contabilidad (anclado = falso).", 0))
 
-    # Hallazgos CCCEER (los 8 disparadores del artefacto)
-    hallazgos = _hallazgos(may, cargo_acum, cast_acum, pol_rows, pce_total, pol_tot, baja, tot_exp, umbral,
-                           tasa_def, ff, tasa, bn, str(p.get("castiga") or ""), (d2, d1, dt))
+    # Hallazgos CCCEER (los disparadores del artefacto)
+    hallazgos = _hallazgos(prov_ini, prov_reg, fin_mov, cargo_acum, cast_acum, pol_rows, pce_total, pol_tot,
+                           baja, tot_exp, umbral, tasa_def, ff, tasa, bn, str(p.get("castiga") or ""), (d2, d1, dt))
     for h in hallazgos:
         importe = h.get("importe", 0)
         ex.append(problema(h["code"], f"{h['titulo']} (riesgo {h['riesgo'].lower()}). {h['condicion']}", importe))
@@ -383,7 +429,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         "bandas": bandas, "bn": bn, "umbral": umbral, "traza": traza, "anchor": anchor,
         "factorAnclaje": factor_anclaje, "expFileSeg": exp_file_seg,
         "matriz": matriz, "cohorte": co, "exp": exp, "expFile": exp_file, "tasa": tasa,
-        "polRows": pol_rows, "polTot": pol_tot, "may": may, "provReg": prov_reg,
+        "polRows": pol_rows, "polTot": pol_tot, "may": may, "provReg": prov_reg, "provIni": prov_ini,
+        "provSumaria": prov_sumaria, "revAcum": rev_acum, "finMov": fin_mov,
         "cargoAcum": cargo_acum, "castAcum": cast_acum, "cohorteBase": cohorte_base, "tasaCastigo": tasa_castigo,
         "baja": baja, "totFile": tot_file, "totExp": tot_exp, "eNR": e_nr, "eR": e_r, "factores": ff,
         "cartera_t2": d2["rows"], "cartera_t1": d1["rows"], "hallazgos": hallazgos, "parametros": p,
@@ -393,11 +440,11 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             "exceptions": ex, "schedule": [], "detalle": detalle}
 
 
-def _hallazgos(may, cargo_acum, cast_acum, pol_rows, pce_total, pol_tot, baja, tot_exp, umbral,
+def _hallazgos(prov_ini, prov_reg, fin_mov, cargo_acum, cast_acum, pol_rows, pce_total, pol_tot, baja, tot_exp, umbral,
                tasa_def, ff, tasa, bn, castiga, dups) -> list:
-    """Los ocho hallazgos CCCEER del artefacto, con sus mismos disparadores."""
+    """Los hallazgos CCCEER del artefacto, con sus mismos disparadores."""
     H = []
-    if cargo_acum == 0 and any(mmm["ini"] > 0 for mmm in may):
+    if cargo_acum == 0 and prov_ini > 0:
         H.append({"code": "H-PROV-ESTATICA", "titulo": "Provisión sin movimiento por estimación", "riesgo": "Alto",
                   "condicion": f"El mayor de la provisión no registra constitución con cargo a resultados en los tres "
                   f"ejercicios; el único movimiento fue un castigo de {money(cast_acum)}.",
@@ -450,17 +497,17 @@ def _hallazgos(may, cargo_acum, cast_acum, pol_rows, pce_total, pol_tot, baja, t
                   "efecto": "Riesgo de estimación incorrecta y de revelación insuficiente.",
                   "recomendacion": "Segmentar el análisis y evaluar individualmente los saldos con partes relacionadas.",
                   "importe": 0})
-    for mmm in may:
-        if mmm["bal"] and abs(mmm["fin"] - mmm["bal"]) > 0.5:
-            H.append({"code": "H-NOTA-INCONSISTENTE", "titulo": f"Inconsistencia en el movimiento de la provisión ({mmm['suf']})",
-                      "riesgo": "Alto",
-                      "condicion": f"El movimiento arroja un saldo final de {money(mmm['fin'])} y el balance presenta "
-                      f"{money(mmm['bal'])}; diferencia de {money(mmm['fin'] - mmm['bal'])}.",
-                      "criterio": "NIC 1: las notas deben ser consistentes con los importes de los estados principales.",
-                      "causa": "Ausencia de control de cuadre entre el movimiento de la provisión y el saldo contabilizado.",
-                      "efecto": "Revelación errónea del movimiento del ejercicio.",
-                      "recomendacion": "Establecer un control de cuadre antes de la emisión.",
-                      "importe": 0})
+    if abs(fin_mov - prov_reg) > 0.5:
+        H.append({"code": "H-NOTA-INCONSISTENTE", "titulo": "El movimiento de la provisión no explica el saldo registrado",
+                  "riesgo": "Alto",
+                  "condicion": f"La provisión del año anterior ({money(prov_ini)}) más el movimiento de los mayores arroja "
+                  f"{money(fin_mov)}, pero el anexo inicial registra un saldo actual de {money(prov_reg)}; "
+                  f"diferencia de {money(fin_mov - prov_reg)}.",
+                  "criterio": "NIC 1: la información de las notas debe ser consistente con los importes de los estados principales.",
+                  "causa": "Falta movimiento (no se cargaron los mayores) o el movimiento no cuadra con el cambio del saldo.",
+                  "efecto": "El cambio de la provisión no queda explicado por el movimiento del ejercicio.",
+                  "recomendacion": "Cargar el mayor de la provisión o conciliar el movimiento con el saldo del balance.",
+                  "importe": 0})
     dd = [et for et, x in (("t-2", dups[0]), ("t-1", dups[1]), ("t", dups[2])) if x["dup"] > 0]
     if dd:
         H.append({"code": "H-INTEGRIDAD-PT", "titulo": "Deficiencias de integridad en los papeles de trabajo de la entidad",
@@ -491,6 +538,7 @@ CEDULAS = [
     ("08_Conciliacion", "Controles y conciliación"), ("09_Movimiento", "Movimiento de la provisión"),
     ("10_Hallazgos", "Hallazgos (CCCEER)"), ("11_Problemas", "Problemas encontrados"),
     ("12_Detalle", "Detalle de cartera al corte"), ("13_Cohorte_t2", "Cohorte del corte t-2"),
+    ("14_Anexo_inicial", "Anexo inicial de la provisión"), ("15_Movimiento_mayores", "Movimiento del mayor por ejercicio"),
 ]
 
 P = ref("02_Parametros")
@@ -542,17 +590,14 @@ EXPLICA = {
         "Diferencia": "Resta la provisión según la política de la pérdida esperada recalculada.",
     },
     "08_Conciliacion": {"Importe": ("Cada control cuadra su origen: C1 compara la matriz (hoja 05) con la cartera EEFF "
-                                    "(hoja 02); C3 recompone el movimiento de la provisión (hoja 09) por ejercicio; la "
-                                    "trazabilidad y la tasa de castigo remiten a su cálculo.")},
-    "09_Movimiento": {
-        "Saldo inicial": "Trae la provisión inicial del ejercicio de la hoja 02 (Parámetros).",
-        "Constitución": "Trae la constitución del ejercicio (cargo a resultados) de la hoja 02 (Parámetros).",
-        "Reversión": "Trae la reversión del ejercicio de la hoja 02 (Parámetros).",
-        "Castigos": "Trae los castigos del ejercicio de la hoja 02 (Parámetros).",
-        "Saldo final calculado": ("Parte de la provisión inicial, suma la constitución y resta la reversión y los "
-                                  "castigos del ejercicio."),
-        "Saldo según balance": "Trae el saldo de la provisión según el balance del ejercicio de la hoja 02 (Parámetros).",
-    },
+                                    "(hoja 02); C3 confronta la provisión según el movimiento con la registrada (hoja 09); "
+                                    "la trazabilidad y la tasa de castigo remiten a su cálculo.")},
+    "09_Movimiento": {"Importe": ("Reconstruye la provisión: parte del saldo del año anterior del anexo inicial (hoja 14), "
+                                  "suma la constitución y resta la reversión y los castigos del movimiento del mayor "
+                                  "(hoja 15), y confronta el resultado con la provisión registrada del año actual "
+                                  "(hoja 14). Sin mayores cargados, el movimiento es cero y el saldo no cambia.")},
+    "14_Anexo_inicial": {},
+    "15_Movimiento_mayores": {},
     "12_Detalle": {
         "Días de mora": "Resta la fecha de vencimiento de la fecha de corte (hoja 02); cero o menos aún no vence.",
         "Banda": "Clasifica la factura por sus días de mora en las bandas definidas.",
@@ -624,14 +669,6 @@ def hojas(res: dict) -> list[dict]:
         if v is not None:
             fila_pol[b["n"]] = FILA0 + len(parametros)
             parametros.append([f"Política declarada · {b['n']} (%)", float(v), "Política de la entidad (B.2)"])
-    # movimiento de la provisión (parámetros del auditor; las cédulas los referencian por fórmula)
-    mov_fila = {}
-    _et = {"t2": "t-2", "t1": "t-1", "t": "t"}
-    for suf in ("t2", "t1", "t"):
-        for k, lab in (("provIni", "Provisión inicial"), ("provCon", "Constitución"), ("provRev", "Reversión"),
-                       ("provCas", "Castigos"), ("provBal", "Saldo según balance")):
-            mov_fila[(suf, k)] = FILA0 + len(parametros)
-            parametros.append([f"{lab} de la provisión ({_et[suf]})", _p(p, f"{k}_{suf}"), "Mayor de la provisión"])
 
     # 13 · Cohorte t-2 (población de la ventana)
     coh2 = []
@@ -714,40 +751,56 @@ def hojas(res: dict) -> list[dict]:
                             fx(f"INDEX({BAN}$C${FILA0}:$C${fin_ban},MATCH(A{fila},{BAN}$A${FILA0}:$A${fin_ban},0))", n2(pr["pce"])),
                             fx(f"E{fila}-D{fila}", n2(pr["dif"]))])
 
-    # 09 · Movimiento de la provisión
-    movimiento = []
-    etq = {"t2": "Ejercicio t-2", "t1": "Ejercicio t-1", "t": "Ejercicio t"}
-    for i, mmm in enumerate(d["may"]):
-        fila, suf = FILA0 + i, mmm["suf"]
-        movimiento.append([etq[suf],
-                           fx(f"{P}$B${mov_fila[(suf, 'provIni')]}", n2(mmm["ini"])),
-                           fx(f"{P}$B${mov_fila[(suf, 'provCon')]}", n2(mmm["con"])),
-                           fx(f"{P}$B${mov_fila[(suf, 'provRev')]}", n2(mmm["rev"])),
-                           fx(f"{P}$B${mov_fila[(suf, 'provCas')]}", n2(mmm["cas"])),
-                           fx(f"B{fila}+C{fila}-D{fila}-E{fila}", n2(mmm["fin"])),
-                           fx(f"{P}$B${mov_fila[(suf, 'provBal')]}", n2(mmm["bal"]))])
+    # 14 · Anexo inicial de la provisión (sumaria): código, descripción, saldo anterior y actual
+    prov = d["provSumaria"]
+    npv = max(len(prov), 1)
+    anexo = [[x["codigo"], x["descripcion"], n2(x["anterior"]), n2(x["actual"])] for x in prov] \
+        or [["", "(sin datos)", n2(0), n2(0)]]
+    fin_pv = FILA0 + npv - 1
+    ANEXO = ref("14_Anexo_inicial")
+    anexo_total = ["TOTAL", "", suma("C", fin_pv, d["provIni"]), suma("D", fin_pv, d["provReg"])]
+    fila_tot_pv = FILA0 + npv            # fila de la fila TOTAL del anexo
+    ref_ini = f"{ANEXO}C{fila_tot_pv}"   # provisión del año anterior (TOTAL)
+    ref_reg = f"{ANEXO}D{fila_tot_pv}"   # provisión del año actual = registrada (TOTAL)
+
+    # 15 · Movimiento del mayor de la provisión por ejercicio (opcional; sin mayores → sin movimiento)
+    etq = {"t2": "Año 1 (t-2)", "t1": "Año 2 (t-1)", "t": "Año 3 (t)"}
+    mayores = [[etq[mmm["suf"]], n2(mmm["con"]), n2(mmm["rev"]), n2(mmm["cas"])] for mmm in d["may"]]
+    fin_may = FILA0 + len(mayores) - 1
+    MAY = ref("15_Movimiento_mayores")
+    mayores_total = ["TOTAL", suma("B", fin_may, d["cargoAcum"]), suma("C", fin_may, d["revAcum"]),
+                     suma("D", fin_may, d["castAcum"])]
+    fila_tot_may = FILA0 + len(mayores)
+    con_may, rev_may, cas_may = (f"{MAY}B{fila_tot_may}", f"{MAY}C{fila_tot_may}", f"{MAY}D{fila_tot_may}")
+
+    # 09 · Movimiento de la provisión (reconciliación: año anterior + movimiento = registrada)
+    movimiento = [
+        ["Provisión al año anterior", fx(ref_ini, n2(d["provIni"]))],
+        ["(+) Constitución del período", fx(con_may, n2(d["cargoAcum"]))],
+        ["(−) Reversión del período", fx(rev_may, n2(d["revAcum"]))],
+        ["(−) Castigos del período", fx(cas_may, n2(d["castAcum"]))],
+        ["Provisión según el movimiento", fx(f"B{FILA0}+B{FILA0 + 1}-B{FILA0 + 2}-B{FILA0 + 3}", n2(d["finMov"]))],
+        ["Provisión registrada (año actual)", fx(ref_reg, n2(d["provReg"]))],
+        ["Diferencia (movimiento − registrada)", fx(f"B{FILA0 + 4}-B{FILA0 + 5}", n2(d["finMov"] - d["provReg"]))],
+    ]
+    MOV = ref("09_Movimiento")
 
     # 08 · Controles y conciliación
-    MOV = ref("09_Movimiento")
-    r_may_t = FILA0 + 2  # fila del ejercicio t en 09_Movimiento
     con_pce = f"SUM({_rango(MAT, 'I', nmat)})"
     con_cart = f"SUM({_rango(MAT, 'D', nmat)})"
     cont_ref = f"({P}$B${PARFILA['eNR_t']}+{P}$B${PARFILA['eR_t']})" if d["anchor"] else con_cart
     cont_val = (d["eNR"] + d["eR"]) if d["anchor"] else t["cartera"]
-    cas_rango = _rango(MOV, "E", 3)
     coh_e_rango = _rango(COH, "E", nmat)
     conciliacion = [
         ["C1 · Σ matriz − cartera contabilizada (debe ser 0)",
          fx(f"{con_cart}-{cont_ref}", n2(t["cartera"] - cont_val))],
-        ["C3 · Movimiento provisión t (ini+con−rev−cas−balance)",
-         fx(f"{MOV}B{r_may_t}+{MOV}C{r_may_t}-{MOV}D{r_may_t}-{MOV}E{r_may_t}-{MOV}G{r_may_t}",
-            n2(d["may"][2]["fin"] - d["may"][2]["bal"]))],
+        ["C3 · Movimiento vs. provisión registrada (debe ser 0)",
+         fx(f"{MOV}B{FILA0 + 4}-{MOV}B{FILA0 + 5}", n2(d["finMov"] - d["provReg"]))],
         ["Pérdida crediticia esperada total", fx(con_pce, n2(t["pce"]))],
-        ["Provisión registrada al cierre",
-         fx(f"{MOV}G{r_may_t}", n2(d["provReg"])) if d["may"][2]["bal"] else fx(f"{MOV}F{r_may_t}", n2(d["provReg"]))],
-        ["Ajuste propuesto (PCE − provisión)", fx(f"{con_pce}-B{FILA0 + 3}", n2(t["ajuste"]))],
+        ["Provisión registrada al cierre", fx(ref_reg, n2(d["provReg"]))],
+        ["Ajuste propuesto (PCE − provisión)", fx(f"{con_pce}-{ref_reg}", n2(t["ajuste"]))],
         ["Tasa de castigo sobre la cohorte",
-         fx(f'IF(SUM({coh_e_rango})=0,"",SUM({cas_rango})/SUM({coh_e_rango}))', d["tasaCastigo"])],
+         fx(f'IF(SUM({coh_e_rango})=0,"",{MAY}D{fila_tot_may}/SUM({coh_e_rango}))', d["tasaCastigo"])],
         ["Trazabilidad de documentos t-2 → t (informativa)",
          fx(f'IF(COUNTA({_rango(COHS, "A", n2c)})=0,"",COUNTIF({_rango(COHS, "I", n2c)},">0")/COUNTA({_rango(COHS, "A", n2c)}))',
             (sum(1 for x in d2 if saldo_t.get(x["doc"], 0.0) > 0) / len(d2)) if d2 else None)],
@@ -798,9 +851,8 @@ def hojas(res: dict) -> list[dict]:
              explica=EXPLICA["07_Comparacion"]),
         hoja("08_Conciliacion", "Controles y conciliación", [["Control", "t"], ["Importe", "n"]], conciliacion,
              explica=EXPLICA["08_Conciliacion"]),
-        hoja("09_Movimiento", "Movimiento de la provisión",
-             [["Ejercicio", "t"], ["Saldo inicial", "n"], ["Constitución", "n"], ["Reversión", "n"], ["Castigos", "n"],
-              ["Saldo final calculado", "n"], ["Saldo según balance", "n"]], movimiento, explica=EXPLICA["09_Movimiento"]),
+        hoja("09_Movimiento", "Movimiento de la provisión", [["Concepto", "t"], ["Importe", "n"]], movimiento,
+             explica=EXPLICA["09_Movimiento"]),
         hoja("10_Hallazgos", "Hallazgos (CCCEER)", hall_cols, hall, colores=["Riesgo"]),
         hoja("11_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
@@ -814,6 +866,12 @@ def hojas(res: dict) -> list[dict]:
              ["TOTAL", "", "", "", None, "", "", suma("H", fin_coh, sum(x["saldo"] for x in d2)),
               suma("I", fin_coh, sum(saldo_t.get(x["doc"], 0.0) for x in d2))] if d2 else None,
              explica=EXPLICA["13_Cohorte_t2"]),
+        hoja("14_Anexo_inicial", "Anexo inicial de la provisión",
+             [["Código", "t"], ["Descripción", "t"], ["Saldo año anterior", "n"], ["Saldo año actual", "n"]], anexo,
+             anexo_total, explica=EXPLICA["14_Anexo_inicial"]),
+        hoja("15_Movimiento_mayores", "Movimiento del mayor por ejercicio",
+             [["Ejercicio", "t"], ["Constitución", "n"], ["Reversión", "n"], ["Castigos", "n"]], mayores,
+             mayores_total, explica=EXPLICA["15_Movimiento_mayores"]),
     ]
 
 
@@ -832,7 +890,7 @@ def definicion() -> dict:
     cartera = ("Una fila por documento: N° de documento, cliente, tipo (relacionadas), fecha de vencimiento y saldo; "
                "a nivel de documento, nunca consolidado por cliente; sin filas de total.")
     return {
-        "name": "Pérdida crediticia esperada por cohortes (NIIF 9)",
+        "name": "Pérdida crediticia esperada (NIIF 9)",
         "area": "Cuentas por cobrar",
         "processor": "pce_cohortes_niif9",
         "frameworks": ["NIIF completas"],
@@ -891,16 +949,26 @@ def definicion() -> dict:
              "evidence": "Matriz y detalle", "criterion": "Ajuste cuantificado", "source": "NIIF 9 5.5.15, B5.5.35"},
         ],
         "requests": [
-            req("RQ-001", "Análisis de antigüedad de cartera al corte t-2", "cartera_t2", "ECL-03",
+            req("RQ-001", "Cartera — Año 1 (t-2, el más antiguo)", "cartera_t2", "ECL-03",
                 "Cohorte inicial de la ventana de 24 meses", content=cartera),
-            req("RQ-002", "Análisis de antigüedad de cartera al corte t-1", "cartera_t1", "ECL-02",
+            req("RQ-002", "Cartera — Año 2 (t-1)", "cartera_t1", "ECL-02",
                 "Referencia de estabilidad de la cohorte", content=cartera),
-            req("RQ-003", "Análisis de antigüedad de cartera al corte t (actual)", "cartera_t", "ECL-01",
+            req("RQ-003", "Cartera — Año 3 (t, corte actual)", "cartera_t", "ECL-01",
                 "Población a medir; se ancla y concilia", content=cartera),
-            req("RQ-004", "Movimiento de la provisión de incobrables (tres ejercicios) y cartera según EEFF", None, "ECL-01",
-                "Se digita en los parámetros: anclaje a la contabilidad y conciliación del movimiento (incluye castigos por año)",
-                formats=("xlsx", "pdf"), use="soporte"),
-            req("RQ-005", "Información prospectiva con fuente y política de crédito y cobranza", None, "ECL-05",
+            req("RQ-004", "Anexo inicial de la provisión (sumaria)", "provision", "ECL-06",
+                "Saldo de la provisión del año anterior y del actual → provisión inicial, registrada y ajuste",
+                content="Una sumaria: Código · Descripción · Saldo año anterior · Saldo año actual (una fila por cuenta de provisión)."),
+            req("RQ-005", "Mayor de la provisión — Año 1 (t-2)", "mayor_t2", "ECL-04",
+                "Movimiento del ejercicio (constitución, reversión, castigos). Opcional: sin él, sin movimiento",
+                required=False,
+                content="Una tabla: Concepto · Constitución · Reversión · Castigos (una o varias filas; se suman)."),
+            req("RQ-006", "Mayor de la provisión — Año 2 (t-1)", "mayor_t1", "ECL-04",
+                "Movimiento del ejercicio. Opcional: sin él, sin movimiento", required=False,
+                content="Una tabla: Concepto · Constitución · Reversión · Castigos."),
+            req("RQ-007", "Mayor de la provisión — Año 3 (t)", "mayor_t", "ECL-04",
+                "Movimiento del ejercicio. Opcional: sin él, sin movimiento", required=False,
+                content="Una tabla: Concepto · Constitución · Reversión · Castigos."),
+            req("RQ-008", "Información prospectiva con fuente y política de crédito y cobranza", None, "ECL-05",
                 "Sustento del factor prospectivo y de la política declarada", formats=("pdf", "docx"), use="soporte", required=False),
         ],
     }
@@ -928,14 +996,15 @@ def _ej(doc, cliente, tipo, vence, saldo):
 #   G1 (5000) en «181 a 360» NO-REL → PCE 5000 × 15 % = 750; G2 (4000) «0 a 30» sin tasa → 0.
 #   PCE total = 750. Cartera al corte = 300 + 2000 + 5000 + 4000 = 11.300. Provisión 1000 →
 #   ajuste 750 − 1000 = −250.
+def _mov(concepto, con=0, rev=0, cas=0):
+    return {"concepto": concepto, "constitucion": con, "reversion": rev, "castigos": cas, "_row": 2}
+
+
 EJEMPLO = {
     "corte": "2025-12-31",
     "parametros": {
         "umbral": 730, "desdoblar": "No", "relKey": "RELACIONAD", "fT": 1.0, "fR": 1.0, "castiga": "No",
-        "eNR_t": 9300, "eR_t": 2000,
-        "provIni_t2": 1000, "provIni_t1": 1000, "provBal_t1": 1200,
-        "provIni_t": 1000, "provBal_t": 1000,
-        "pol_t360": 5,
+        "eNR_t": 9300, "eR_t": 2000, "pol_t360": 5,
     },
     "datasets": {
         "cartera_t2": [
@@ -954,6 +1023,15 @@ EJEMPLO = {
             _ej("G1", "Cliente E", "NO-RELACIONADO", "2025-06-30", "5000"),
             _ej("G2", "Cliente F", "NO-RELACIONADO", "2025-12-15", "4000"),
         ],
+        # Anexo inicial de la provisión (sumaria): saldo del año anterior y el actual.
+        "provision": [
+            {"codigo": "1.1.03.02", "descripcion": "(-) Provisión cuentas incobrables",
+             "saldo_anterior": "1000", "saldo_actual": "1000", "_row": 2},
+        ],
+        # Mayores opcionales: sin movimiento en el ejemplo (fin = saldo anterior = saldo actual).
+        "mayor_t2": [_mov("Sin movimiento en el ejercicio")],
+        "mayor_t1": [_mov("Sin movimiento en el ejercicio")],
+        "mayor_t": [_mov("Sin movimiento en el ejercicio")],
     },
 }
 ESCENARIOS = [("base", EJEMPLO["datasets"], EJEMPLO["parametros"], EJEMPLO["corte"])]
