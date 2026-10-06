@@ -340,7 +340,10 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
     try {
       // Cada botón trae su propio HTML autónomo con SOLO esa sección (Materialidad,
       // Riesgos, …). Sin sección (p. ej. el tablero), trae el papel completo.
-      const bytes = await api.cicloBajarLibro(prueba.id, "html", seccion || null);
+      // Tablero LIVIANO (adjuntos=false): no incrusta Excel/Word/PowerPoint → abre rápido.
+      // Sus botones de descarga le piden a esta vista que los genere al momento (ver el
+      // listener de «message» más abajo).
+      const bytes = await api.cicloBajarLibro(prueba.id, "html", seccion || null, false);
       const url = URL.createObjectURL(new Blob([bytes], { type: "text/html;charset=utf-8" }));
       win.location = url;
       setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -382,6 +385,28 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
       setError(e.message || String(e));
     }
   }
+
+  // Puente de descargas del tablero liviano: el HTML del tablero se abre sin los Office
+  // incrustados (carga rápido) y, al pulsar un formato en su menú «Descargas», le pide a
+  // ESTA vista (su `window.opener`) que lo genere y descargue al momento. Mapeamos el
+  // formato pedido al MIME correcto. Solo actúa sobre la prueba ya procesada.
+  useEffect(() => {
+    const MIMES = {
+      xlsx: XLSX,
+      docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      csv: "application/zip",
+    };
+    const onMensaje = (e) => {
+      const msg = e && e.data;
+      if (!msg || msg.tipo !== "auditia-descargar-papel") return;
+      const f = String(msg.formato || "");
+      if (MIMES[f]) bajarFormato(f, MIMES[f]);
+    };
+    window.addEventListener("message", onMensaje);
+    return () => window.removeEventListener("message", onMensaje);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prueba.id, prueba.version, d.name]);
 
   // Corrige la «Visita de auditoría» (Preliminar/Final) sin reiniciar la prueba:
   // actualiza las cabeceras de período del HTML y el prorrateo del Excel, y re-genera
