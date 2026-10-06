@@ -128,6 +128,19 @@ describe("requerimiento y documentación", () => {
     expect(mapeoSugerido(["x"], campos)).toEqual({});
   });
 
+  it("tolera texto extra en el encabezado (p. ej. una fecha): «Saldo anterior 31-12-2025»", () => {
+    const campos = [
+      { key: "id", label: "Código de cuenta" },
+      { key: "saldo_anterior", label: "Saldo anterior (cierre previo)", aliases: ["saldo anterior"] },
+      { key: "saldo_libros", label: "Saldo según libros", aliases: ["saldo actual"] },
+    ];
+    const headers = ["Cuenta", "Saldo anterior 31-12-2025", "Saldo actual  31-08-2026"];
+    // El código exacto por alias no existe aquí; «Cuenta» no es «Código de cuenta», así que id queda sin mapear.
+    const mapa = mapeoSugerido(headers, campos);
+    expect(mapa.saldo_anterior).toBe(1);   // empieza con «saldo anterior»
+    expect(mapa.saldo_libros).toBe(2);     // empieza con «saldo actual»
+  });
+
   it("resume los errores de validación con su fila", () => {
     expect(erroresLegibles({ errors: [{ row: 8, message: "Cantidad: número inválido." }] })).toEqual(["Fila 8 · Cantidad: número inválido."]);
   });

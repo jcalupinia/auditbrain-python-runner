@@ -36,13 +36,31 @@ def _normal(t) -> str:
 def mapeo_sugerido(encabezados, campos) -> dict:
     """Réplica de cicloLogic.js::mapeoSugerido."""
     cols = [_normal(c) for c in encabezados]
-    mapa = {}
+    mapa, usados = {}, set()
+    # Pase 1: coincidencia EXACTA del encabezado normalizado con un alias (máxima prioridad).
     for f in campos:
         nombres = {_normal(x) for x in [f["label"], f["key"], *f.get("aliases", [])]}
         for i, c in enumerate(cols):
-            if c and c in nombres:
+            if c and i not in usados and c in nombres:
                 mapa[f["key"]] = i
+                usados.add(i)
                 break
+    # Pase 2: el encabezado EMPIEZA con un alias específico (≥ 6 car.). Tolera texto extra
+    # en el encabezado (p. ej. una fecha: «Saldo anterior 31-12-2025» → «saldo anterior»).
+    for f in campos:
+        if f["key"] in mapa:
+            continue
+        nombres = [a for a in {_normal(x) for x in [f["label"], f["key"], *f.get("aliases", [])]} if len(a) >= 6]
+        mejor, mejor_len = -1, 0
+        for i, c in enumerate(cols):
+            if not c or i in usados:
+                continue
+            for a in nombres:
+                if c.startswith(a) and len(a) > mejor_len:
+                    mejor, mejor_len = i, len(a)
+        if mejor >= 0:
+            mapa[f["key"]] = mejor
+            usados.add(mejor)
     return mapa
 
 
