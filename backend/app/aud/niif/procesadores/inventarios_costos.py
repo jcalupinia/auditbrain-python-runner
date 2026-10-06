@@ -118,8 +118,22 @@ CAMPOS = {
         campo("haber", "Haber", "number", requerido=False, alias=("credito", "crédito", "abono", "abonos"), ejemplo=0),
         campo("saldo", "Saldo", "number", requerido=False, alias=("saldo final", "saldo cuenta", "saldo contable"), ejemplo=10363.22),
     ],
+    # Inventario valorado del ejercicio ANTERIOR (cierre auditado del año previo), para la comparación
+    # año a año: existencia y valor por ítem. El ítem que existe en ambos años con la misma cantidad y el
+    # mismo valor es «inventario sin movimiento» (no rotó) y es un indicio de obsolescencia o lenta rotación.
+    "inventario_anterior": [
+        campo("id", "Código del ítem", alias=("codigo", "item", "sku", "referencia", "cod item"), ejemplo="A-001"),
+        campo("descripcion", "Descripción", requerido=False, alias=("detalle", "nombre", "producto", "articulo"), ejemplo="Tornillo 1/4"),
+        campo("cant_kardex", "Cantidad según kardex (año anterior)", "number",
+              alias=("cantidad", "existencia", "saldo unidades", "stock", "existencia anterior"), ejemplo=1000),
+        campo("costo_unitario", "Costo unitario (año anterior)", "number", requerido=False,
+              alias=("costo", "costo promedio", "cu", "precio costo"), ejemplo=2.5),
+        campo("valor_kardex", "Valor según kardex (año anterior)", "number",
+              alias=("valor", "costo total", "total", "saldo valor", "valor inventario"), ejemplo=2500),
+    ],
 }
-TIPOS = {"inventario": "inventario", "produccion": "produccion", "movimiento": "movimiento", "corte": "corte", "mayor": "mayor"}
+TIPOS = {"inventario": "inventario", "produccion": "produccion", "movimiento": "movimiento", "corte": "corte", "mayor": "mayor",
+         "inventario_anterior": "inventario_anterior"}
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "inventario"
 CONTROL = "valor_kardex"
@@ -356,6 +370,50 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     if mayor_del_libro and p["saldoMayor"] is None:
         p["saldoMayor"] = mayor_total
 
+    # Inventario del ejercicio anterior (RQ-012) y comparación año a año. El ítem que existe en ambos
+    # años con la misma cantidad y el mismo valor es «inventario sin movimiento» (no rotó): indicio de
+    # obsolescencia o lenta rotación. Los que ya no están son bajas; los que no estaban antes son nuevos.
+    prev, prev_orden = {}, []
+    for f in datasets.get("inventario_anterior") or []:
+        pid, cant, val = _txt(f.get("id")), a_num(f.get("cant_kardex")), a_num(f.get("valor_kardex"))
+        if pid is None and cant is None and val is None:
+            continue
+        cu = _opt(f.get("costo_unitario"))
+        vk = val if val is not None else ((cant or 0.0) * cu if cu is not None else 0.0)
+        reg = {"id": pid or "(sin código)", "desc": _txt(f.get("descripcion")), "cant": cant or 0.0, "cu": cu, "vk": vk}
+        if reg["id"] not in prev:
+            prev_orden.append(reg["id"])
+        prev[reg["id"]] = reg
+    def _estado_comp(cant_ant, val_ant, cant_act, val_act):
+        # Mismas condiciones que la fórmula de la columna «Estado» de 17_Comparacion.
+        if cant_ant == 0 and cant_act > 0:
+            return "Nueva"
+        if cant_act == 0 and cant_ant > 0:
+            return "Baja"
+        if cant_ant == cant_act and abs(val_ant - val_act) <= 0.005:
+            return "Sin movimiento"
+        return "Varía"
+    hay_anterior = bool(prev)
+    comp = []
+    if hay_anterior:
+        for k, i in enumerate(items):
+            a = prev.get(i["id"])
+            cant_ant, val_ant = (a["cant"], a["vk"]) if a else (0.0, 0.0)
+            estado = _estado_comp(cant_ant, val_ant, i["kx"], i["vk"])
+            comp.append({"id": i["id"], "desc": i["desc"], "cantAnt": cant_ant, "valAnt": val_ant, "cantAct": i["kx"],
+                         "valAct": i["vk"], "estado": estado, "sinMov": estado == "Sin movimiento", "fila": FILA0 + k})
+        presentes = {i["id"] for i in items}
+        for pid in prev_orden:
+            if pid in presentes:
+                continue
+            a = prev[pid]
+            estado = _estado_comp(a["cant"], a["vk"], 0.0, 0.0)
+            comp.append({"id": a["id"], "desc": a["desc"], "cantAnt": a["cant"], "valAnt": a["vk"], "cantAct": 0.0,
+                         "valAct": 0.0, "estado": estado, "sinMov": estado == "Sin movimiento", "fila": None})
+    comp_tot = {"valAnt": round(sum(c["valAnt"] for c in comp), 2), "valAct": round(sum(c["valAct"] for c in comp), 2),
+                "sinMovimiento": round(sum(c["valAct"] for c in comp if c["sinMov"]), 2)}
+    comp_tot["variacion"] = round(comp_tot["valAct"] - comp_tot["valAnt"], 2)
+
     # Totales (mismo orden de suma que Excel).
     S = lambda xs: sum(x for x in xs if x is not None)
     vk_t = S(i["vk"] for i in items)
@@ -483,6 +541,15 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         pr.append(problema("SIN_PROVISION_REGISTRADA", "Ingrese la provisión registrada según el mayor (se toma 0) para medir el ajuste."))
     if abs(t["ajuste"]) > 0.005:
         pr.append(problema("AJUSTE", f"El inventario neto auditado ({m(t['inventarioNeto'])}) difiere del neto en libros ({m(t['libroNeto'])}).", t["ajuste"]))
+    if not hay_anterior:
+        pr.append(problema("SIN_INVENTARIO_ANTERIOR", "No se cargó el inventario del ejercicio anterior: no se compara año a año ni se "
+                           "detecta el inventario sin movimiento."))
+    else:
+        sin_m = [c["id"] for c in comp if c["sinMov"]]
+        if sin_m:
+            pr.append(problema("INVENTARIO_SIN_MOVIMIENTO", f"{len(sin_m)} ítem(s) con la misma cantidad y el mismo valor que el ejercicio "
+                               f"anterior (no rotaron): {lista(sin_m)}. Inventario sin movimiento {m(comp_tot['sinMovimiento'])}; evalúe la "
+                               f"obsolescencia y la lenta rotación ({'PYMES 13.19 y 27.2' if pymes else 'NIC 2.9 y 2.28'}).", comp_tot["sinMovimiento"]))
 
     iso = lambda d: d.isoformat() if isinstance(d, date) else d
     filas = [{"id": i["id"], "descripcion": i["desc"], "bodega": i["bodega"], "cant_kardex": str(i["kx"]),
@@ -506,7 +573,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
             "detalle": {"corte": corte_a.isoformat(), "pymes": pymes, "edicion": edicion_pymes(p), "parametros": p, "tot": t, "conc": conc,
                         "items": [{k: iso(v) for k, v in i.items()} for i in items], "prod": prod, "mov": mov,
                         "cortes": [{k: iso(v) for k, v in c.items()} for c in cortes],
-                        "mayorDelLibro": mayor_del_libro, "mayorTotal": mayor_total, "mayorCuentas": mayor_cuentas}}
+                        "mayorDelLibro": mayor_del_libro, "mayorTotal": mayor_total, "mayorCuentas": mayor_cuentas,
+                        "comp": comp, "compTot": comp_tot, "hayAnterior": hay_anterior}}
 
 
 # --- cédulas con fórmulas ----------------------------------------------------------
@@ -519,6 +587,7 @@ CEDULAS = [
     ("12_Corte", "Prueba de corte"), ("13_Problemas", "Problemas encontrados"),
     ("14_Conclusion", "Indicadores y conclusión"), ("15_Lectura", "Lectura de resultados"),
     ("16_Resumen_obsol", "Inventario y provisión por tramo"),
+    ("17_Comparacion", "Comparación con el ejercicio anterior"),
 ]
 PARK = ["corte", "marco", "obsDias1", "obsPct1", "obsDias2", "obsPct2", "obsDias3", "obsPct3", "saldoMayor", "provisionRegistrada"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -683,6 +752,8 @@ REF_PROBLEMAS = {
     "CORTE": ("12_Corte", "Importe mal cortado", "total"),
     # Inventario neto auditado − neto en libros (01_Resumen).
     "AJUSTE": _concepto("01_Resumen", "Ajuste propuesto (neto)"),
+    # Valor del inventario que no rotó entre años (TOTAL de 17_Comparacion).
+    "INVENTARIO_SIN_MOVIMIENTO": ("17_Comparacion", "Valor sin movimiento", "total"),
 }
 
 
@@ -690,7 +761,8 @@ def hojas(res: dict) -> list[dict]:
     d = res["detalle"]
     p, t, c = d["parametros"], d["tot"], d["conc"]
     its, prod, mov, cor = d["items"], d["prod"], d["mov"], d["cortes"]
-    ni, npd, nm, nc = len(its), len(prod), len(mov), len(cor)
+    comp, comp_tot = d.get("comp") or [], d.get("compTot") or {"valAnt": 0.0, "valAct": 0.0, "variacion": 0.0, "sinMovimiento": 0.0}
+    ni, npd, nm, nc, ncomp = len(its), len(prod), len(mov), len(cor), len(comp)
     pymes = d["pymes"]
     norma = (f"NIIF para las PYMES {d['edicion']} · secciones 13 y 27" if pymes else "NIIF completas · NIC 2")
 
@@ -1038,6 +1110,32 @@ def hojas(res: dict) -> list[dict]:
                               "ítems del tramo, con los mismos umbrales de días sin movimiento de la hoja 02 (Parámetros).",
     }
 
+    # 17 · Comparación con el ejercicio anterior (año a año). Existencia y valor del año anterior son datos
+    # del cliente (valores); el año actual remite al kardex (hoja 03) por fórmula; la variación, el estado y
+    # el «valor sin movimiento» se calculan. «Sin movimiento» = misma cantidad y mismo valor en ambos años.
+    comparacion = []
+    for cp in comp:
+        r = FILA0 + len(comparacion)
+        ea = fx(f"{INV}D{cp['fila']}", cp["cantAct"]) if cp["fila"] else 0.0
+        va = fx(f"{INV}G{cp['fila']}", cp["valAct"]) if cp["fila"] else 0.0
+        pct = "" if cp["valAnt"] == 0 else (cp["valAct"] - cp["valAnt"]) / cp["valAnt"]
+        estado_f = (f'IF(AND(C{r}=0,E{r}>0),"Nueva",IF(AND(E{r}=0,C{r}>0),"Baja",'
+                    f'IF(AND(C{r}=E{r},ABS(D{r}-F{r})<=0.005),"Sin movimiento","Varía")))')
+        comparacion.append([cp["id"], cp["desc"], cp["cantAnt"], cp["valAnt"], ea, va,
+                            fx(f"F{r}-D{r}", cp["valAct"] - cp["valAnt"]),
+                            fx(f'IF(D{r}=0,"",(F{r}-D{r})/D{r})', pct), fx(estado_f, cp["estado"]),
+                            fx(f'IF(I{r}="Sin movimiento",F{r},0)', cp["valAct"] if cp["sinMov"] else 0.0)])
+    ex_comparacion = {
+        "Existencia año actual": "Trae la cantidad del kardex del ítem desde la hoja 03 (Inventario valorado por ítem); cero si el ítem "
+                                 "ya no está en el inventario del año actual (baja).",
+        "Valor año actual": "Trae el valor del kardex del ítem desde la hoja 03 (Inventario valorado por ítem); cero si es una baja.",
+        "Variación en valor": "Valor del año actual menos valor del año anterior: positivo si el ítem creció y negativo si bajó.",
+        "Variación %": "Divide la variación en valor entre el valor del año anterior; en blanco si el ítem no existía el año anterior.",
+        "Estado": "«Nueva» si el ítem no estaba el año anterior, «Baja» si ya no está este año, «Sin movimiento» si tiene la misma "
+                  "cantidad y el mismo valor en ambos años (no rotó) y «Varía» en cualquier otro caso.",
+        "Valor sin movimiento": "Toma el valor del año actual cuando el ítem está «Sin movimiento»; cero en los demás casos. Su total "
+                                "es el inventario que no rotó, indicio de obsolescencia o lenta rotación.",
+    }
     n_ = "n"
     return [
         hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen, explica=ex_resumen),
@@ -1106,6 +1204,13 @@ def hojas(res: dict) -> list[dict]:
         hoja("16_Resumen_obsol", CEDULAS[15][1],
              [["Tramo de obsolescencia", "t"], ["Inventario al costo", n_], ["Provisión estimada", n_]],
              resumen_obs, ["TOTAL", _tot("B", n_tr, tot_costo_obs), _tot("C", n_tr, tot_prov_obs)], explica=ex_resumen_obs),
+        hoja("17_Comparacion", CEDULAS[16][1],
+             [["Código", "t"], ["Descripción", "t"], ["Existencia año anterior", n_], ["Valor año anterior", n_],
+              ["Existencia año actual", n_], ["Valor año actual", n_], ["Variación en valor", n_], ["Variación %", "p"],
+              ["Estado", "t"], ["Valor sin movimiento", n_]],
+             comparacion, ["TOTAL", "", None, _tot("D", ncomp, comp_tot["valAnt"]), None, _tot("F", ncomp, comp_tot["valAct"]),
+                           _tot("G", ncomp, comp_tot["variacion"]), None, "", _tot("J", ncomp, comp_tot["sinMovimiento"])] if ncomp else None,
+             explica=ex_comparacion, colores=["Estado"]),
     ]
 
 
@@ -1212,6 +1317,10 @@ def definicion() -> dict:
                 content="Un asiento por fila de las cuentas de inventario: código de la cuenta, nombre, debe y haber (y saldo si lo trae). "
                         "El saldo contable por cuenta se deriva como Σ Debe − Σ Haber e incluye el saldo inicial si viene como fila; "
                         "su total alimenta la conciliación kardex–mayor cuando no se fija el parámetro «saldo del mayor»."),
+            req("RQ-012", "Inventario valorado del ejercicio anterior", "inventario_anterior", "INV-07", "Comparación año a año e inventario sin movimiento", required=False,
+                content="Una fila por ítem del cierre auditado del año anterior: código, descripción, cantidad y valor según el kardex. "
+                        "Se compara con el inventario del año actual (hoja 03) para detectar el inventario SIN MOVIMIENTO (misma cantidad "
+                        "y mismo valor en ambos años: no rotó), indicio de obsolescencia o lenta rotación (NIC 2.9 y 2.28; PYMES 13.19, 27.2)."),
         ],
     }
 
@@ -1300,6 +1409,24 @@ EJEMPLO = {
             {"cuenta": "1.1.03.02.001", "nombre": "INVENTARIO DE MATERIA PRIMA", "debe": 14300, "haber": 0, "saldo": 14300},
             {"cuenta": "1.1.03.03.001", "nombre": "INVENTARIO DE PRODUCTOS EN PROCESO", "debe": 4000, "haber": 0, "saldo": 4000},
             {"cuenta": "1.1.03.04.001", "nombre": "INVENTARIO DE PRODUCTOS TERMINADOS", "debe": 11000, "haber": 0, "saldo": 11000},
+        ],
+        # Inventario valorado del ejercicio anterior (RQ-012). B-011 (3.200) y C-100 (1.800) tienen la misma
+        # cantidad y el mismo valor que este año → «Sin movimiento» (no rotaron): inventario sin movimiento
+        # 5.000,00. E-302 no estaba el año anterior → «Nueva»; X-999 ya no está este año → «Baja»; el resto varía.
+        "inventario_anterior": [
+            {"id": "A-001", "descripcion": "Tornillo 1/4", "cant_kardex": 900, "costo_unitario": 2.50, "valor_kardex": 2250, "_row": 2},
+            {"id": "A-002", "descripcion": "Tuerca 1/4", "cant_kardex": 500, "costo_unitario": 1.10, "valor_kardex": 550, "_row": 3},
+            {"id": "A-003", "descripcion": "Arandela", "cant_kardex": 1800, "costo_unitario": 0.50, "valor_kardex": 900, "_row": 4},
+            {"id": "B-010", "descripcion": "Motor 2 HP", "cant_kardex": 12, "costo_unitario": 350, "valor_kardex": 4200, "_row": 5},
+            {"id": "B-011", "descripcion": "Bomba centrífuga", "cant_kardex": 4, "costo_unitario": 800, "valor_kardex": 3200, "_row": 6},
+            {"id": "B-012", "descripcion": "Válvula 2\"", "cant_kardex": 18, "costo_unitario": 45, "valor_kardex": 810, "_row": 7},
+            {"id": "C-100", "descripcion": "Repuesto modelo descontinuado", "cant_kardex": 15, "costo_unitario": 120, "valor_kardex": 1800, "_row": 8},
+            {"id": "C-101", "descripcion": "Producto terminado X", "cant_kardex": 280, "costo_unitario": 18, "valor_kardex": 5040, "_row": 9},
+            {"id": "C-102", "descripcion": "Producto terminado Y", "cant_kardex": 140, "costo_unitario": 30, "valor_kardex": 4200, "_row": 10},
+            {"id": "D-200", "descripcion": "Materia prima Z", "cant_kardex": 820, "costo_unitario": 5, "valor_kardex": 4100, "_row": 11},
+            {"id": "E-300", "descripcion": "Lámina de acero", "cant_kardex": 210, "costo_unitario": 40, "valor_kardex": 8400, "_row": 12},
+            {"id": "E-301", "descripcion": "Perfil de aluminio", "cant_kardex": 90, "costo_unitario": 25, "valor_kardex": 2250, "_row": 13},
+            {"id": "X-999", "descripcion": "Repuesto obsoleto dado de baja", "cant_kardex": 5, "costo_unitario": 100, "valor_kardex": 500, "_row": 14},
         ],
     },
 }
