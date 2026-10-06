@@ -113,8 +113,13 @@ _LIBRO_MAYOR = [
 ]
 # Estado de cuenta bancario (movimientos transcritos del PDF, revisados por el
 # auditor). Se cruza con el libro mayor en la reestructuración de la conciliación.
+# El código de cuenta es OPCIONAL: el estado de cuenta que emite el banco trae el
+# número de cuenta UNA sola vez (en el encabezado), no en cada movimiento, y el
+# auditor no puede modificar ese archivo. El procesador tolera los movimientos sin
+# cuenta (solo cruza contra el anexo los que la traen: ESTADO_SIN_CUENTA), así que
+# exigirla por fila bloqueaba de más la carga de un estado de cuenta real.
 _ESTADO_CUENTA = [
-    campo("cuenta", "Código de cuenta", alias=("cuenta", "codigo", "codigo de cuenta", "cuenta contable"), ejemplo="1.1.02.01"),
+    campo("cuenta", "Código de cuenta", requerido=False, alias=("cuenta", "codigo", "codigo de cuenta", "cuenta contable"), ejemplo="1.1.02.01"),
     campo("fecha", "Fecha", "date", requerido=False, alias=("fecha", "fecha del movimiento", "fecha valor"), ejemplo="2026-08-15"),
     campo("documento", "Documento / referencia", requerido=False, alias=("documento", "referencia", "concepto", "descripcion", "detalle")),
     campo("debito", "Débitos (cargos del banco)", "number", requerido=False, alias=("debito", "debitos", "cargo", "cargos", "retiro"), ejemplo="0.00"),
@@ -180,7 +185,9 @@ EXTRACCION_INSTRUCCIONES = {
                     + " No invente datos: lo que no aparezca, déjelo vacío."),
     "estado_cuenta": ("Estado de cuenta bancario del mes. Extraiga una fila por movimiento con el código de la cuenta, "
                       "la fecha, el documento/referencia, los débitos (cargos del banco) y los créditos (abonos del "
-                      "banco). " + _FECHA_ISO + " No invente datos: lo que no aparezca, déjelo vacío."),
+                      "banco). El estado de cuenta corresponde a UNA sola cuenta: si el encabezado muestra el número "
+                      "de cuenta, repítalo en cada movimiento; si no aparece, deje esa columna vacía (no la invente). "
+                      + _FECHA_ISO + " No invente datos: lo que no aparezca, déjelo vacío."),
     "conciliacion_anterior": ("Conciliación bancaria del mes anterior (partidas que quedaron abiertas). Extraiga una "
                               "fila por partida con el código de la cuenta, la fecha de origen, el tipo conciliatorio, "
                               "el documento/referencia, el valor y la observación. " + _FECHA_ISO + " No invente datos: "
