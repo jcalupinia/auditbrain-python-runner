@@ -1973,7 +1973,19 @@ def hojas(res: dict) -> list[dict]:
         "12_Capitalizacion": bool(ncap),
         "13_Desmantelamiento": ds.get("costo") is not None,
     }
-    return [h for h in _todas if _mostrar.get(h["name"], True)]
+    # Orden de presentación: primero las cédulas de trabajo del auditor (resumen, recálculo comparativo por días,
+    # fiscal SRI, guía, roll-forward, sumaria, movimiento, conciliación, vaucheo); luego las de análisis que apliquen;
+    # y al final el soporte y el diagnóstico (auxiliar, recálculo por activo, parámetros, ajustes, problemas,
+    # conclusión, lectura, resumen por estado y resumen de hallazgos).
+    _ORDEN = ["01_Resumen", "21_Comparativo", "20_Fiscal", "22_Guia_NIIF_SRI", "14_Roll_forward",
+              "23_Sumaria", "24_Movimiento_mayor", "25_Conciliacion", "26_Vaucheo", "05_Vidas_residual",
+              "06_Componentes", "07_Bajas", "08_Revaluacion", "09_Deterioro", "10_Adiciones",
+              "11_Prestamos", "12_Capitalizacion", "13_Desmantelamiento",
+              "03_Auxiliar", "04_Depreciacion", "02_Parametros", "15_Ajustes", "16_Problemas",
+              "17_Conclusion", "18_Lectura", "19_Resumen_estado", "27_Resumen_hallazgos"]
+    _idx = {n: i for i, n in enumerate(_ORDEN)}
+    visibles = [h for h in _todas if _mostrar.get(h["name"], True)]
+    return sorted(visibles, key=lambda h: _idx.get(h["name"], 999))
 
 
 # --- definición -------------------------------------------------------------------
@@ -1987,6 +1999,9 @@ def definicion() -> dict:
         "name": "Propiedad, planta y equipo",
         "area": "Propiedad, planta y equipo",
         "processor": "ppe_propiedad_planta",
+        # El papel abre con las cédulas de trabajo del auditor; la documentación (carátula, programa, base
+        # técnica, anexo técnico) y el cierre (conclusión y control de revisión) viajan al final.
+        "documentacion_al_final": True,
         "frameworks": [MARCO_COMPLETAS, MARCO_PYMES],
         "summary": ("Recalcula por activo la depreciación, el valor neto en libros y el resultado de las bajas; evalúa vidas útiles, "
                     "residuales, componentes, revaluación, deterioro y la provisión de desmantelamiento; con el anexo de préstamos separa los "

@@ -322,9 +322,10 @@ def test_hojas_y_definicion():
         r = m.ejecutar(ds, p, c)
         hs = m.hojas(r)
         nombres = [h["name"] for h in hs]
-        # Las cédulas devueltas son un subconjunto de CEDULAS en el mismo orden (las de análisis sin datos se ocultan).
-        assert nombres == [n for n in orden if n in nombres]
+        # Las cédulas devueltas son un subconjunto del catálogo CEDULAS (las de análisis sin datos se ocultan);
+        # el orden de presentación lo fija el procesador (trabajo primero, soporte/diagnóstico al final).
         assert set(nombres) <= set(orden)
+        assert nombres[0] == "01_Resumen"            # el resumen (Inicio) abre el papel
         for core in nucleo:
             assert core in nombres, core
         for h in hs:
