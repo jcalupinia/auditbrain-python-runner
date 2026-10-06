@@ -55,11 +55,12 @@ REQUERIDOS_SOLO_FINAL = ("RQ-004",)
 DT, CP, NC, ND, OT = "Depósito en tránsito", "Cheque pendiente", "Nota de crédito", "Nota de débito", "Otra partida"
 BANCO, CAJA, INV = "Banco", "Caja", "Inversión"
 
-# Formatos aceptados al subir cada requerimiento. Además del tabular (xlsx/csv)
-# —única fuente de la que el mapeador arma la población, porque `archivosDe`
-# filtra por `esTabular`— se admite adjuntar el documento fuente como evidencia
-# en PDF o imagen (JPG). Esa evidencia se guarda pero NO altera la tabla:
-# el cálculo sigue tomándose del xlsx/csv. (Decisión del dueño, 2026-09-30.)
+# Formatos aceptados al subir cada requerimiento. El mapeador de columnas arma la
+# población solo del tabular (xlsx/csv), porque `archivosDe` filtra por `esTabular`;
+# una imagen (JPG) es solo evidencia y nunca altera la tabla (decisión del dueño,
+# 2026-09-30). Un PDF/Word, en cambio, sí puede alimentar la tabla por la vía de
+# extracción con IA (`EXTRACCION_DATASETS`, más abajo): la IA transcribe el PDF y el
+# auditor revisa y confirma antes de que esas filas entren al cálculo (2026-10-06).
 _FORM_DATOS = ("xlsx", "csv", "pdf", "jpg", "jpeg")          # requerimientos que arman población
 _FORM_SOPORTE = ("pdf", "xlsx", "jpg", "jpeg")              # evidencia que además puede venir en Excel
 _FORM_SOPORTE_DOC = ("pdf", "docx", "jpg", "jpeg")          # evidencia que además puede venir en Word
@@ -144,6 +145,46 @@ TIPOS = {"cuentas": "cuentas", "partidas": "partidas", "libro_mayor": "libro_may
 DATASETS = tuple(TIPOS)
 PRINCIPAL = "cuentas"
 CONTROL = "saldo_libros"
+
+# Datasets que la IA puede transcribir desde el PDF/Word subido (opt-in), con revisión
+# y confirmación del auditor antes de alimentar el cálculo. Todos aceptan PDF en sus
+# formatos (_FORM_DATOS) y tienen CAMPOS + validar_filas, así que el esquema que recibe
+# la IA se deriva de los mismos CAMPOS. Habilitarlos alinea el backend con el frontend,
+# que ya ofrece «Extraer con IA» en cada requerimiento con dataset que acepta PDF.
+EXTRACCION_DATASETS = ("cuentas", "partidas", "libro_mayor", "estado_cuenta",
+                       "conciliacion_anterior", "arqueo")
+# Valores permitidos por campo (guían a la IA a usar la nomenclatura del procesador y
+# que `validar_filas` los reconozca). Clave = dataset; `kind(ds) == ds` en esta herramienta.
+EXTRACCION_ENUMS = {
+    "cuentas": {"tipo": [BANCO, CAJA, INV]},
+    "partidas": {"tipo": [DT, CP, NC, ND, OT]},
+    "conciliacion_anterior": {"categoria": [DT, CP, NC, ND, OT]},
+}
+EXTRACCION_INSTRUCCIONES = {
+    "cuentas": ("Anexo de cuentas de caja, bancos e inversiones al corte. Extraiga una fila por cuenta con su "
+                "código contable, el banco/caja y número de cuenta, el tipo (Banco, Caja o Inversión), el saldo "
+                "según libros y, si constan, el saldo del estado bancario o arqueo, el saldo confirmado, si está "
+                "restringido con su monto, motivo y fecha fin, y las fechas de adquisición y vencimiento de las "
+                "inversiones. No invente datos: lo que no aparezca, déjelo vacío."),
+    "partidas": ("Partidas conciliatorias de cada cuenta al corte (de la conciliación bancaria). Extraiga una fila "
+                 "por partida con el código de la cuenta, el tipo (Depósito en tránsito, Cheque pendiente, Nota de "
+                 "crédito, Nota de débito u Otra partida), la referencia/descripción, la fecha de origen y el importe "
+                 "en positivo (el tipo ya define si suma o resta); si consta, la fecha de liquidación posterior en el "
+                 "estado bancario. No invente datos: lo que no aparezca, déjelo vacío."),
+    "libro_mayor": ("Libro mayor (auxiliar de bancos) del período. Extraiga una fila por asiento con el código de la "
+                    "cuenta, la fecha, el comprobante, el detalle, el tercero y los débitos y créditos. No invente "
+                    "datos: lo que no aparezca, déjelo vacío."),
+    "estado_cuenta": ("Estado de cuenta bancario del mes. Extraiga una fila por movimiento con el código de la cuenta, "
+                      "la fecha, el documento/referencia, los débitos (cargos del banco) y los créditos (abonos del "
+                      "banco). No invente datos: lo que no aparezca, déjelo vacío."),
+    "conciliacion_anterior": ("Conciliación bancaria del mes anterior (partidas que quedaron abiertas). Extraiga una "
+                              "fila por partida con el código de la cuenta, la fecha de origen, el tipo conciliatorio, "
+                              "el documento/referencia, el valor y la observación. No invente datos: lo que no "
+                              "aparezca, déjelo vacío."),
+    "arqueo": ("Arqueo de caja (recuento del efectivo por denominación). Extraiga una fila por denominación con la "
+               "denominación (p. ej. Billete 100), la cantidad contada, el valor unitario y la observación. No "
+               "invente datos: lo que no aparezca, déjelo vacío."),
+}
 
 PARAMETROS = {"diasAntiguedad": 90, "diasCorte": 5, "mesesEquivalente": 3, "mesesRestriccion": 12,
               "tolerancia": 0, "diasPrescripcion": 390}
