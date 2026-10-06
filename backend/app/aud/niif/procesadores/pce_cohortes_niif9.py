@@ -971,6 +971,7 @@ def definicion() -> dict:
         "name": "Pérdida crediticia esperada (NIIF 9)",
         "area": "Cuentas por cobrar",
         "processor": "pce_cohortes_niif9",
+        "principal": PRINCIPAL,   # anexo de cartera del ejercicio corriente (guard de «Procesar» en el frontend)
         "frameworks": ["NIIF completas"],
         "summary": ("Recálculo independiente de la corrección de valor de las cuentas por cobrar comerciales con el "
                     "enfoque simplificado de la NIIF 9 (5.5.15): matriz de provisiones (B5.5.35) con tasas derivadas por "
