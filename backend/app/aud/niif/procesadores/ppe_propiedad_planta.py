@@ -50,7 +50,7 @@ _ACTIVOS = [
     campo("clase", "Clase", alias=("grupo", "tipo de activo", "cuenta", "categoria"), ejemplo="Vehículos"),
     campo("elemento", "Elemento al que pertenece (componente)", requerido=False, alias=("componente de", "elemento principal", "activo padre"), ejemplo=""),
     campo("fecha_uso", "Fecha disponible para uso", "date", requerido=False, alias=("fecha de uso", "fecha de activacion", "fecha inicio depreciacion", "fecha de compra"), ejemplo="2023-07-01"),
-    campo("costo_inicial", "Costo al inicio del año", "number", alias=("costo inicial", "saldo inicial costo", "costo historico"), ejemplo="40000"),
+    campo("costo_inicial", "Costo al inicio del año", "number", alias=("costo inicial", "saldo inicial costo", "costo historico", "costo ajustado", "valor adquirido"), ejemplo="40000"),
     campo("adiciones", "Adiciones del año", "number", requerido=False, alias=("altas", "adiciones", "compras del año"), ejemplo="0"),
     campo("residual", "Valor residual", "number", requerido=False, alias=("valor residual", "residual", "valor de salvamento"), ejemplo="4000"),
     campo("vida_meses", "Vida útil (meses)", "number", requerido=False, alias=("vida util", "vida util meses", "meses de vida"), ejemplo="60"),
@@ -284,8 +284,10 @@ def _es_terreno(clase: str) -> bool:
 
 def _clase_bucket(clase: str):
     """Mapea la clase / tipo de activo del auxiliar a su cubeta de vida útil por clase (parámetros del auditor).
-    Devuelve None para terrenos (no se deprecian) o clases no reconocidas: la vida queda pendiente de confirmar."""
-    c = (clase or "").lower()
+    Devuelve None para terrenos (no se deprecian) o clases no reconocidas: la vida queda pendiente de confirmar.
+    Es robusto a tildes para que «Vehículos», «Eq. Cómputo», etc. caigan en su cubeta."""
+    import unicodedata as _ud
+    c = "".join(ch for ch in _ud.normalize("NFD", (clase or "").lower()) if _ud.category(ch) != "Mn")
     if not c or _es_terreno(c):
         return None
     for clave, palabras in _BUCKETS_VIDA:
@@ -311,6 +313,11 @@ TOPE_VEHICULO = 35000.0
 DIAS_ANIO_VIDA = 365
 _TASA_FISCAL = {"vidaInmuebles": 0.05, "vidaInstalacionesMaquinaria": 0.10, "vidaMuebles": 0.10,
                 "vidaVehiculos": 0.20, "vidaEquipoComputo": 0.3333}
+# Vida útil por defecto según la normativa del SRI (inversa de la tasa máxima del Art. 28): cuando el auxiliar NO
+# trae vida útil y el auditor no la fijó por parámetro, el papel usa esta vida del SRI para recalcular (criterio de
+# auditoría), en vez de dejar el activo sin recálculo. El activo queda marcado como «vida según SRI».
+_VIDA_SRI_ANIOS = {"vidaInmuebles": 20, "vidaInstalacionesMaquinaria": 10, "vidaMuebles": 10,
+                   "vidaVehiculos": 5, "vidaEquipoComputo": 3}
 
 
 def _tasa_fiscal(clase):
@@ -339,18 +346,23 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         vida = _opc(f.get("vida_meses"))
         if vida is not None and vida <= 0:
             raise ValueError(f"Activo {_t(f.get('id'))}: la vida útil debe ser mayor que cero.")
-        # Vida útil NIIF por clase confirmada por el auditor: se aplica solo cuando el activo no trae vida propia y
-        # su clase tiene vida confirmada en los parámetros; si no, queda pendiente (sin defaults automáticos).
-        vida_por_clase = False
+        # Vida útil NIIF cuando el activo no trae vida propia: primero la que confirmó el auditor por clase (parámetro);
+        # si no la fijó, se usa por defecto la vida del SRI (Art. 28) para recalcular como criterio de auditoría. Solo
+        # las clases no reconocidas (o terrenos) quedan pendientes.
+        vida_por_clase = vida_sri = False
         if vida is None:
             _bkt = _clase_bucket(clase)
             _anios = _p(p, _bkt) if _bkt else None
+            if (_anios is None or _anios <= 0) and _bkt:
+                _anios = _VIDA_SRI_ANIOS.get(_bkt)  # fallback: vida útil del SRI
+                vida_sri = _anios is not None
             if _anios is not None and _anios > 0:
                 vida, vida_por_clase = _anios * 12, True
         a = {"id": _t(f.get("id")), "desc": _t(f.get("descripcion")), "clase": clase, "elemento": _t(f.get("elemento")),
              "uso": fecha(f.get("fecha_uso")) if _t(f.get("fecha_uso")) else None, "ci": _opc(f.get("costo_inicial")) or 0.0,
-             "ad": _opc(f.get("adiciones")), "res": _opc(f.get("residual")), "vida": vida, "vidaPorClase": vida_por_clase, "metodo": _t(f.get("metodo")),
-             "dai": _opc(f.get("dep_acum_inicial")), "dreg": _opc(f.get("dep_registrada")), "dac": _opc(f.get("dep_acum_cliente")),
+             "ad": _opc(f.get("adiciones")), "res": _opc(f.get("residual")), "vida": vida, "vidaPorClase": vida_por_clase, "vidaSRI": vida_sri, "metodo": _t(f.get("metodo")),
+             "dai": _opc(f.get("dep_acum_inicial")) if _t(f.get("dep_acum_inicial")) != "" else _opc(f.get("dep_acum_cliente")),
+             "dreg": _opc(f.get("dep_registrada")), "dac": _opc(f.get("dep_acum_cliente")),
              "det": _opc(f.get("deterioro_acum")),
              "rec": _opc(f.get("importe_recuperable")), "rev": _opc(f.get("valor_revaluado")), "sup": _opc(f.get("superavit_previo")),
              "decPrev": _opc(f.get("decremento_previo")),
@@ -1831,7 +1843,7 @@ def hojas(res: dict) -> list[dict]:
         "Importe (valor absoluto)": "Suma del valor absoluto de los importes de los hallazgos de la categoría.",
     }
 
-    return [
+    _todas = [
         hoja("01_Resumen", "Resumen", [["Concepto", "t"], ["Importe", "n"]], resumen, explica=ex_resumen),
         hoja("02_Parametros", "Parámetros", [["Parámetro", "t"], ["Valor", "x"], ["Sustento", "t"]], parametros, explica=ex_par),
         hoja("03_Auxiliar", "Auxiliar de activos (datos del cliente)",
@@ -1948,6 +1960,20 @@ def hojas(res: dict) -> list[dict]:
              [["Categoría", "t"], ["N° de hallazgos", "i"], ["Importe (valor absoluto)", "n"]],
              resumen_hz, total_hz, explica=ex_hz),
     ]
+    # Cédulas de análisis que solo se muestran cuando el cliente tiene ese hecho económico: si la empresa no tuvo
+    # bajas, revaluación, deterioro, adiciones, préstamos, capitalización, componentes ni desmantelamiento, esas
+    # pestañas no aparecen (el papel se queda con las cédulas que aplican a los datos cargados).
+    _mostrar = {
+        "06_Componentes": bool(componentes),
+        "07_Bajas": bool(B),
+        "08_Revaluacion": bool(R),
+        "09_Deterioro": bool(D),
+        "10_Adiciones": bool(nad),
+        "11_Prestamos": bool(npr),
+        "12_Capitalizacion": bool(ncap),
+        "13_Desmantelamiento": ds.get("costo") is not None,
+    }
+    return [h for h in _todas if _mostrar.get(h["name"], True)]
 
 
 # --- definición -------------------------------------------------------------------
