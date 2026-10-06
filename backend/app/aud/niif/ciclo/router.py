@@ -464,7 +464,10 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", seccion: str | None =
     # Nombre del archivo: por sección si se pidió una (Materialidad.html, etc.).
     from backend.app.aud.niif.procesadores import artefacto_html as _art
     if formato == "html" and seccion and (seccion in _art.SECCIONES or seccion.startswith("sec-")):
-        nombre = f"{re.sub(r'[^\\w-]+', '_', seccion)[:50]}.{ext}"
+        # El re.sub va FUERA del f-string: un backslash dentro de la parte de expresión
+        # de un f-string es SyntaxError en Python 3.11 (y tumbaba el montaje de la v1).
+        base = re.sub(r"[^\w-]+", "_", seccion)[:50]
+        nombre = f"{base}.{ext}"
     else:
         nombre = f"Papel_v{p.version}.{ext}"
     return Response(contenido, media_type=mime,

@@ -2,15 +2,23 @@
 
 Decisión del dueño (2026-10-04):
 - El Command Center no guarda las pruebas: se borran solas tras la descarga (gracia)
-  y, en todo caso, a las 8 h de creadas (aprobadas incluidas).
+  y, en todo caso, a las 8 h de creadas.
 - No se permite crear una prueba nueva si ya hay una ABIERTA de la misma herramienta
   en el mismo ejercicio: hay que modificar la existente.
 
 Ajuste 2026-10-05: el trabajo EN CURSO (prueba ABIERTA, estado ≠ APROBADO, sin
-descargar) NO se autopurga aunque pase de las 8 h; el tope duro solo alcanza a las
-aprobadas o ya descargadas. Evita perder una planificación a medio armar.
+descargar) NO se autopurga aunque pase de las 8 h.
+
+Ajuste 2026-10-06 ("previsualizar ≠ archivar"): el trabajo EN CURSO tampoco se
+autopurga por previsualizar/descargar su papel (el auditor lo previsualiza decenas
+de veces mientras lo arma). El borrado por descarga y el tope duro de 8 h aplican
+SOLO a pruebas TERMINADAS (APROBADO). Un borrador abierto solo se limpia tras una
+inactividad larga (AUD_CICLO_ABIERTA_INACTIVA_HORAS), medida desde la última
+actividad. Corrige la pérdida de planificaciones a medio armar al previsualizarlas.
 """
 import datetime
+
+from sqlalchemy import update
 
 from backend.app.aud.niif.ciclo import retencion, servicio
 from backend.app.aud.niif.ciclo.models import Prueba
@@ -25,7 +33,8 @@ def _ahora():
     return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
 
-def _mk_prueba(db, project_id, *, estado="PRUEBA_SELECCIONADA", creada_en=None, descargada_en=None):
+def _mk_prueba(db, project_id, *, estado="PRUEBA_SELECCIONADA", creada_en=None,
+               actualizada_en=None, descargada_en=None):
     reg = {"engagement": {"client": "X", "cutoff": "2025-12-31"}}
     if descargada_en is not None:
         reg["descargada_en"] = descargada_en.isoformat()
@@ -33,8 +42,14 @@ def _mk_prueba(db, project_id, *, estado="PRUEBA_SELECCIONADA", creada_en=None, 
                definicion={"id": "vnr", "name": "VNR"}, registro=reg, revision=1)
     db.add(p)
     db.flush()
+    # Se fijan con un UPDATE core (no por atributo) para que el ``onupdate`` de
+    # ``actualizada_en`` no pise el valor de prueba al hacer commit.
+    vals = {}
     if creada_en is not None:
-        p.creada_en = creada_en
+        vals["creada_en"] = creada_en
+    # Por defecto, la última actividad = la creación (una prueba recién creada y sin tocar).
+    vals["actualizada_en"] = actualizada_en if actualizada_en is not None else (creada_en or _ahora())
+    db.execute(update(Prueba).where(Prueba.id == p.id).values(**vals))
     db.commit()
     return p.id
 
@@ -64,15 +79,18 @@ def test_purga_a_las_8h_aprobadas_pero_no_el_trabajo_en_curso(client):
         db.close()
 
 
-def test_en_curso_descargada_si_se_purga_pasada_la_gracia(client):
-    """Si una prueba en curso SÍ se descargó, ya se archivó: se purga tras la gracia
-    (la protección es solo para el trabajo en curso que nunca se bajó)."""
+def test_en_curso_descargada_NO_se_purga_previsualizar_no_es_archivar(client):
+    """Previsualizar ≠ archivar (2026-10-06): una prueba EN CURSO que se descargó/
+    previsualizó NO se borra, aunque pase la gracia. El auditor previsualiza el
+    borrador decenas de veces mientras lo arma; antes eso lo autodestruía a los 30 min."""
     _tok, pid = _staff_con_proyecto(client)
     gracia = settings.AUD_CICLO_POST_DOWNLOAD_TTL_MINUTES
     db = SessionLocal()
     try:
-        en_curso_descargada = _mk_prueba(
-            db, pid, creada_en=_ahora() - datetime.timedelta(hours=1),
+        # Previsualizada hace más que la gracia, pero sigue activa (actividad reciente).
+        en_curso_previsualizada = _mk_prueba(
+            db, pid, creada_en=_ahora() - datetime.timedelta(hours=2),
+            actualizada_en=_ahora() - datetime.timedelta(minutes=gracia + 5),
             descargada_en=_ahora() - datetime.timedelta(minutes=gracia + 5))
     finally:
         db.close()
@@ -81,21 +99,48 @@ def test_en_curso_descargada_si_se_purga_pasada_la_gracia(client):
 
     db = SessionLocal()
     try:
-        assert db.get(Prueba, en_curso_descargada) is None
+        assert db.get(Prueba, en_curso_previsualizada) is not None   # trabajo activo protegido
+    finally:
+        db.close()
+
+
+def test_abierta_se_purga_tras_inactividad_larga(client):
+    """Backstop: un borrador ABIERTO que nadie toca por más de
+    AUD_CICLO_ABIERTA_INACTIVA_HORAS sí se limpia (no acumular drafts abandonados)."""
+    _tok, pid = _staff_con_proyecto(client)
+    horas = settings.AUD_CICLO_ABIERTA_INACTIVA_HORAS
+    db = SessionLocal()
+    try:
+        abandonada = _mk_prueba(db, pid, creada_en=_ahora() - datetime.timedelta(hours=horas + 100),
+                                actualizada_en=_ahora() - datetime.timedelta(hours=horas + 1))
+        activa = _mk_prueba(db, pid, creada_en=_ahora() - datetime.timedelta(hours=horas + 100),
+                            actualizada_en=_ahora() - datetime.timedelta(minutes=5))
+    finally:
+        db.close()
+
+    retencion.purgar_once()
+
+    db = SessionLocal()
+    try:
+        assert db.get(Prueba, abandonada) is None        # inactiva de sobra → se limpia
+        assert db.get(Prueba, activa) is not None         # actividad reciente → protegida
     finally:
         db.close()
 
 
 def test_purga_tras_la_descarga_pasada_la_gracia(client):
+    """La gracia post-descarga aplica SOLO a pruebas TERMINADAS (APROBADO)."""
     _tok, pid = _staff_con_proyecto(client)
     gracia = settings.AUD_CICLO_POST_DOWNLOAD_TTL_MINUTES
     db = SessionLocal()
     try:
-        # Creada hace poco (no vence por las 8 h) pero descargada hace más que la gracia.
-        descargada_vieja = _mk_prueba(db, pid, creada_en=_ahora() - datetime.timedelta(minutes=gracia + 20),
+        # Aprobada, creada hace poco (no vence por las 8 h) pero descargada hace más que la gracia.
+        descargada_vieja = _mk_prueba(db, pid, estado="APROBADO",
+                                      creada_en=_ahora() - datetime.timedelta(minutes=gracia + 20),
                                       descargada_en=_ahora() - datetime.timedelta(minutes=gracia + 5))
-        # Descargada recién: dentro de la gracia, NO se borra (puede bajar otros formatos).
-        descargada_reciente = _mk_prueba(db, pid, creada_en=_ahora() - datetime.timedelta(minutes=gracia + 20),
+        # Aprobada descargada recién: dentro de la gracia, NO se borra (puede bajar otros formatos).
+        descargada_reciente = _mk_prueba(db, pid, estado="APROBADO",
+                                         creada_en=_ahora() - datetime.timedelta(minutes=gracia + 20),
                                          descargada_en=_ahora())
     finally:
         db.close()
