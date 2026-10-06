@@ -30,7 +30,7 @@ como fórmula viva que remite a Parámetros, Detalle, Cohorte y Matriz.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from backend.app.aud.niif.procesadores import problemas
 from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (filas_mapeadas se re-exporta para el ciclo)
@@ -63,7 +63,10 @@ _CARTERA = [
           ["cliente", "razon", "razon social", "nombre", "deudor"], "Cliente A"),
     campo("tipo", "Tipo / relacionadas", "text", False,
           ["tipo", "relacion", "clasif", "categoria"], "NO-RELACIONADO"),
-    campo("vence", "Fecha de vencimiento", "date", True,
+    campo("factura", "Fecha de facturación", "date", False,
+          ["facturacion", "facturación", "emision", "emisión", "fecha factura", "fecha de emision",
+           "fecha emision", "fecha de facturacion"], "2023-06-30"),
+    campo("vence", "Fecha de vencimiento", "date", False,
           ["vencimiento", "vence", "venc", "fecha vencimiento"], "2023-11-15"),
     campo("saldo", "Saldo", "number", True,
           ["saldo", "cuentas por cobrar", "monto", "valor", "importe", "por cobrar"], "1000.00"),
@@ -109,6 +112,9 @@ PARAMETROS = {
     "fT": 1.0, "fR": 1.0,
     "matDesempeno": None, "umbralIndividual": None,
     "castiga": "", "trasladoJuridico": None,
+    # política de crédito declarada por escrito (días). Si falta, se usa el promedio observado de la
+    # cartera para imputar el vencimiento de las facturas que no lo traen.
+    "polCredito": None,
     # cartera según EEFF — corte actual (no relacionados / relacionados); ancla de la exposición
     "eNR_t": None, "eR_t": None,
     # política declarada por la entidad (tasa % por banda, opcional)
@@ -122,6 +128,7 @@ ETIQUETAS_PARAM = {
     "fT": "Factor prospectivo — terceros", "fR": "Factor prospectivo — relacionadas",
     "matDesempeno": "Materialidad de desempeño", "umbralIndividual": "Umbral de evaluación individual",
     "castiga": "¿La entidad castiga cartera? (Sí/No)", "trasladoJuridico": "Día de traslado a gestión jurídica",
+    "polCredito": "Política de crédito declarada (días; opcional)",
     "eNR_t": "Cartera EEFF no relacionados (corte actual)", "eR_t": "Cartera EEFF relacionados (corte actual)",
     **{f"pol_{b['k']}": f"Política declarada · {b['n']} (%)" for b in BANDAS},
 }
@@ -183,16 +190,24 @@ def _es_desdoblar(v) -> bool:
     return str(v if v is not None else "Sí").strip().lower() in ("sí", "si", "1", "true", "s")
 
 
-def _leer(filas: list, corte: date, rel_key: str) -> dict:
-    """Depura una cartera como el artefacto: descarta sin documento/vencimiento/saldo, deduplica
-    por documento (el primero gana), clasifica el segmento por el texto de tipo y calcula la mora."""
-    rows, dup, bad, vistos = [], 0, 0, set()
+def _leer(filas: list, corte: date, rel_key: str, pol_credito: float | None = None) -> dict:
+    """Depura una cartera como el artefacto: descarta sin documento/saldo, deduplica por documento
+    (el primero gana), clasifica el segmento por el texto de tipo y calcula la mora.
+
+    Novedad: cada factura puede traer la fecha de facturación. Los días de crédito concedidos
+    (vencimiento − facturación) dan una política de crédito promedio (simple) que, en las facturas
+    SIN fecha de vencimiento, se usa para imputarla (vencimiento = facturación + días de crédito):
+    `pol_credito` (política declarada por el auditor) manda; si no hay, se usa el promedio observado.
+    """
+    # Primera pasada: parseo y política de crédito observada (promedio simple de vencidas con ambas fechas).
+    base, dup, bad, vistos, creditos = [], 0, 0, set(), []
     for f in filas or []:
         doc = str(f.get("id", "") or "").strip()
         saldo = a_num(f.get("saldo"))
         saldo = 0.0 if saldo is None else float(saldo)
+        factura = a_fecha(f.get("factura"))
         vence = a_fecha(f.get("vence"))
-        if not doc or vence is None or abs(saldo) < 0.005:
+        if not doc or abs(saldo) < 0.005:
             if doc or saldo:
                 bad += 1
             continue
@@ -200,14 +215,34 @@ def _leer(filas: list, corte: date, rel_key: str) -> dict:
             dup += 1
             continue
         vistos.add(doc)
+        if factura is not None and vence is not None:
+            creditos.append((vence - factura).days)
+        base.append((f, doc, saldo, factura, vence))
+
+    pol_obs = round(sum(creditos) / len(creditos)) if creditos else None
+    impute = pol_credito if (pol_credito is not None) else pol_obs   # días para imputar el vencimiento
+
+    # Segunda pasada: imputa el vencimiento faltante, calcula mora y días de crédito por factura.
+    rows, imputados = [], 0
+    for f, doc, saldo, factura, vence in base:
+        venc_imp = False
+        if vence is None:
+            if factura is not None and impute is not None:
+                vence = factura + timedelta(days=int(impute))
+                venc_imp = True
+                imputados += 1
+            else:
+                bad += 1
+                continue
         tipo = str(f.get("tipo", "") or "").upper()
         rel = rel_key in tipo and ("NO-" + rel_key) not in tipo and ("NO " + rel_key) not in tipo
-        dias = (corte - vence).days
+        dias_credito = (vence - factura).days if factura is not None else None
         rows.append({"doc": doc, "cliente": str(f.get("cliente", "") or "").strip() or "(sin nombre)",
-                     "saldo": saldo, "vence": vence, "dias": dias,
+                     "saldo": saldo, "factura": factura, "vence": vence, "dias": (corte - vence).days,
+                     "diasCredito": dias_credito, "vencImputado": venc_imp,
                      "seg": "RELACIONADOS" if rel else "NO-RELACIONADOS",
                      "ruc": str(f.get("ruc", "") or "").strip(), "_row": f.get("_row")})
-    return {"rows": rows, "dup": dup, "bad": bad}
+    return {"rows": rows, "dup": dup, "bad": bad, "polObs": pol_obs, "imputados": imputados}
 
 
 def _p(p, k):
@@ -260,10 +295,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     bandas = _bandas_efectivas(umbral, _es_desdoblar(p.get("desdoblar")))
     bn = [b["n"] for b in bandas]
 
+    # política de crédito declarada (días) para imputar vencimientos faltantes; si no, el promedio observado
+    pol_credito = a_num(p.get("polCredito"))
+    pol_credito = float(pol_credito) if pol_credito is not None else None
     # depuración de los tres cortes
-    d2 = _leer(datasets.get("cartera_t2"), corte_t2, rel_key)
-    d1 = _leer(datasets.get("cartera_t1"), corte_t1, rel_key)
-    dt = _leer(datasets.get("cartera_t"), corte_t, rel_key)
+    d2 = _leer(datasets.get("cartera_t2"), corte_t2, rel_key, pol_credito)
+    d1 = _leer(datasets.get("cartera_t1"), corte_t1, rel_key, pol_credito)
+    dt = _leer(datasets.get("cartera_t"), corte_t, rel_key, pol_credito)
     for corte_dep, dd in ((corte_t2, d2), (corte_t1, d1), (corte_t, dt)):
         for r in dd["rows"]:
             r["banda"] = _banda_de(r["dias"], bandas)
@@ -371,6 +409,13 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         det = "; ".join(f"{et} ({dd['dup']})" for et, dd in (("t-2", d2), ("t-1", d1), ("t", dt)) if dd["dup"] > 0)
         ex.append(problema("W-INTEGRIDAD", f"Documentos duplicados depurados en la cartera del cliente: {det}. "
                            "Los duplicados se depuraron antes del cálculo; la deficiencia de control persiste.", 0))
+    n_imp = sum(dd["imputados"] for dd in (d2, d1, dt))
+    if n_imp:
+        fuente = (f"la política de crédito declarada ({int(pol_credito)} días)" if pol_credito is not None
+                  else f"la política de crédito promedio observada ({dt['polObs']} días)")
+        ex.append(problema("W-VENCIMIENTO-IMPUTADO", f"{n_imp} factura(s) sin fecha de vencimiento: se imputó con "
+                           f"{fuente} (vencimiento = facturación + días de crédito). Confirme el vencimiento real "
+                           "con la factura o el contrato; la banda de mora de esas facturas depende de este supuesto.", 0))
     if traza < TRAZA_WARN:
         ex.append(problema("W-TRAZABILIDAD", f"Trazabilidad de documentos entre cortes {traza * 100:.1f} % (< 80 %): "
                            "el sistema podría renumerar documentos entre períodos y el método de cohortes no sería aplicable.", 0))
@@ -418,7 +463,9 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         t_apl = mm["tasaApl"] if mm else None
         pce_doc = r["saldo"] * t_apl if t_apl is not None else None
         filas.append({"id": r["doc"], "cliente": r["cliente"], "segmento": r["seg"],
-                      "vence": r["vence"].isoformat(), "dias": str(r["dias"]), "banda": r["banda"],
+                      "factura": r["factura"].isoformat() if r["factura"] else "",
+                      "vence": r["vence"].isoformat(), "vencImputado": r["vencImputado"],
+                      "diasCredito": r["diasCredito"], "dias": str(r["dias"]), "banda": r["banda"],
                       "saldo": r2(r["saldo"]), "_row": r["_row"]})
 
     totals = {"cartera": r2(tot_exp), "pce": r2(pce_total), "provisionRegistrada": r2(prov_reg), "ajuste": r2(ajuste)}
@@ -435,6 +482,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         "baja": baja, "totFile": tot_file, "totExp": tot_exp, "eNR": e_nr, "eR": e_r, "factores": ff,
         "cartera_t2": d2["rows"], "cartera_t1": d1["rows"], "hallazgos": hallazgos, "parametros": p,
         "dup": {"t2": d2["dup"], "t1": d1["dup"], "t": dt["dup"]},
+        "polCredito": pol_credito, "polObs": dt["polObs"], "imputados": n_imp,
     }
     return {"engine": VERSION, "rows": filas, "totals": totals, "labels": labels, "primary": "ajuste",
             "exceptions": ex, "schedule": [], "detalle": detalle}
@@ -555,8 +603,10 @@ EXPLICA = {
     "01_Resumen": {"Importe": ("Trae cada cifra de la hoja donde se calcula: la cartera anclada de la hoja 03 "
                                "(Exposición), la pérdida esperada de la hoja 05 (Matriz), la provisión registrada de "
                                "la hoja 02 (Parámetros); el ajuste es la pérdida esperada menos la provisión registrada.")},
-    "02_Parametros": {"Valor": ("Son datos del encargo o juicio del auditor; solo la exposición EEFF total suma los "
-                                "importes de clientes no relacionados y relacionados del corte.")},
+    "02_Parametros": {"Valor": ("Son datos del encargo o juicio del auditor; la exposición EEFF total suma los importes "
+                                "de clientes no relacionados y relacionados del corte, la política de crédito observada "
+                                "promedia los días de crédito del detalle (hoja 12) y la usada toma la declarada o, si "
+                                "no hay, la observada.")},
     "03_Exposicion": {
         "Exposición del archivo": "Suma el saldo de las facturas del detalle (hoja 12) de este segmento y banda.",
         "Factor de anclaje": ("Divide la cartera según EEFF del segmento (hoja 02) para el total del archivo de ese "
@@ -599,6 +649,10 @@ EXPLICA = {
     "14_Anexo_inicial": {},
     "15_Movimiento_mayores": {},
     "12_Detalle": {
+        "Vencimiento": ("Es la fecha de vencimiento entregada por el cliente; si la factura no la trae, se imputa "
+                        "como facturación + política de crédito usada (hoja 02, «usada para imputar»)."),
+        "Días de crédito": ("Resta la facturación del vencimiento: el plazo de crédito concedido en esa factura. "
+                            "En las facturas con vencimiento imputado queda en blanco (no es un plazo observado)."),
         "Días de mora": "Resta la fecha de vencimiento de la fecha de corte (hoja 02); cero o menos aún no vence.",
         "Banda": "Clasifica la factura por sus días de mora en las bandas definidas.",
         "Clave": "Une el segmento y la banda (segmento|banda) para buscar su tasa y agruparla.",
@@ -663,6 +717,21 @@ def hojas(res: dict) -> list[dict]:
         ["Cartera EEFF relacionados (t)", d["eR"], "Estados financieros / mayor"],
         ["Cartera EEFF total (t)", fx(f"B{PARFILA['eNR_t']}+B{PARFILA['eR_t']}", n2(d["eNR"] + d["eR"])), "Ancla de la exposición"],
     ]
+    # Política de crédito (días): declarada por el auditor, observada (promedio de los días de crédito del
+    # detalle) y la usada para imputar el vencimiento faltante (la declarada manda; si no, la observada).
+    f_decl = FILA0 + len(parametros)
+    parametros.append(["Política de crédito declarada (días)",
+                       float(d["polCredito"]) if d["polCredito"] is not None else "",
+                       "Política de crédito por escrito de la entidad (opcional)"])
+    f_obs = FILA0 + len(parametros)
+    parametros.append(["Política de crédito observada (días, promedio)",
+                       fx(f'IFERROR(ROUND(AVERAGEIF({_rango(DET, "F", nd)},">=0"),0),"")', d["polObs"] if d["polObs"] is not None else ""),
+                       "Promedio simple de los días de crédito (vencimiento − facturación) del detalle"])
+    f_usada = FILA0 + len(parametros)
+    parametros.append(["Política de crédito usada para imputar (días)",
+                       fx(f'IF(B{f_decl}="",B{f_obs},B{f_decl})',
+                          (d["polCredito"] if d["polCredito"] is not None else d["polObs"]) or ""),
+                       "La declarada manda; si no hay, la observada (NIA 520)"])
     fila_pol = {}
     for b in BANDAS:
         v = a_num(p.get(f"pol_{b['k']}"))
@@ -678,17 +747,24 @@ def hojas(res: dict) -> list[dict]:
                      fx(f'IF(D{fila}="","",{P}$B${PARFILA["corteT2"]}-D{fila})', r["dias"]),
                      fx(_banda_formula(f"E{fila}", bandas), r["banda"]),
                      fx(f'C{fila}&"|"&F{fila}', f'{r["seg"]}|{r["banda"]}'), n2(r["saldo"]),
-                     fx(f"SUMIF({_rango(DET, 'A', nd)},A{fila},{_rango(DET, 'H', nd)})",
+                     fx(f"SUMIF({_rango(DET, 'A', nd)},A{fila},{_rango(DET, 'J', nd)})",
                         n2(saldo_t.get(r["doc"], 0.0)))])
 
-    # 12 · Detalle corte t
+    # 12 · Detalle corte t — con facturación, días de crédito y vencimiento imputado cuando falta
     detalle = []
     for i, r in enumerate(dtl):
         fila = FILA0 + i
-        detalle.append([r["id"], r["cliente"], r["segmento"], r["vence"],
-                        fx(f'IF(D{fila}="","",{P}$B${PARFILA["corteT"]}-D{fila})', int(r["dias"]) if r["dias"] not in ("", None) else None),
-                        fx(_banda_formula(f"E{fila}", bandas), r["banda"]),
-                        fx(f'C{fila}&"|"&F{fila}', f'{r["segmento"]}|{r["banda"]}'), n2(float(r["saldo"]))])
+        # Vencimiento: imputado (= facturación + política usada) por fórmula, o el dato del cliente.
+        if r.get("vencImputado"):
+            venc_cell = fx(f'D{fila}+{P}$B${f_usada}', r["vence"])
+            dc_cell = ""   # imputado: no es un plazo observado, no entra en el promedio
+        else:
+            venc_cell = r["vence"]
+            dc_cell = fx(f'IF(OR(D{fila}="",E{fila}=""),"",E{fila}-D{fila})', r["diasCredito"]) if r.get("factura") else ""
+        detalle.append([r["id"], r["cliente"], r["segmento"], r.get("factura") or "", venc_cell, dc_cell,
+                        fx(f'IF(E{fila}="","",{P}$B${PARFILA["corteT"]}-E{fila})', int(r["dias"]) if r["dias"] not in ("", None) else None),
+                        fx(_banda_formula(f"G{fila}", bandas), r["banda"]),
+                        fx(f'C{fila}&"|"&H{fila}', f'{r["segmento"]}|{r["banda"]}'), n2(float(r["saldo"]))])
 
     # 04 · Cohortes (tasa observada por segmento y banda)
     cohortes = []
@@ -710,10 +786,10 @@ def hojas(res: dict) -> list[dict]:
         segbase = d["expFileSeg"][mm["seg"]]
         eeff = d["eR"] if mm["seg"] == "RELACIONADOS" else d["eNR"]
         eeff_ref = f'{P}$B${PARFILA["eR_t"] if mm["seg"] == "RELACIONADOS" else PARFILA["eNR_t"]}'
-        seg_rango = f'SUMIF({_rango(DET, "C", nd)},A{fila},{_rango(DET, "H", nd)})'
+        seg_rango = f'SUMIF({_rango(DET, "C", nd)},A{fila},{_rango(DET, "J", nd)})'
         factor_val = (eeff / segbase) if (d["anchor"] and segbase > 0) else 1.0
         factor_f = (f'IF(AND({P}$B${PARFILA["eTot"]}>0,{seg_rango}>0),{eeff_ref}/{seg_rango},1)')
-        exp_arch = fx(f"SUMIF({_rango(DET, 'G', nd)},C{fila},{_rango(DET, 'H', nd)})", n2(ef))
+        exp_arch = fx(f"SUMIF({_rango(DET, 'I', nd)},C{fila},{_rango(DET, 'J', nd)})", n2(ef))
         exposicion.append([mm["seg"], mm["banda"], mm["clave"], exp_arch, fx(factor_f, factor_val),
                            fx(f"D{fila}*E{fila}", n2(mm["exp"]))])
 
@@ -857,9 +933,11 @@ def hojas(res: dict) -> list[dict]:
         hoja("11_Problemas", "Problemas encontrados", [["Código", "t"], ["Descripción", "t"], ["Importe", "n"]],
              [[e["code"], e["message"], n2(e["amount"])] for e in res["exceptions"]]),
         hoja("12_Detalle", "Detalle de cartera al corte",
-             [["Documento", "t"], ["Cliente", "t"], ["Segmento", "t"], ["Vencimiento", "d"], ["Días de mora", "i"],
+             [["Documento", "t"], ["Cliente", "t"], ["Segmento", "t"], ["Fecha de facturación", "d"],
+              ["Vencimiento", "d"], ["Días de crédito", "i"], ["Días de mora", "i"],
               ["Banda", "t"], ["Clave", "t"], ["Saldo", "n"]], detalle,
-             ["TOTAL", "", "", "", None, "", "", suma("H", fin_det, d["totFile"])], explica=EXPLICA["12_Detalle"]),
+             ["TOTAL", "", "", "", "", None, None, "", "", suma("J", fin_det, d["totFile"])],
+             explica=EXPLICA["12_Detalle"]),
         hoja("13_Cohorte_t2", "Cohorte del corte t-2",
              [["Documento", "t"], ["Cliente", "t"], ["Segmento", "t"], ["Vencimiento", "d"], ["Días de mora", "i"],
               ["Banda", "t"], ["Clave", "t"], ["Saldo", "n"], ["Remanente", "n"]], coh2,
@@ -980,8 +1058,8 @@ def validar_definicion(d: dict) -> dict:
 
 # --- ejemplo de control (M19) ------------------------------------------------
 
-def _ej(doc, cliente, tipo, vence, saldo):
-    return {"id": doc, "cliente": cliente, "tipo": tipo, "vence": vence, "saldo": saldo, "_row": 2}
+def _ej(doc, cliente, tipo, vence, saldo, factura=""):
+    return {"id": doc, "cliente": cliente, "tipo": tipo, "factura": factura, "vence": vence, "saldo": saldo, "_row": 2}
 
 
 # Ejercicio modelo ficticio: «Comercial Andina de Ejemplo S.A.». Corte 2025-12-31,
@@ -1008,20 +1086,20 @@ EJEMPLO = {
     },
     "datasets": {
         "cartera_t2": [
-            _ej("D1", "Cliente A", "NO-RELACIONADO", "2023-06-30", "1000"),
-            _ej("D2", "Cliente B", "NO-RELACIONADO", "2023-06-30", "1000"),
-            _ej("D3", "Relac X", "RELACIONADO", "2023-06-30", "2000"),
+            _ej("D1", "Cliente A", "NO-RELACIONADO", "2023-06-30", "1000", "2023-03-31"),
+            _ej("D2", "Cliente B", "NO-RELACIONADO", "2023-06-30", "1000", "2023-03-31"),
+            _ej("D3", "Relac X", "RELACIONADO", "2023-06-30", "2000", "2023-03-31"),
         ],
         "cartera_t1": [
-            _ej("D1", "Cliente A", "NO-RELACIONADO", "2023-06-30", "600"),
-            _ej("D3", "Relac X", "RELACIONADO", "2023-06-30", "2000"),
-            _ej("G0", "Cliente D", "NO-RELACIONADO", "2024-11-30", "1500"),
+            _ej("D1", "Cliente A", "NO-RELACIONADO", "2023-06-30", "600", "2023-03-31"),
+            _ej("D3", "Relac X", "RELACIONADO", "2023-06-30", "2000", "2023-03-31"),
+            _ej("G0", "Cliente D", "NO-RELACIONADO", "2024-11-30", "1500", "2024-08-31"),
         ],
         "cartera_t": [
-            _ej("D1", "Cliente A", "NO-RELACIONADO", "2023-06-30", "300"),
-            _ej("D3", "Relac X", "RELACIONADO", "2023-06-30", "2000"),
-            _ej("G1", "Cliente E", "NO-RELACIONADO", "2025-06-30", "5000"),
-            _ej("G2", "Cliente F", "NO-RELACIONADO", "2025-12-15", "4000"),
+            _ej("D1", "Cliente A", "NO-RELACIONADO", "2023-06-30", "300", "2023-03-31"),
+            _ej("D3", "Relac X", "RELACIONADO", "2023-06-30", "2000", "2023-03-31"),
+            _ej("G1", "Cliente E", "NO-RELACIONADO", "2025-06-30", "5000", "2025-03-31"),
+            _ej("G2", "Cliente F", "NO-RELACIONADO", "2025-12-15", "4000", "2025-09-15"),
         ],
         # Anexo inicial de la provisión (sumaria): saldo del año anterior y el actual.
         "provision": [

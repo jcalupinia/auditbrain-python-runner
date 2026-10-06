@@ -82,6 +82,45 @@ def test_anexo_inicial_es_una_sumaria():
     assert d["provIni"] == pytest.approx(1000) and d["provReg"] == pytest.approx(1000)
 
 
+def test_dias_de_credito_y_politica_promedio():
+    # Cada factura trae facturación; los días de crédito dan una política promedio (simple) observada.
+    d = _run()["detalle"]
+    assert d["polObs"] == 91 and d["imputados"] == 0 and d["polCredito"] is None
+    # la columna «Días de crédito» del detalle sale por fórmula (vencimiento − facturación)
+    hs = m.hojas(_run())
+    det = next(h for h in hs if h["name"] == "12_Detalle")
+    cols = [c[0] for c in det["cols"]]
+    assert "Fecha de facturación" in cols and "Días de crédito" in cols
+    j = cols.index("Días de crédito")
+    assert det["rows"][0][j]["v"] == 91
+
+
+def test_imputa_vencimiento_con_la_politica_de_credito():
+    # Una factura sin fecha de vencimiento: se imputa vencimiento = facturación + política de crédito.
+    ds = {**m.EJEMPLO["datasets"]}
+    ds["cartera_t"] = [*m.EJEMPLO["datasets"]["cartera_t"][:3],
+                       {"id": "G2", "cliente": "Cliente F", "tipo": "NO-RELACIONADO",
+                        "factura": "2025-09-15", "vence": "", "saldo": "4000", "_row": 2}]
+    r = m.ejecutar(ds, m.EJEMPLO["parametros"], m.EJEMPLO["corte"])
+    assert r["detalle"]["imputados"] == 1
+    assert any(e["code"] == "W-VENCIMIENTO-IMPUTADO" for e in r["exceptions"])
+    g2 = next(f for f in r["rows"] if f["id"] == "G2")
+    assert g2["vence"] == "2025-12-15" and g2["vencImputado"] is True  # 2025-09-15 + 91 días
+    # el resultado no cambia (misma banda que con el vencimiento real)
+    assert r["totals"]["pce"] == "750.00"
+
+
+def test_politica_declarada_manda_sobre_la_observada():
+    # Si el auditor declara una política de crédito por escrito, esa manda para imputar.
+    ds = {**m.EJEMPLO["datasets"]}
+    ds["cartera_t"] = [*m.EJEMPLO["datasets"]["cartera_t"][:3],
+                       {"id": "G2", "cliente": "Cliente F", "tipo": "NO-RELACIONADO",
+                        "factura": "2025-10-01", "vence": "", "saldo": "4000", "_row": 2}]
+    r = m.ejecutar(ds, {**m.EJEMPLO["parametros"], "polCredito": 30}, m.EJEMPLO["corte"])
+    g2 = next(f for f in r["rows"] if f["id"] == "G2")
+    assert g2["vence"] == "2025-10-31" and r["detalle"]["polCredito"] == 30  # 2025-10-01 + 30 días
+
+
 def test_trazabilidad_entre_cortes():
     d = _run()["detalle"]
     assert d["traza"] == pytest.approx(2 / 3)  # D1 y D3 siguen en t; D2 no
