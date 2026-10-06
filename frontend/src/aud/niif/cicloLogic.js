@@ -95,10 +95,25 @@ const normal = (t) =>
 export function mapeoSugerido(encabezados, campos) {
   const cols = (encabezados || []).map(normal);
   const mapa = {};
+  const usados = new Set();
+  // Pase 1: coincidencia EXACTA del encabezado normalizado con un alias (máxima prioridad).
   for (const f of campos || []) {
     const nombres = [f.label, f.key, ...(f.aliases || [])].map(normal);
-    const i = cols.findIndex((c) => c && nombres.includes(c));
-    if (i >= 0) mapa[f.key] = i;
+    const i = cols.findIndex((c, idx) => c && !usados.has(idx) && nombres.includes(c));
+    if (i >= 0) { mapa[f.key] = i; usados.add(i); }
+  }
+  // Pase 2: el encabezado EMPIEZA con un alias específico (>= 6 car.). Tolera texto extra
+  // en el encabezado (p. ej. una fecha: «Saldo anterior 31-12-2025» -> «saldo anterior»).
+  for (const f of campos || []) {
+    if (f.key in mapa) continue;
+    const nombres = [...new Set([f.label, f.key, ...(f.aliases || [])].map(normal))].filter((a) => a.length >= 6);
+    let mejor = -1;
+    let mejorLen = 0;
+    cols.forEach((c, idx) => {
+      if (!c || usados.has(idx)) return;
+      for (const a of nombres) if (c.startsWith(a) && a.length > mejorLen) { mejor = idx; mejorLen = a.length; }
+    });
+    if (mejor >= 0) { mapa[f.key] = mejor; usados.add(mejor); }
   }
   return mapa;
 }
