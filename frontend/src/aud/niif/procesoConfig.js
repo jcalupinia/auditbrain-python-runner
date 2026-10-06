@@ -233,6 +233,8 @@ const INVENTARIOS = {
       subtitulo: "Prueba de corte de compras y ventas.", icono: "calendar", color: "blue", relacionados: ["RQ-004"], seccion: "sec-12_Corte" },
     { clave: "comparacion", titulo: "Comparación Año a Año",
       subtitulo: "Inventario sin movimiento (no rotó) vs. año anterior.", icono: "refresh", color: "teal", relacionados: ["RQ-012", "RQ-001"], seccion: "sec-17_Comparacion" },
+    { clave: "sumaria", titulo: "Sumaria del Inventario",
+      subtitulo: "Resumen por bodega y por tipo de inventario.", icono: "table", color: "gold", relacionados: ["RQ-001"], seccion: "sec-18_Sumaria" },
   ],
 };
 

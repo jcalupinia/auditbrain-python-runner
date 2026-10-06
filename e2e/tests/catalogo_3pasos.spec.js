@@ -43,7 +43,7 @@ const TOOLS = [
     nombre: "Inventarios y Costos",
     reqIds: ["RQ-001", "RQ-002", "RQ-003", "RQ-004", "RQ-005", "RQ-006", "RQ-007", "RQ-008", "RQ-009", "RQ-010"],
     primarias: ["Inventario Valorado (Kardex)", "Actas de Recuento Físico", "Política de Obsolescencia"],
-    nEjec: 11,
+    nEjec: 12,
   },
   {
     processor: "ingresos_contratos",

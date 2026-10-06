@@ -373,3 +373,28 @@ def test_rq012_en_la_definicion_y_dataset_en_campos():
     assert ids["RQ-012"]["dataset"] == "inventario_anterior" and ids["RQ-012"]["required"] is False
     assert "inventario_anterior" in m.CAMPOS and "inventario_anterior" in m.TIPOS
     assert ["17_Comparacion", "Comparación con el ejercicio anterior"] in [list(c) for c in d["cedulas"]]
+
+
+# --- Sumaria del inventario (por bodega y por tipo) ----------------------------------------------
+
+def test_sumaria_por_bodega_y_por_tipo_cuadra_con_el_total():
+    """La Sumaria resume el inventario al costo auditado y la provisión estimada en dos cortes
+    (por bodega y por tipo). Cada subtotal cuadra con el total del inventario."""
+    res = _run()
+    hojas = m.hojas(res)
+    h = next(x for x in hojas if x["name"] == "18_Sumaria")
+    val = lambda c: (c["v"] if isinstance(c, dict) else c)
+    filas = {r[0]: r for r in h["rows"]}
+    t = res["detalle"]["tot"]
+    # Subtotales de cada sección == total del inventario (cuadre).
+    for etq in ("Subtotal por bodega", "Subtotal por tipo"):
+        assert val(filas[etq][2]) == t["costoAuditado"], etq
+        assert val(filas[etq][3]) == t["provisionEstimada"], etq
+        assert val(filas[etq][4]) == t["inventarioNeto"], etq
+    # Corte por tipo: materia prima + resto == total; y nº de ítems suma 13.
+    assert val(filas["Materia prima"][2]) + val(filas["Mercadería y productos terminados"][2]) == t["costoAuditado"]
+    assert val(filas["Subtotal por bodega"][1]) == len(res["detalle"]["items"])
+    # Cada importe es una fórmula SUMIFS/COUNTIFS (no una cifra pegada).
+    assert filas["BOD1"][2]["f"].startswith("SUMIFS(") and filas["BOD1"][1]["f"].startswith("COUNTIFS(")
+    # La sección «Por bodega» lista una fila por bodega del ejemplo (BOD1..BOD4).
+    assert {"BOD1", "BOD2", "BOD3", "BOD4"} <= set(filas)
