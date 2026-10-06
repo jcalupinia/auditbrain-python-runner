@@ -117,13 +117,13 @@ _MAYOR = [
 # Facturas (adiciones y salidas): se extraen por IA del PDF (EXTRACCION_DATASETS) y se cruzan con las
 # adiciones del detalle y las bajas del auxiliar en el vaucheo. Los dos datasets comparten estos campos.
 _FACTURA = [
-    campo("codigo_activo", "Código del activo", requerido=False, alias=("codigo", "código", "activo", "codigo activo", "placa"), ejemplo="VEH-01"),
-    campo("proveedor", "Proveedor / Cliente", requerido=False, alias=("proveedor", "razon social", "cliente", "adquiriente", "comprador"), ejemplo="Comercial XYZ S.A."),
-    campo("ruc", "RUC", requerido=False, alias=("ruc", "ruc/ci", "identificacion"), ejemplo="1790012345001"),
-    campo("fecha", "Fecha de emisión", "date", requerido=False, alias=("fecha", "fecha emision", "fecha de emision"), ejemplo="2026-03-15"),
-    campo("numero", "N° de factura", requerido=False, alias=("factura", "numero", "número", "comprobante", "no factura"), ejemplo="001-001-000001234"),
-    campo("total", "Total", "number", requerido=False, alias=("total", "valor total", "importe", "monto", "valor"), ejemplo="40000"),
-    campo("descripcion", "Detalle", requerido=False, alias=("detalle", "descripcion", "concepto", "bien o servicio"), ejemplo="Camioneta 4x4"),
+    campo("codigo_activo", "Código del activo", requerido=False, alias=("codigo", "código", "activo", "codigo activo", "placa"), ejemplo="2145"),
+    campo("proveedor", "Proveedor / Cliente", requerido=False, alias=("proveedor", "razon social", "cliente", "adquiriente", "comprador", "emisor"), ejemplo="Comercial XYZ S.A."),
+    campo("ruc", "RUC / Identificación", requerido=False, alias=("ruc", "ruc/ci", "identificacion", "cedula", "ci"), ejemplo="1790012345001"),
+    campo("fecha", "Fecha de emisión", "date", requerido=False, alias=("fecha", "fecha emision", "fecha de emision"), ejemplo="2026-06-30"),
+    campo("numero", "N° de factura (estab-ptoEmisión-secuencial)", requerido=False, alias=("factura", "numero", "número", "comprobante", "no factura", "secuencial"), ejemplo="001-041-000000528"),
+    campo("total", "Total (subtotal sin IVA)", "number", requerido=False, alias=("total", "valor total", "importe", "monto", "valor", "subtotal", "subtotal sin impuestos", "base imponible"), ejemplo="52.17"),
+    campo("descripcion", "Detalle", requerido=False, alias=("detalle", "descripcion", "concepto", "bien o servicio"), ejemplo="Equipo celular"),
 ]
 # Política contable de PP&E: una fila por rubro con la vida útil y, si consta, el umbral de capitalización.
 # Se extrae por IA del PDF/Word de la política (RQ-004) para la columna «vida útil según política».
@@ -141,10 +141,36 @@ DATASETS = tuple(TIPOS)
 PRINCIPAL = "activos"
 # Datasets que se pueblan extrayendo por IA el texto de los PDF/Word (facturas y política), con revisión del auditor.
 EXTRACCION_DATASETS = ("facturas_adiciones", "facturas_salidas", "politica")
+# Guía común para leer una factura electrónica del SRI (RIDE), que trae DOS partes (emisor y adquirente) y el
+# secuencial partido en tres bloques. La instrucción se indexa por DATASET (no por tipo): servicio.py busca
+# EXTRACCION_INSTRUCCIONES[dataset], así que las claves deben ser «facturas_adiciones» y «facturas_salidas».
+_FACTURA_RIDE = (
+    "El documento es una FACTURA ELECTRÓNICA del SRI de Ecuador (RIDE). Devuelve UNA sola fila por factura. "
+    "Estructura del RIDE: en la CABECERA constan la razón social y el R.U.C. de 13 dígitos del EMISOR (quien vende "
+    "o emite); más abajo, en «Razón Social / Nombres y Apellidos» e «Identificación», constan los del ADQUIRENTE "
+    "(el comprador). Reglas de transcripción, campo por campo:\n"
+    "- numero: arma el comprobante completo con sus TRES partes establecimiento-puntoEmisión-secuencial unidas con "
+    "guiones (por ejemplo 001-041-000000528), aunque en el documento vengan en líneas o celdas separadas.\n"
+    "- fecha: la «Fecha Emisión» del comprobante.\n"
+    "- total: el «SUBTOTAL SIN IMPUESTOS» (la base imponible, sin IVA), que es el valor que se capitaliza y se "
+    "registra en el mayor; solo si el documento no desglosa impuestos, usa el «VALOR TOTAL».\n"
+    "- codigo_activo: si en «Referencias» o en «Información Adicional» consta el código del activo (por ejemplo "
+    "«Activo Fijo 2145»), tómalo de ahí; NO uses el código genérico de la línea del detalle (por ejemplo «AFI»).\n"
+    "- descripcion: el detalle del bien de la línea.\n"
+    "No inventes datos: lo que no aparezca, déjalo vacío (null)."
+)
 EXTRACCION_INSTRUCCIONES = {
-    "factura": ("Cada factura es un comprobante. Extraiga una fila por factura con el proveedor o cliente, su RUC, "
-                "la fecha de emisión, el número de la factura (serie-secuencial), el total y el detalle del bien. "
-                "Si el comprobante trae el código del activo, inclúyalo. No invente datos: lo que no aparezca, déjelo vacío."),
+    "facturas_adiciones":
+        _FACTURA_RIDE + "\nEsta es una factura de COMPRA (adición de activo fijo). En «proveedor» pon la razón social "
+        "del EMISOR (el proveedor que vende, el de la cabecera) y en «ruc» su R.U.C. de 13 dígitos; NO pongas los "
+        "datos del comprador. Estos datos (proveedor, RUC, fecha y número) sirven para cotejar que la compra conste "
+        "en el libro mayor y para el vaucheo.",
+    "facturas_salidas":
+        _FACTURA_RIDE + "\nEsta es una factura de VENTA o baja de activo fijo, que normalmente emite el propio cliente "
+        "auditado. En «proveedor» (que aquí es el CLIENTE/comprador) pon la razón social del ADQUIRENTE («Razón Social "
+        "/ Nombres y Apellidos») y en «ruc» su identificación; NO pongas los datos del emisor (el cliente auditado). "
+        "Estos datos (cliente, RUC, fecha y número) sirven para cotejar que la venta conste en el libro mayor y para "
+        "el vaucheo.",
     "politica": ("La política contable fija la vida útil por rubro de propiedad, planta y equipo. Extraiga una fila por "
                  "rubro (edificios, maquinaria, muebles, vehículos, equipos de cómputo, etc.) con su vida útil en años y, "
                  "si consta, el umbral mínimo para capitalizar. No invente: lo que no aparezca, déjelo vacío."),
@@ -1774,7 +1800,14 @@ def hojas(res: dict) -> list[dict]:
     ex_vauch = {
         "Tipo": "Adición (factura de compra) o Baja (factura de venta).",
         "Código del activo": "Código del activo relacionado en el anexo, para cruzar con el detalle.",
-        "Total": "Total de la factura extraído del PDF (revíselo: la IA solo transcribe lo que leyó).",
+        "Proveedor / Cliente": "Razón social del proveedor (en una compra) o del cliente/adquirente (en una venta), "
+                               "extraída del RIDE; sirve para cotejarla contra el tercero del libro mayor.",
+        "RUC": "R.U.C. o identificación de la contraparte, extraído del RIDE; permite confirmar que la compra o "
+               "venta registrada en el mayor corresponde a ese tercero.",
+        "Fecha": "Fecha de emisión de la factura; debe caer en el período y cruzar con la fecha del asiento en el mayor.",
+        "N° factura": "Secuencial completo del comprobante (estab-ptoEmisión-secuencial); se cruza con el N° de "
+                      "documento del movimiento en el libro mayor.",
+        "Total": "Subtotal sin IVA de la factura extraído del PDF (revíselo: la IA solo transcribe lo que leyó).",
         "Registrado en libros": "Importe de la adición (detalle) o de la baja (producto de la venta) que cruza por código.",
         "Diferencia": "Total de la factura menos lo registrado; fuera de tolerancia se reporta como hallazgo.",
         "Estado": "Conciliado, Diferencia o Sin registro en libros.",

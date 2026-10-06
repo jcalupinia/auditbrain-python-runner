@@ -405,6 +405,19 @@ def test_facturas_son_extraibles_por_ia():
     assert reqs["RQ-009"]["dataset"] == "facturas_salidas" and "pdf" in reqs["RQ-009"]["formats"]
 
 
+def test_instrucciones_extraccion_indexadas_por_dataset():
+    """servicio.py busca EXTRACCION_INSTRUCCIONES[dataset]; cada dataset extraíble debe tener su
+    instrucción no vacía (si se indexara por tipo, p. ej. «factura», la guía nunca se aplicaría)."""
+    for ds in m.EXTRACCION_DATASETS:
+        instr = m.EXTRACCION_INSTRUCCIONES.get(ds)
+        assert instr, f"falta instrucción de extracción para el dataset «{ds}»"
+    # Las facturas distinguen al proveedor (compra = emisor) del cliente (venta = adquirente).
+    assert "EMISOR" in m.EXTRACCION_INSTRUCCIONES["facturas_adiciones"]
+    assert "ADQUIRENTE" in m.EXTRACCION_INSTRUCCIONES["facturas_salidas"]
+    # La clave antigua por tipo ya no debe usarse como instrucción efectiva.
+    assert "factura" not in m.EXTRACCION_INSTRUCCIONES
+
+
 def test_politica_alimenta_vida_util_y_guia():
     """Fase 5: la vida útil de la política se aplica por rubro (robusto a tildes) y entra en la guía/comparativo."""
     ds = dict(E["datasets"])
