@@ -160,6 +160,10 @@ EXTRACCION_ENUMS = {
     "partidas": {"tipo": [DT, CP, NC, ND, OT]},
     "conciliacion_anterior": {"categoria": [DT, CP, NC, ND, OT]},
 }
+# El estado de cuenta y la conciliación del banco traen la fecha como «07/AGO» (día y
+# mes, a veces sin año): el sistema la normaliza, pero se le pide a la IA el formato ISO.
+_FECHA_ISO = ("Escriba cada fecha en formato AAAA-MM-DD; si el documento solo muestra el día y el mes "
+              "(por ejemplo «07/AGO»), use el año del corte de la auditoría.")
 EXTRACCION_INSTRUCCIONES = {
     "cuentas": ("Anexo de cuentas de caja, bancos e inversiones al corte. Extraiga una fila por cuenta con su "
                 "código contable, el banco/caja y número de cuenta, el tipo (Banco, Caja o Inversión), el saldo "
@@ -170,17 +174,17 @@ EXTRACCION_INSTRUCCIONES = {
                  "por partida con el código de la cuenta, el tipo (Depósito en tránsito, Cheque pendiente, Nota de "
                  "crédito, Nota de débito u Otra partida), la referencia/descripción, la fecha de origen y el importe "
                  "en positivo (el tipo ya define si suma o resta); si consta, la fecha de liquidación posterior en el "
-                 "estado bancario. No invente datos: lo que no aparezca, déjelo vacío."),
+                 "estado bancario. " + _FECHA_ISO + " No invente datos: lo que no aparezca, déjelo vacío."),
     "libro_mayor": ("Libro mayor (auxiliar de bancos) del período. Extraiga una fila por asiento con el código de la "
-                    "cuenta, la fecha, el comprobante, el detalle, el tercero y los débitos y créditos. No invente "
-                    "datos: lo que no aparezca, déjelo vacío."),
+                    "cuenta, la fecha, el comprobante, el detalle, el tercero y los débitos y créditos. " + _FECHA_ISO
+                    + " No invente datos: lo que no aparezca, déjelo vacío."),
     "estado_cuenta": ("Estado de cuenta bancario del mes. Extraiga una fila por movimiento con el código de la cuenta, "
                       "la fecha, el documento/referencia, los débitos (cargos del banco) y los créditos (abonos del "
-                      "banco). No invente datos: lo que no aparezca, déjelo vacío."),
+                      "banco). " + _FECHA_ISO + " No invente datos: lo que no aparezca, déjelo vacío."),
     "conciliacion_anterior": ("Conciliación bancaria del mes anterior (partidas que quedaron abiertas). Extraiga una "
                               "fila por partida con el código de la cuenta, la fecha de origen, el tipo conciliatorio, "
-                              "el documento/referencia, el valor y la observación. No invente datos: lo que no "
-                              "aparezca, déjelo vacío."),
+                              "el documento/referencia, el valor y la observación. " + _FECHA_ISO + " No invente datos: "
+                              "lo que no aparezca, déjelo vacío."),
     "arqueo": ("Arqueo de caja (recuento del efectivo por denominación). Extraiga una fila por denominación con la "
                "denominación (p. ej. Billete 100), la cantidad contada, el valor unitario y la observación. No "
                "invente datos: lo que no aparezca, déjelo vacío."),
