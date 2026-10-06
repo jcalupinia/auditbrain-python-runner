@@ -1842,12 +1842,12 @@ def hojas(res: dict) -> list[dict]:
     if co.get("dep_bal") is not None or any(v["tipo"] == "Depreciación" for v in VARC):
         _bloque("Depreciación", "Depreciación acumulada", dep_cls, co.get("dep_aux"), co.get("dep_bal"))
     ex_concil = {
-        "Código": "Cuenta contable del balance (o el total del bloque: Costo / Depreciación acumulada).",
-        "Cuenta": "Nombre de la cuenta contable.",
-        "Balance (libros)": "Saldo al corte según el balance del cliente (sumaria / variaciones).",
-        "Según auditoría": "Saldo al corte según el anexo de activos fijos, agrupado por la clase que corresponde a la cuenta.",
-        "Diferencia": "Balance en libros menos el saldo según auditoría; fuera de tolerancia se revisa y se reporta.",
-        "Observación": "Resultado del cruce de la cuenta.",
+        "Código": "Código de la cuenta contable del balance (o, en la fila de total, el concepto del bloque: Costo / Depreciación acumulada).",
+        "Cuenta": "Nombre de la cuenta contable del balance tal como consta en las variaciones cargadas por el cliente.",
+        "Balance (libros)": "Saldo al corte según el balance del cliente (sumaria / variaciones), expresado en magnitud.",
+        "Según auditoría": "Saldo al corte según el anexo de activos fijos, agrupado por la clase de activo que corresponde a la cuenta.",
+        "Diferencia": "Saldo según auditoría menos el saldo en libros; fuera de la tolerancia se revisa y se reporta como hallazgo.",
+        "Observación": "Resultado del cruce de la cuenta: cruzado sin diferencia, o diferencia con el anexo que debe revisarse.",
     }
 
     # 26 · vaucheo de facturas (extraídas por IA de los PDF) contra las adiciones y las bajas.
