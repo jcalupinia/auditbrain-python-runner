@@ -369,3 +369,27 @@ def test_extraccion_por_ia_del_contrato():
     # faltan solo los campos que no vienen del contrato: la tasa (la fija el auditor con la del BCE) y el
     # pasivo registrado (saldo del mayor); todo lo demás lo extrajo la IA del contrato.
     assert not val["ok"] and {e["field"] for e in val["errors"]} == {"tasa", "pasivo_reg"}
+
+
+def test_movimiento_saldos_anterior_vs_actual():
+    """Cédula 21: el anexo trae los saldos del balance al corte anterior y al actual; la herramienta recalcula
+    el actual y muestra la diferencia. Los saldos del contrato se extraen aparte; el anexo es solo saldos."""
+    h = next(x for x in m.hojas(_run()) if x["name"] == "21_Movimiento_Saldos")
+    cols = [c[0] for c in h["cols"]]
+    assert cols[:5] == ["Contrato", "Pasivo registrado anterior", "Pasivo registrado actual", "Pasivo recalculado", "Diferencia pasivo"]
+    val = lambda celda: celda["v"] if isinstance(celda, dict) else celda
+    fila = next(f for f in h["rows"] if f[0] == "C-02")
+    assert round(val(fila[1]), 2) == 24868.52                 # pasivo registrado anterior (del anexo)
+    assert round(val(fila[2]), 2) == 17355.37                 # pasivo registrado actual (del anexo)
+    assert round(val(fila[3]), 2) == 17355.37                 # pasivo recalculado (hoja 10)
+    assert abs(val(fila[4])) < 0.005                          # diferencia pasivo ≈ 0
+    assert round(val(fila[5]), 2) == 23044.72                 # derecho de uso registrado anterior
+
+
+def test_campos_saldos_anteriores_y_ayuda_bce():
+    """El anexo declara los saldos del corte anterior y la tasa trae la guía del BCE; la extracción no llena saldos."""
+    claves = {c["key"] for c in m._CONTRATOS}
+    assert {"pasivo_reg_ant", "pasivo_cp_reg_ant", "activo_reg_ant"} <= claves
+    tasa = next(c for c in m._CONTRATOS if c["key"] == "tasa")
+    assert "Banco Central" in tasa["label"] or "BCE" in tasa["label"]
+    assert "SALDOS DEL BALANCE" in m.EXTRACCION_INSTRUCCIONES["contratos"]

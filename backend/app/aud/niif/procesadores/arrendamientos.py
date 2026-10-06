@@ -49,13 +49,13 @@ VERSION = "arrendamientos 1.0"
 RUBRO = "ARRENDAMIENTOS"
 
 _CONTRATOS = [
+    # --- Identificación ---
     campo("id", "Contrato", alias=("contrato", "codigo", "numero de contrato", "n contrato"), ejemplo="C-01"),
     campo("activo", "Activo subyacente", alias=("activo", "bien", "activo arrendado", "descripcion"), ejemplo="Local comercial"),
+    # --- Del contrato: lo extrae la IA del PDF/Word (no se tipea a mano) ---
     campo("inicio", "Fecha de comienzo", "date", alias=("fecha de comienzo", "fecha inicio", "inicio", "comienzo"), ejemplo="2024-01-01"),
     campo("plazo", "Plazo no cancelable (meses)", "number", alias=("plazo", "plazo meses", "meses"), ejemplo=36),
     campo("renov_meses", "Meses de la opción de renovación", "number", False, ("meses adicionales", "renovacion meses")),
-    campo("renov_cierta", "Renovación razonablemente cierta (sí/no)", "text", False, ("renovacion cierta", "razonablemente cierta")),
-    campo("plazo_cliente", "Plazo usado por el cliente (meses)", "number", False, ("plazo cliente", "plazo registrado")),
     campo("pago", "Pago periódico total del contrato (incluye el componente indexado)", "number",
           alias=("pago", "cuota", "canon", "pago periodico"), ejemplo=1500),
     campo("periodicidad", "Periodicidad (mensual/trimestral/semestral/anual)", alias=("periodicidad", "frecuencia"), ejemplo="Mensual"),
@@ -67,39 +67,55 @@ _CONTRATOS = [
     campo("indice", "Índice o referencia del ajuste", "text", False, ("indice", "referencia del ajuste", "indice de inflacion")),
     campo("pago_variable", "Pago variable del período no ligado a un índice", "number", False,
           ("pago variable", "renta variable", "cuota contingente")),
-    campo("tasa", "Tasa anual (%)", "number", alias=("tasa", "tasa anual", "tasa de descuento"), ejemplo=12),
-    campo("tipo_tasa", "Tipo de tasa (implícita/incremental)", "text", False, ("tipo de tasa",)),
     campo("anticipados", "Pagos anticipados antes del comienzo", "number", False, ("pagos anticipados", "anticipos")),
     campo("costos", "Costos directos iniciales", "number", False, ("costos directos",)),
     campo("desmantelamiento", "Costo estimado de desmantelamiento", "number", False, ("desmantelamiento", "restauracion")),
     campo("incentivos", "Incentivos recibidos", "number", False, ("incentivos",)),
     campo("opcion_compra", "Precio de la opción de compra", "number", False, ("opcion de compra", "precio opcion")),
-    campo("compra_cierta", "Compra razonablemente cierta (sí/no)", "text", False, ("compra cierta",)),
     campo("vida_util", "Vida útil del activo (meses)", "number", False, ("vida util",)),
     campo("valor_razonable", "Valor razonable del activo (nuevo)", "number", False, ("valor razonable", "valor nuevo")),
-    campo("bajo_valor", "Activo de bajo valor (sí/no)", "text", False, ("bajo valor", "escaso valor")),
-    campo("bajo_valor_b5b7", "Bajo valor: se usa por sí solo, no depende de otros activos y no se subarrienda (B5, B7) (sí/no)", "text", False,
-          ("b5 b7", "uso independiente", "bajo valor b5", "no subarrendado")),
-    campo("exencion", "El cliente aplicó la exención (sí/no)", "text", False, ("exencion", "exento")),
-    campo("clasif_pymes", "Clasificación PYMES del cliente (financiero/operativo)", "text", False, ("clasificacion", "tipo de arrendamiento")),
-    campo("pasivo_reg", "Pasivo por arrendamiento registrado al corte", "number", alias=("pasivo registrado", "saldo pasivo"), ejemplo=0),
-    campo("pasivo_cp_reg", "Pasivo corriente registrado", "number", False, ("pasivo corriente", "porcion corriente")),
-    campo("activo_reg", "Derecho de uso / activo registrado neto", "number", False, ("derecho de uso", "rou", "activo registrado")),
-    campo("dep_reg", "Depreciación registrada del ejercicio", "number", False, ("depreciacion registrada", "amortizacion registrada")),
-    campo("int_reg", "Interés registrado del ejercicio", "number", False, ("interes registrado", "gasto financiero")),
+    # Addenda / modificación (del contrato)
     campo("fecha_evento", "Fecha de modificación o nueva evaluación", "date", False, ("fecha modificacion", "fecha evento")),
     campo("tipo_evento", "Tipo de evento (modificación/índice/plazo)", "text", False, ("tipo de evento", "tipo modificacion")),
     campo("nuevo_pago", "Nuevo pago periódico", "number", False, ("nuevo pago",)),
-    campo("nueva_tasa", "Tasa anual revisada (%)", "number", False, ("nueva tasa", "tasa revisada")),
     campo("nuevo_plazo", "Plazo total revisado (meses desde el comienzo)", "number", False, ("nuevo plazo", "plazo revisado")),
-    campo("remedido", "El cliente remidió el pasivo (sí/no)", "text", False, ("remedido", "remedicion registrada")),
-    campo("recuperable", "Importe recuperable del activo", "number", False, ("importe recuperable",)),
+    # Venta con arrendamiento posterior (del contrato)
     campo("venta_posterior", "Venta con arrendamiento posterior (sí/no)", "text", False, ("sale and leaseback", "venta con arrendamiento")),
     campo("precio_venta", "Precio de venta", "number", False, ("precio de venta",)),
     campo("libros_previo", "Importe en libros antes de la venta", "number", False, ("importe en libros", "valor en libros")),
+    # --- Saldos del balance: los tipea el auditor, al corte anterior y al corte actual ---
+    campo("pasivo_reg_ant", "Pasivo por arrendamiento registrado al corte ANTERIOR", "number", False,
+          ("pasivo anterior", "pasivo registrado anterior", "saldo pasivo anterior")),
+    campo("pasivo_cp_reg_ant", "Pasivo corriente registrado al corte anterior", "number", False,
+          ("pasivo corriente anterior", "porcion corriente anterior")),
+    campo("activo_reg_ant", "Derecho de uso / activo neto registrado al corte anterior", "number", False,
+          ("derecho de uso anterior", "rou anterior", "activo registrado anterior")),
+    campo("pasivo_reg", "Pasivo por arrendamiento registrado al corte actual", "number",
+          alias=("pasivo registrado", "saldo pasivo", "pasivo actual"), ejemplo=0),
+    campo("pasivo_cp_reg", "Pasivo corriente registrado al corte actual", "number", False, ("pasivo corriente", "porcion corriente")),
+    campo("activo_reg", "Derecho de uso / activo neto registrado al corte actual", "number", False,
+          ("derecho de uso", "rou", "activo registrado")),
+    campo("dep_reg", "Depreciación registrada del ejercicio", "number", False, ("depreciacion registrada", "amortizacion registrada")),
+    campo("int_reg", "Interés registrado del ejercicio", "number", False, ("interes registrado", "gasto financiero")),
     campo("ganancia_reg", "Ganancia registrada en la venta", "number", False, ("ganancia registrada", "utilidad en venta")),
     campo("ganancia_post_reg", "Ganancia o pérdida reconocida después de la venta por la medición posterior del arrendamiento",
           "number", False, ("ganancia posterior", "ganancia remedicion", "resultado posterior venta")),
+    # --- Juicios del auditor: manuales, solo si el contrato lo amerita ---
+    campo("renov_cierta", "Renovación razonablemente cierta (sí/no)", "text", False, ("renovacion cierta", "razonablemente cierta")),
+    campo("compra_cierta", "Compra razonablemente cierta (sí/no)", "text", False, ("compra cierta",)),
+    campo("exencion", "El cliente aplicó la exención (sí/no)", "text", False, ("exencion", "exento")),
+    campo("bajo_valor", "Activo de bajo valor (sí/no)", "text", False, ("bajo valor", "escaso valor")),
+    campo("bajo_valor_b5b7", "Bajo valor: se usa por sí solo, no depende de otros activos y no se subarrienda (B5, B7) (sí/no)", "text", False,
+          ("b5 b7", "uso independiente", "bajo valor b5", "no subarrendado")),
+    campo("clasif_pymes", "Clasificación PYMES del cliente (financiero/operativo)", "text", False, ("clasificacion", "tipo de arrendamiento")),
+    campo("tipo_tasa", "Tipo de tasa (implícita/incremental)", "text", False, ("tipo de tasa",)),
+    campo("remedido", "El cliente remidió el pasivo (sí/no)", "text", False, ("remedido", "remedicion registrada")),
+    campo("recuperable", "Importe recuperable del activo", "number", False, ("importe recuperable",)),
+    campo("nueva_tasa", "Tasa anual revisada (%)", "number", False, ("nueva tasa", "tasa revisada")),
+    campo("plazo_cliente", "Plazo usado por el cliente (meses)", "number", False, ("plazo cliente", "plazo registrado")),
+    # --- Tasa de descuento: manual, referencial del Banco Central del Ecuador ---
+    campo("tasa", "Tasa anual (%) — Tasa Activa Efectiva Referencial del BCE, segmento productivo del cliente (Corporativo/PYMES), vigente al mes de la fecha de comienzo",
+          "number", alias=("tasa", "tasa anual", "tasa de descuento"), ejemplo=12),
 ]
 CAMPOS = {"contratos": _CONTRATOS}
 TIPOS = {"contratos": "contratos"}
@@ -117,16 +133,20 @@ EXTRACCION_DATASETS = ("contratos",)
 EXTRACCION_ENUMS = {"contratos": {"periodicidad": ["Mensual", "Trimestral", "Semestral", "Anual"], "momento": ["Inicio", "Final"]}}
 EXTRACCION_INSTRUCCIONES = {
     "contratos": (
-        "Cada contrato de arrendamiento es una fila. Extraiga SOLO lo que conste expresamente en el documento: el "
-        "activo arrendado (objeto del contrato), la fecha de comienzo (inicio del arriendo), el plazo no cancelable en "
-        "meses (si solo constan las fechas de inicio y fin, calcule los meses entre ellas), el canon o cuota periódica "
-        "y su periodicidad (mensual, trimestral, semestral o anual), si el pago es al inicio o al final del período, "
-        "los meses de la opción de renovación si existe, el precio de la opción de compra si existe, y —solo si el "
-        "contrato lo dice— si la renta se ajusta por un índice de inflación y el importe del componente ligado al "
-        "índice. NO complete la tasa de descuento (casi nunca consta en el contrato; la fija el auditor con la tasa "
-        "referencial del Banco Central del Ecuador), ni la clasificación financiero/operativo, ni si la renovación o la "
-        "compra son razonablemente ciertas, ni el bajo valor, ni la exención: esos son juicios del auditor. Lo que no "
-        "aparezca, déjelo vacío."
+        "Cada contrato de arrendamiento es una fila. Extraiga SOLO los TÉRMINOS que consten expresamente en el "
+        "documento: el activo arrendado (objeto del contrato), la fecha de comienzo (inicio del arriendo), el plazo no "
+        "cancelable en meses (si solo constan las fechas de inicio y fin, calcule los meses entre ellas), el canon o "
+        "cuota periódica y su periodicidad (mensual, trimestral, semestral o anual), si el pago es al inicio o al final "
+        "del período, los meses de la opción de renovación si existe, el precio de la opción de compra si existe, y "
+        "—solo si el contrato lo dice— si la renta se ajusta por un índice de inflación y el importe del componente "
+        "ligado al índice. "
+        "NO complete los SALDOS DEL BALANCE (pasivo, corriente, derecho de uso, depreciación e interés, ni al corte "
+        "anterior ni al actual): esos salen del mayor/balance y los tipea el auditor, no del contrato. "
+        "NO complete la tasa de descuento (casi nunca consta en el contrato; la fija el auditor con la tasa referencial "
+        "del Banco Central del Ecuador). "
+        "NO complete los juicios del auditor: la clasificación financiero/operativo, si la renovación o la compra son "
+        "razonablemente ciertas, el bajo valor, la exención, el importe recuperable. "
+        "Lo que no aparezca en el contrato, déjelo vacío."
     ),
 }
 
@@ -332,6 +352,7 @@ def _contratos(filas: list, corte: date, p: dict, pymes: bool, probs: list) -> l
              "bajo_valor_b5b7": _si(f.get("bajo_valor_b5b7")), "exencion": _si(f.get("exencion")),
              "clasif_pymes": _clasif(f.get("clasif_pymes")), "pasivo_reg": n0("pasivo_reg"), "pasivo_cp_reg": g("pasivo_cp_reg"),
              "activo_reg": n0("activo_reg"), "dep_reg": g("dep_reg"), "int_reg": g("int_reg"),
+             "pasivo_reg_ant": g("pasivo_reg_ant"), "pasivo_cp_reg_ant": g("pasivo_cp_reg_ant"), "activo_reg_ant": g("activo_reg_ant"),
              "fecha_evento": a_fecha(f.get("fecha_evento")), "tipo_evento": _tipo_evento(f.get("tipo_evento")) if a_fecha(f.get("fecha_evento")) else "",
              "nuevo_pago": g("nuevo_pago"), "nueva_tasa": g("nueva_tasa"), "nuevo_plazo": g("nuevo_plazo"), "remedido": _si(f.get("remedido")),
              "recuperable": g("recuperable"), "venta_posterior": _si(f.get("venta_posterior")), "precio_venta": g("precio_venta"),
@@ -699,6 +720,7 @@ CEDULAS = [
     ("17_Conclusion", "Indicadores y conclusión"), ("18_Lectura", "Lectura de resultados"),
     ("19_Impuesto_Diferido", "Impuesto diferido (NIC 12)"),
     ("20_Conciliacion_F101", "Conciliación F-101 y asiento"),
+    ("21_Movimiento_Saldos", "Saldos del balance: anterior vs actual"),
 ]
 P = ref("02_Parametros")
 CT, ID, PL, MI, PG, RE, TA, PC, DU, GL, VA = (ref(n) for n in ("03_Contratos", "04_Identificacion", "05_Plazo", "06_Medicion_inicial",
@@ -1208,7 +1230,7 @@ def hojas(res: dict) -> list[dict]:
     fmt03 = {"text": "t", "number": "n", "date": "d"}
     cols03 = [[cc["label"], fmt03[cc["type"]]] for cc in _CONTRATOS]
 
-    ident, plazo, medi, pagvar, reme, pasi, rou, gasto, venta, slbpost, conc = ([] for _ in range(11))
+    ident, plazo, medi, pagvar, reme, pasi, rou, gasto, venta, slbpost, conc, movsaldos = ([] for _ in range(12))
     for i, c in enumerate(cs):
         r = FILA0 + i
         # 05 · plazo
@@ -1383,6 +1405,18 @@ def hojas(res: dict) -> list[dict]:
                      fx(f"{PC}J{r}" if c["reconoce"] == "Sí" else "0", c["interes"]), fx(f"{PC}O{r}" if c["reconoce"] == "Sí" else "0", c["cp"]),
                      fx(f'IF(OR(ABS(D{r})>=0.005,ABS(G{r})>=0.005),"Alerta","Conforme")',
                         "Alerta" if (abs(c["pasivo"] - c["pasivo_reg"]) >= 0.005 or abs(c["neto"] - c["activo_reg"]) >= 0.005) else "Conforme")])
+        # 21 · movimiento de saldos del balance: corte anterior → corte actual, registrado vs recalculado
+        pa, pr = c["pasivo_reg_ant"], c["pasivo_reg"]
+        aa, ar = c["activo_reg_ant"], c["activo_reg"]
+        movsaldos.append([
+            c["id"],
+            fx(f'IF({_x("pasivo_reg_ant", r)}="","",{_x("pasivo_reg_ant", r)})', pa),
+            fx(f"N({_x('pasivo_reg', r)})", pr), fx(f"{PC}G{r}", c["pasivo"]), fx(f"C{r}-D{r}", pr - c["pasivo"]),
+            fx(f'IF({_x("activo_reg_ant", r)}="","",{_x("activo_reg_ant", r)})', aa),
+            fx(f"N({_x('activo_reg', r)})", ar), fx(f"{DU}O{r}", c["neto"]), fx(f"F{r}-G{r}", ar - c["neto"]),
+            fx(f'IF(OR(ABS(E{r})>=0.005,ABS(H{r})>=0.005),"Alerta","Conforme")',
+               "Alerta" if (abs(pr - c["pasivo"]) >= 0.005 or abs(ar - c["neto"]) >= 0.005) else "Conforme"),
+        ])
 
     # 08 · tabla de amortización
     fila_c = {c["id"]: FILA0 + i for i, c in enumerate(cs)}
@@ -1690,6 +1724,26 @@ def hojas(res: dict) -> list[dict]:
                  "Haber": "Contrapartida del asiento: si es una generación, acredita el ingreso por impuesto a la renta diferido; si es "
                      "una reversión, acredita el activo por impuesto diferido. Toma el importe del efecto neto del año.",
              }),
+        hoja("21_Movimiento_Saldos", "Saldos del balance: anterior vs actual",
+             [["Contrato", "t"], ["Pasivo registrado anterior", n_], ["Pasivo registrado actual", n_], ["Pasivo recalculado", n_],
+              ["Diferencia pasivo", n_], ["Derecho de uso registrado anterior", n_], ["Derecho de uso registrado actual", n_],
+              ["Derecho de uso recalculado", n_], ["Diferencia derecho de uso", n_], ["Semáforo", "t"]], movsaldos,
+             ["TOTAL", S("B", sum(c["pasivo_reg_ant"] or 0 for c in cs)), S("C", t["pasivoRegistrado"]), S("D", t["pasivo"]),
+              S("E", t["pasivoRegistrado"] - t["pasivo"]), S("F", sum(c["activo_reg_ant"] or 0 for c in cs)),
+              S("G", t["activoRegistrado"]), S("H", t["activo"]), S("I", t["activoRegistrado"] - t["activo"]), ""],
+             explica={
+                 "Pasivo registrado anterior": "Trae del anexo de saldos (hoja 03) el pasivo por arrendamiento registrado al corte "
+                     "anterior; en blanco si no se informó.",
+                 "Pasivo registrado actual": "Trae del anexo de saldos (hoja 03) el pasivo por arrendamiento registrado al corte actual.",
+                 "Pasivo recalculado": "Trae el pasivo por arrendamiento recalculado al corte de la hoja 10 (Pasivo al corte).",
+                 "Diferencia pasivo": "Pasivo registrado al corte actual menos el recalculado: el ajuste propuesto al pasivo.",
+                 "Derecho de uso registrado anterior": "Trae del anexo de saldos (hoja 03) el derecho de uso neto registrado al corte "
+                     "anterior; en blanco si no se informó.",
+                 "Derecho de uso registrado actual": "Trae del anexo de saldos (hoja 03) el derecho de uso neto registrado al corte actual.",
+                 "Derecho de uso recalculado": "Trae el derecho de uso neto recalculado de la hoja 11 (Depreciación y deterioro del activo).",
+                 "Diferencia derecho de uso": "Derecho de uso registrado al corte actual menos el recalculado: el ajuste propuesto al activo.",
+                 "Semáforo": "Marca «Alerta» cuando la diferencia del pasivo o del derecho de uso supera un centavo; si no, «Conforme».",
+             }, colores=["Semáforo"]),
     ]
 
 
@@ -1872,7 +1926,8 @@ EJEMPLO = {
         _k("C-01", "Local comercial matriz", "2024-01-01", "36", "1500", "Mensual", "12", "17000", renov_meses="24", renov_cierta="Sí",
            plazo_cliente="36", tipo_tasa="Incremental", clasif_pymes="Operativo", activo_reg="16500", pasivo_cp_reg="17000", int_reg="2600"),
         _k("C-02", "Bodega norte", "2023-01-01", "60", "10000", "Anual", "10", "17355.37", tipo_tasa="Incremental", costos="500",
-           valor_razonable="40000", clasif_pymes="Operativo", pasivo_cp_reg="10000", activo_reg="15363.15", dep_reg="7681.57", int_reg="2486.85"),
+           valor_razonable="40000", clasif_pymes="Operativo", pasivo_cp_reg="10000", activo_reg="15363.15", dep_reg="7681.57", int_reg="2486.85",
+           pasivo_reg_ant="24868.52", activo_reg_ant="23044.72"),
         _k("C-03", "Vehículo de gerencia", "2025-04-01", "36", "900", "Mensual", "11", "0", momento="Inicio", bajo_valor="Sí",
            exencion="Sí", valor_razonable="45000", clasif_pymes="Operativo"),
         _k("C-04", "Computadores portátiles", "2025-01-01", "24", "80", "Mensual", "12", "0", bajo_valor="Sí", exencion="Sí",
