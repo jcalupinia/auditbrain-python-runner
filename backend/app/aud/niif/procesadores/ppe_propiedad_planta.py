@@ -1714,12 +1714,18 @@ def hojas(res: dict) -> list[dict]:
             fx(f"{DEP}N{r}", a.get("acum_cliente")),                                    # N Dep. acum. cliente (04)
             fx(f'IF(OR(J{r}="",M{r}=""),"",J{r}-M{r})', a.get("dif_gasto_dias")),       # O Dif. gasto
             fx(f'IF(OR(L{r}="",N{r}=""),"",L{r}-N{r})', a.get("dif_acum_dias")),        # P Dif. dep. acum.
+            fx(f'IF(E{r}="","",100/E{r})', (100.0 / a["vida_anios_anexo"]) if a.get("vida_anios_anexo") else None),  # Q % dep. cliente
+            fx(f'IF(F{r}="","",100/F{r})', (100.0 / a["vida_anios_sri"]) if a.get("vida_anios_sri") else None),      # R % dep. SRI
+            fx(f"{FIS}F{r}", a.get("dep_fiscal")),                                      # S Gasto SRI (fiscal, 04 Art. 28)
+            fx(f"{DEP}J{r}", a.get("nbv")),                                             # T Valor NIIF (VNL)
         ])
     _sg = lambda k: sum(a.get(k) or 0 for a in A)
     total_comp = ["TOTAL", "", suma("C", fin(n), sum(a["costo"] for a in A)), None, None, None, None, None, None,
                   suma("J", fin(n), _sg("gasto_dias_anexo")), None, suma("L", fin(n), _sg("acum_dias_anexo")),
                   suma("M", fin(n), _sg("dreg")), suma("N", fin(n), _sg("acum_cliente")),
-                  suma("O", fin(n), _sg("dif_gasto_dias")), suma("P", fin(n), _sg("dif_acum_dias"))] if n else None
+                  suma("O", fin(n), _sg("dif_gasto_dias")), suma("P", fin(n), _sg("dif_acum_dias")),
+                  None, None, suma("S", fin(n), sum(a.get("dep_fiscal") or 0 for a in A)),
+                  suma("T", fin(n), sum(a.get("nbv") or 0 for a in A if a.get("nbv") is not None))] if n else None
     ex_comp21 = {
         "Código": "Código del activo en el anexo del cliente (hoja 03), para rastrear cada cálculo hasta su origen.",
         "Clase": "Clase o grupo del activo según el anexo del cliente; determina la vida útil por rubro.",
@@ -1737,6 +1743,10 @@ def hojas(res: dict) -> list[dict]:
         "Dep. acum. cliente": "Depreciación acumulada del cliente al corte (del anexo; si no viene, apertura + gasto del año).",
         "Dif. gasto": "Gasto del auditor (días) menos el del cliente.",
         "Dif. dep. acum.": "Depreciación acumulada del auditor (días) menos la del cliente.",
+        "% dep. cliente": "Porcentaje anual implícito del cliente: 100 ÷ vida útil del anexo (en años).",
+        "% dep. SRI": "Porcentaje anual máximo del SRI (Art. 28): 100 ÷ vida tributaria (inmuebles 5 %, maquinaria/muebles 10 %, vehículos 20 %, cómputo 33,33 %).",
+        "Gasto SRI (fiscal)": "Depreciación fiscal del período según el SRI (hoja 20): base deducible × tasa × días/365, con el tope de USD 35.000 en vehículos.",
+        "Valor NIIF (VNL)": "Valor neto en libros NIIF al corte (hoja 04): costo − depreciación acumulada recalculada − deterioro.",
     }
 
     # 22 · guía comparativa NIIF vs SRI (totales por criterio) para orientar al auditor y al cliente.
@@ -1936,11 +1946,13 @@ def hojas(res: dict) -> list[dict]:
               suma("H", fin(n), sum(a["dif_fiscal"] for a in A if a.get("dif_fiscal") is not None)),
               suma("I", fin(n), sum(a.get("exceso_veh") or 0 for a in A)), ""],
              explica=ex_fiscal),
-        hoja("21_Comparativo", "Recálculo comparativo por días (auditor vs cliente)",
+        hoja("21_Comparativo", "Recálculo de depreciación (cliente · auditor · SRI · NIIF)",
              [["Código", "t"], ["Clase", "t"], ["Costo", "n"], ["Valor a depreciar", "n"], ["Vida anexo (años)", "n"],
               ["Vida SRI (años)", "n"], ["Vida política (años)", "n"], ["Dep. diaria (anexo)", "n"], ["Días gasto", "i"],
               ["Gasto auditor (días)", "n"], ["Días acumulados", "i"], ["Dep. acum. auditor (días)", "n"], ["Gasto cliente", "n"],
-              ["Dep. acum. cliente", "n"], ["Dif. gasto", "n"], ["Dif. dep. acum.", "n"]], comparativo, total_comp, explica=ex_comp21),
+              ["Dep. acum. cliente", "n"], ["Dif. gasto", "n"], ["Dif. dep. acum.", "n"],
+              ["% dep. cliente", "n"], ["% dep. SRI", "n"], ["Gasto SRI (fiscal)", "n"], ["Valor NIIF (VNL)", "n"]],
+             comparativo, total_comp, explica=ex_comp21),
         hoja("22_Guia_NIIF_SRI", "Guía comparativa NIIF vs SRI",
              [["Concepto", "t"], ["NIIF (meses)", "n"], ["NIIF (días)", "n"], ["SRI (días)", "n"], ["Política (días)", "n"], ["Cliente", "n"]],
              guia, explica=ex_guia),
@@ -1974,15 +1986,16 @@ def hojas(res: dict) -> list[dict]:
         "12_Capitalizacion": bool(ncap),
         "13_Desmantelamiento": ds.get("costo") is not None,
     }
-    # Orden de presentación: primero las cédulas de trabajo del auditor (resumen, recálculo comparativo por días,
-    # fiscal SRI, guía, roll-forward, sumaria, movimiento, conciliación, vaucheo); luego las de análisis que apliquen;
-    # y al final el soporte y el diagnóstico (auxiliar, recálculo por activo, parámetros, ajustes, problemas,
-    # conclusión, lectura, resumen por estado y resumen de hallazgos).
-    _ORDEN = ["01_Resumen", "21_Comparativo", "20_Fiscal", "22_Guia_NIIF_SRI", "14_Roll_forward",
-              "23_Sumaria", "24_Movimiento_mayor", "25_Conciliacion", "26_Vaucheo", "05_Vidas_residual",
+    # Orden de presentación del papel de trabajo: primero las cédulas de trabajo del auditor en el flujo que sigue
+    # el auditor (sumaria desde variaciones → conciliación → recálculo de depreciación → cédulas de análisis que
+    # apliquen → movimiento del mayor → vaucheo → hallazgos); luego el soporte y el diagnóstico (que viajan OCULTOS
+    # cuando la prueba declara `hojas_visibles`, pero se conservan porque el recálculo y el tablero los referencian).
+    _ORDEN = ["23_Sumaria", "25_Conciliacion", "21_Comparativo",
               "06_Componentes", "07_Bajas", "08_Revaluacion", "09_Deterioro", "10_Adiciones",
               "11_Prestamos", "12_Capitalizacion", "13_Desmantelamiento",
-              "03_Auxiliar", "04_Depreciacion", "02_Parametros", "15_Ajustes", "16_Problemas",
+              "24_Movimiento_mayor", "26_Vaucheo", "16_Problemas",
+              "01_Resumen", "05_Vidas_residual", "20_Fiscal", "22_Guia_NIIF_SRI", "14_Roll_forward",
+              "03_Auxiliar", "04_Depreciacion", "02_Parametros", "15_Ajustes",
               "17_Conclusion", "18_Lectura", "19_Resumen_estado", "27_Resumen_hallazgos"]
     _idx = {n: i for i, n in enumerate(_ORDEN)}
     visibles = [h for h in _todas if _mostrar.get(h["name"], True)]
@@ -2000,9 +2013,15 @@ def definicion() -> dict:
         "name": "Propiedad, planta y equipo",
         "area": "Propiedad, planta y equipo",
         "processor": "ppe_propiedad_planta",
-        # El papel abre con las cédulas de trabajo del auditor; la documentación (carátula, programa, base
-        # técnica, anexo técnico) y el cierre (conclusión y control de revisión) viajan al final.
-        "documentacion_al_final": True,
+        # El papel de trabajo muestra solo las cédulas del flujo del auditor; las demás (resumen, parámetros,
+        # auxiliar, vidas, fiscal, guía, roll-forward, ajustes, conclusión, lectura, resumen por estado y de
+        # hallazgos, además de carátula/base técnica/anexo y cierre) viajan OCULTAS —no borradas— porque el
+        # recálculo y el tablero las referencian por fórmula (ocultar evita romper con #REF!). «Procedimiento» es
+        # 00_Programa. Las cédulas de análisis (bajas, revaluación, deterioro, adiciones, préstamos,
+        # capitalización) solo existen —y por tanto solo se ven— cuando el cliente tiene ese hecho económico.
+        "hojas_visibles": ["00_Programa", "23_Sumaria", "25_Conciliacion", "21_Comparativo",
+                           "06_Componentes", "07_Bajas", "08_Revaluacion", "09_Deterioro", "10_Adiciones",
+                           "11_Prestamos", "12_Capitalizacion", "24_Movimiento_mayor", "26_Vaucheo", "16_Problemas"],
         "frameworks": [MARCO_COMPLETAS, MARCO_PYMES],
         "summary": ("Recalcula por activo la depreciación, el valor neto en libros y el resultado de las bajas; evalúa vidas útiles, "
                     "residuales, componentes, revaluación, deterioro y la provisión de desmantelamiento; con el anexo de préstamos separa los "
