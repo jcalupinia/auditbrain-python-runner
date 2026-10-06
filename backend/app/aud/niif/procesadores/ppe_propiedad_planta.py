@@ -1816,28 +1816,31 @@ def hojas(res: dict) -> list[dict]:
     concil_rows = []
     def _obs(dif):
         return "Cruzado sin diferencia" if dif is None or abs(dif) <= _tolc else "Revisar: diferencia con el anexo"
-    def _bloque(tipo, titulo, aud_por_clase, aux_tot, dif_tot, signo):
+    def _bloque(tipo, titulo, aud_por_clase, aux_tot, bal_tot_co):
+        # Se trabaja con magnitudes (valor absoluto): el saldo de depreciación puede venir acreedor (negativo) o
+        # deudor (positivo) según el cliente. Diferencia = auditoría − balance, que reproduce el importe del
+        # hallazgo SUMARIA_NO_CONCILIA (auxiliar − balance) en costo y en depreciación.
+        _f = lambda r: f'IF(OR(C{r}="",D{r}=""),"",D{r}-C{r})'
         cuentas = [v for v in VARC if v["tipo"] == tipo]
         if not cuentas and aux_tot is None:
             return
         for v in cuentas:
             r = FILA0 + len(concil_rows)
-            bal = v["act"]
-            aud = signo * aud_por_clase.get(_nrm(v["desc"]), 0.0)
+            bal = abs(v["act"])
+            aud = abs(aud_por_clase.get(_nrm(v["desc"]), 0.0))
             concil_rows.append([v["cuenta"], v["desc"], fx("", bal), fx("", aud),
-                                fx(f'IF(OR(C{r}="",D{r}=""),"",C{r}-D{r})', bal - aud), _obs(bal - aud)])
+                                fx(_f(r), aud - bal), _obs(aud - bal)])
         # Total del bloque (su primera celda es el concepto para que el hallazgo enlace aquí).
         r = FILA0 + len(concil_rows)
-        bal_tot = sum(v["act"] for v in cuentas) if cuentas else (None if aux_tot is None else signo * aux_tot)
-        aud_tot = signo * (aux_tot or 0.0) if aux_tot is not None else None
-        dif = None if (bal_tot is None or aud_tot is None) else bal_tot - aud_tot
-        concil_rows.append([titulo, "TOTALES", fx("", bal_tot), fx("", aud_tot),
-                            fx(f'IF(OR(C{r}="",D{r}=""),"",C{r}-D{r})', dif), _obs(dif)])
-    # Costo: balance y auditoría positivos. Depreciación acumulada: saldo acreedor (negativo), como en el balance.
+        bal_tot = abs(bal_tot_co) if bal_tot_co is not None else (abs(sum(v["act"] for v in cuentas)) if cuentas else None)
+        aud_tot = abs(aux_tot) if aux_tot is not None else None
+        dif = None if (bal_tot is None or aud_tot is None) else aud_tot - bal_tot
+        concil_rows.append([titulo, "TOTALES", fx("", bal_tot), fx("", aud_tot), fx(_f(r), dif), _obs(dif)])
+    # Ambos bloques en magnitudes: Balance (libros) y Según auditoría positivos; Diferencia = auditoría − balance.
     if co.get("costo_bal") is not None or any(v["tipo"] == "Costo" for v in VARC):
-        _bloque("Costo", "Costo", costo_cls, co.get("costo_aux"), co.get("dif_costo"), 1)
+        _bloque("Costo", "Costo", costo_cls, co.get("costo_aux"), co.get("costo_bal"))
     if co.get("dep_bal") is not None or any(v["tipo"] == "Depreciación" for v in VARC):
-        _bloque("Depreciación acumulada", "Depreciación acumulada", dep_cls, co.get("dep_aux"), co.get("dif_dep"), -1)
+        _bloque("Depreciación", "Depreciación acumulada", dep_cls, co.get("dep_aux"), co.get("dep_bal"))
     ex_concil = {
         "Código": "Cuenta contable del balance (o el total del bloque: Costo / Depreciación acumulada).",
         "Cuenta": "Nombre de la cuenta contable.",

@@ -383,7 +383,8 @@ def test_sumaria_movimiento_y_conciliacion():
     conc = {row[0]: row for row in hs["25_Conciliacion"]["rows"]}
     assert "Costo" in conc and "Depreciación acumulada" in conc
     # Columnas: [Código, Cuenta, Balance (libros), Según auditoría, Diferencia, Observación].
-    assert abs(_cv(conc["Costo"][4]) - (_cv(conc["Costo"][2]) - _cv(conc["Costo"][3]))) < 0.01
+    # |Diferencia| = |balance − auditoría| (la orientación del signo depende del bloque).
+    assert abs(abs(_cv(conc["Costo"][4])) - abs(_cv(conc["Costo"][2]) - _cv(conc["Costo"][3]))) < 0.01
     # El ejemplo no concilia a propósito → se reportan los hallazgos de la sumaria.
     assert "SUMARIA_NO_CONCILIA" in _codigos(r)
 
