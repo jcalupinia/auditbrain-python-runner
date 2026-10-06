@@ -588,6 +588,7 @@ CEDULAS = [
     ("14_Conclusion", "Indicadores y conclusión"), ("15_Lectura", "Lectura de resultados"),
     ("16_Resumen_obsol", "Inventario y provisión por tramo"),
     ("17_Comparacion", "Comparación con el ejercicio anterior"),
+    ("18_Sumaria", "Sumaria del inventario (por bodega y por tipo)"),
 ]
 PARK = ["corte", "marco", "obsDias1", "obsPct1", "obsDias2", "obsPct2", "obsDias3", "obsPct3", "saldoMayor", "provisionRegistrada"]
 PAR = {k: FILA0 + i for i, k in enumerate(PARK)}
@@ -1136,6 +1137,60 @@ def hojas(res: dict) -> list[dict]:
         "Valor sin movimiento": "Toma el valor del año actual cuando el ítem está «Sin movimiento»; cero en los demás casos. Su total "
                                 "es el inventario que no rotó, indicio de obsolescencia o lenta rotación.",
     }
+    # 18 · Sumaria del inventario: dos cortes del inventario al costo auditado y la provisión estimada,
+    # por bodega y por tipo (materia prima vs. mercadería y productos terminados), con SUMIFS/COUNTIFS
+    # sobre la hoja 03 (costo auditado y bodega/tipo) y la hoja 10 (provisión estimada). Cada subtotal
+    # cuadra con el total del inventario. Los datos del cliente viven en la hoja 03; aquí solo se agregan.
+    INVC, INVP, INVO, OBSJ = _rg(INV, "C", ni), _rg(INV, "P", ni), _rg(INV, "O", ni), _rg(OBS, "J", ni)
+    _crit = lambda v: '"' + str(v).replace('"', '""') + '"'
+    sumaria, estilos_sum = [], []
+
+    def _sum_add(row, estilo=None):
+        sumaria.append(row)
+        estilos_sum.append(estilo)
+
+    def _sum_grupo(label, crit_range, crit, filtro):
+        r = FILA0 + len(sumaria)
+        cnt = sum(1 for i in its if filtro(i))
+        costo = S(i["costo"] for i in its if filtro(i))
+        prov = S(i["prov"] for i in its if filtro(i) and i["prov"] is not None)
+        _sum_add([label, fx(f"COUNTIFS({crit_range},{_crit(crit)})", cnt),
+                  fx(f"SUMIFS({INVO},{crit_range},{_crit(crit)})", costo),
+                  fx(f"SUMIFS({OBSJ},{crit_range},{_crit(crit)})", prov), fx(f"C{r}-D{r}", costo - prov)])
+
+    def _sum_subtotal(label, ini, fin):
+        r = FILA0 + len(sumaria)
+        _sum_add([label, fx(f"SUM(B{ini}:B{fin})", ni), fx(f"SUM(C{ini}:C{fin})", t["costoAuditado"]),
+                  fx(f"SUM(D{ini}:D{fin})", t["provisionEstimada"]), fx(f"C{r}-D{r}", t["inventarioNeto"])],
+                 {"tipo": "total"})
+
+    bod_orden = []
+    for i in its:
+        lab = i["bodega"] or "(sin bodega)"
+        if lab not in bod_orden:
+            bod_orden.append(lab)
+    _sum_add(["Por bodega", "", None, None, None], {"tipo": "titulo"})
+    bod_ini = FILA0 + len(sumaria)
+    for lab in bod_orden:
+        crit = "" if lab == "(sin bodega)" else lab
+        _sum_grupo(lab, INVC, crit, lambda i, c=crit: (i["bodega"] or "") == c)
+    _sum_subtotal("Subtotal por bodega", bod_ini, FILA0 + len(sumaria) - 1)
+
+    _sum_add(["Por tipo de inventario", "", None, None, None], {"tipo": "titulo"})
+    tip_ini = FILA0 + len(sumaria)
+    for lab, crit in (("Materia prima", "Sí"), ("Mercadería y productos terminados", "No")):
+        _sum_grupo(lab, INVP, crit, lambda i, c=crit: i["mpTxt"] == c)
+    _sum_subtotal("Subtotal por tipo", tip_ini, FILA0 + len(sumaria) - 1)
+    ex_sumaria = {
+        "N.º de ítems": "Cuenta con COUNTIFS cuántos ítems de la hoja 03 (Inventario valorado por ítem) caen en el grupo "
+                        "(por bodega o por tipo de inventario).",
+        "Inventario al costo auditado": "Suma con SUMIFS el costo auditado de la hoja 03 (Inventario valorado por ítem) de "
+                                        "los ítems del grupo.",
+        "Provisión estimada": "Suma con SUMIFS la provisión estimada neta de la hoja 10 (Obsolescencia y lenta rotación) de "
+                              "los ítems del grupo, filtrando por la bodega o el tipo de la hoja 03.",
+        "Inventario neto": "Inventario al costo auditado menos la provisión estimada del grupo.",
+    }
+
     n_ = "n"
     return [
         hoja("01_Resumen", CEDULAS[0][1], [["Concepto", "t"], ["Importe", n_]], resumen, explica=ex_resumen),
@@ -1211,6 +1266,10 @@ def hojas(res: dict) -> list[dict]:
              comparacion, ["TOTAL", "", None, _tot("D", ncomp, comp_tot["valAnt"]), None, _tot("F", ncomp, comp_tot["valAct"]),
                            _tot("G", ncomp, comp_tot["variacion"]), None, "", _tot("J", ncomp, comp_tot["sinMovimiento"])] if ncomp else None,
              explica=ex_comparacion, colores=["Estado"]),
+        hoja("18_Sumaria", CEDULAS[17][1],
+             [["Grupo", "t"], ["N.º de ítems", "i"], ["Inventario al costo auditado", n_], ["Provisión estimada", n_],
+              ["Inventario neto", n_]],
+             sumaria, explica=ex_sumaria, estilos=estilos_sum),
     ]
 
 
