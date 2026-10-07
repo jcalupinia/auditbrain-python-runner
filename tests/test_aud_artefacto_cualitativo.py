@@ -102,3 +102,18 @@ def test_render_sin_hojas_cae_al_respaldo_lansey():
     assert "RISKS=A.risks" not in html
     assert "__AUDITIA_OVERRIDE__" not in html  # placeholder reemplazado por cadena vacía
     assert "var RISKS=[" in html  # literal de respaldo intacto
+
+
+def test_entendimiento_derivado_de_la_hoja_35():
+    """El «Entendimiento de la entidad y su entorno» del perfil se arma con lo DERIVADO de los documentos (hoja
+    35_Entendimiento): se toman los aspectos con dato real y se omiten los [PENDIENTE]."""
+    hojas = [{"name": "35_Entendimiento", "rows": [
+        ["Aspecto", "Fuente automática", "Dato de los documentos", "", "", ""],
+        [{"v": "Sector, actividad y regulación"}, {"v": "Ficha"}, {"v": "Comercialización de productos químicos"}],
+        [{"v": "Propiedad, gobierno y estructura"}, {"v": "Informe"}, {"v": "[PENDIENTE] accionistas y gobierno corporativo"}],
+        [{"v": "Financiamiento"}, {"v": "Hojas 09/10"}, {"v": "Endeudamiento del activo: 59,05 %"}],
+    ]}]
+    ent = A._entendimiento_de(hojas)
+    assert ["Sector, actividad y regulación", "Comercialización de productos químicos"] in ent
+    assert ["Financiamiento", "Endeudamiento del activo: 59,05 %"] in ent
+    assert not any("PENDIENTE" in d for _, d in ent)   # los [PENDIENTE] se omiten

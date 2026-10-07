@@ -2588,7 +2588,7 @@ def hojas(res: dict) -> list[dict]:
     no_conc = sum(1 for x in notas if abs(x["dif"]) >= 0.01)
     notas_det_h, est_d = _notas_detalle(notas, cu, d["sinNota"], d["umbrales"]["var"])
     comp, est_c = _composicion(notas, d["notasDet"])
-    notas_eeff_h, est_ne = _notas_balance(cu)   # notas a los EEFF armadas del balance (artefacto), independientes del documento
+    notas_eeff_h, est_ne = _notas_balance(cu, notas)   # usa el mapeo del RQ-006 si trae códigos; si no, el mapa estándar
     n_comp = sum(1 for f in comp if isinstance(f[4], dict) and f[4].get("v") == "Revisar")
     n_jer = sum(1 for k in ("ant", "act") for x in fu[k] if abs(x["difsub"]) >= 0.01)
     fch_ = d["fechas"]
@@ -3321,10 +3321,18 @@ COLS_NOTAS_EEFF = [["Cuenta", "t"], ["Saldo al cierre anterior", "n"], ["Saldo a
 TXT_TOTAL_NOTA_EEFF = "Total de la nota (según el balance)"
 
 
-def _notas_balance(cu: list) -> tuple[list, list]:
-    """Notas a los EEFF armadas del balance (artefacto `NOTES_ESF_MAP`): por cada rubro de `NOTAS_ESF`, el desglose de sus
-    subcuentas con saldo (hojas sin subcuentas; con saldo ≠ 0) y la fila Total, comparando el cierre anterior con el corte.
-    Todo por fórmula a la hoja 08 (Horizontal), para que recalcule en Excel. No depende de ningún documento del cliente."""
+def _notas_balance(cu: list, notas: list | None = None) -> tuple[list, list]:
+    """Notas a los EEFF armadas del balance (artefacto `NOTES_ESF_MAP`): por cada rubro, el desglose de sus subcuentas
+    con saldo (hojas sin subcuentas; con saldo ≠ 0) y la fila Total, comparando el cierre anterior con el corte. Todo
+    por fórmula a la hoja 08 (Horizontal), para que recalcule en Excel.
+
+    Mapeo cuenta→nota: si el auditor cargó las notas del año anterior con sus códigos (RQ-006, columna «Cuentas
+    (códigos)»), se usa ESE mapeo para que las notas armadas concilien con las notas reales del cliente (su plan de
+    cuentas puede numerar distinto al estándar del SRI). Si no hay códigos cargados, se usa el mapa estándar `NOTAS_ESF`."""
+    mapa = [(str(n.get("nota") or "—"), n.get("titulo") or "(sin título)", n["pref"])
+            for n in (notas or []) if n.get("pref")]
+    if not mapa:
+        mapa = NOTAS_ESF
     filas, est = [], []
     idx = {x["codigo"]: i for i, x in enumerate(cu)}
     by_code = {x["codigo"]: x for x in cu}
@@ -3333,7 +3341,7 @@ def _notas_balance(cu: list) -> tuple[list, list]:
     def tiene_hijos(c):
         return any(o != c and len(o) > len(c) and _debajo(o, c) for o in codes_all)
 
-    for ref_, titulo, codes in NOTAS_ESF:
+    for ref_, titulo, codes in mapa:
         presentes = [c for c in codes if c in by_code]
         if not presentes:
             continue

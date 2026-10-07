@@ -169,10 +169,32 @@ def _risks_de(hojas) -> list:
     return out
 
 
+def _entendimiento_de(hojas) -> list:
+    """Entendimiento de la entidad y su entorno DERIVADO de los documentos cargados (hoja 35_Entendimiento,
+    NIA 315): sector y actividad, propiedad y gobierno, capital, índices, políticas/marco, financiamiento y
+    hallazgos de control. Columnas de la hoja: 0 Aspecto · 2 «Dato de los documentos». Devuelve
+    ``[[aspecto, dato], ...]`` solo con los aspectos que tienen dato real (los [PENDIENTE] y los vacíos se omiten)."""
+    out = []
+    for r in _hoja_rows(hojas, "35_Entendimiento"):
+        if not r:
+            continue
+        asp = str(_v(r[0]) or "").strip()
+        dato = str(_v(r[2]) or "").strip() if len(r) > 2 else ""
+        if not asp or asp.lower() == "aspecto":          # encabezado o fila vacía
+            continue
+        if not dato or dato.startswith("[PENDIENTE]") or dato.lower().startswith("pendiente"):
+            continue
+        out.append([asp, dato])
+    return out
+
+
 def _perfil_de(hojas) -> dict | None:
     """Perfil del encargo del artefacto desde la hoja 14_Perfil del procesador.
     Columnas: 0 tipo · 1 concepto · 2 detalle · 4 fuente. Tipos: Identificación,
-    Entendimiento, Contexto. Devuelve ``{ident, obs, ctx}`` (como el artefacto)."""
+    Entendimiento, Contexto. Devuelve ``{ident, obs, ctx}`` (como el artefacto).
+
+    El bloque «Entendimiento de la entidad y su entorno» combina lo del informe del año anterior (hoja 14) con lo
+    DERIVADO de los documentos cargados (hoja 35): así no queda [PENDIENTE] cuando el requerimiento trae datos."""
     ident, obs_b, ctx = [], [], []
     for r in _hoja_rows(hojas, "14_Perfil"):
         if not r:
@@ -192,6 +214,10 @@ def _perfil_de(hojas) -> dict | None:
             ctx.append([concepto, detalle])
     if not ident:
         return None
+    # Descarta los renglones [PENDIENTE] del informe (hoja 14) y suma el entendimiento derivado de los documentos
+    # (hoja 35): actividad del RUC/informe, capital del balance, índices, financiamiento y hallazgos de la carta.
+    obs_b = [x for x in obs_b if x and not str(x[1] if len(x) > 1 else "").startswith("[PENDIENTE]")]
+    obs_b += _entendimiento_de(hojas)
     obs = [{"t": "Entendimiento de la entidad y su entorno", "b": obs_b}] if obs_b else []
     return {"ident": ident, "obs": obs, "ctx": ctx}
 
