@@ -1664,29 +1664,40 @@ function analiticoNum(v,fmt){
   if(fmt==='n2') return v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
   return v;
 }
+// Desglose de un grupo (sección + corriente) POR NOTA a los EEFF: una fila por nota con hojas en ese grupo, más
+// una fila «sin nota» para las hojas que el auditor aún no asignó. Así el ESF resumido se agrupa igual que las notas.
+function esfDetallePorNota(section, corr){
+  var buckets={}, orden=[], sin={p:0,c:0,has:false};
+  noteLeaves().forEach(function(x){
+    if(x.section!==section) return;
+    if((digitsOf(x.code).charAt(1)==='1')!==corr) return;     // 11/21 = corriente ; 12/22 = no corriente
+    var i=effectiveNoteIdx(x.code);
+    if(i==='__none__'){ sin.p+=(x.prior||0); sin.c+=(x.current||0); sin.has=true; return; }
+    if(!buckets[i]){ buckets[i]={l:NOTES_ESF_MAP[i].t,p:0,c:0,detail:true}; orden.push(i); }
+    buckets[i].p+=(x.prior||0); buckets[i].c+=(x.current||0);
+  });
+  var rows=orden.map(function(i){return buckets[i];}).filter(function(r){return Math.abs(r.p)>0.005||Math.abs(r.c)>0.005;});
+  if(sin.has && (Math.abs(sin.p)>0.005||Math.abs(sin.c)>0.005)) rows.push({l:'Otras cuentas (sin nota asignada)',p:sin.p,c:sin.c,detail:true});
+  return rows;
+}
 function esfResumen(){
   var a=state.result.accts, agg=state.result.agg;
   function gp(code2){ var p=groupVal(a,code2,'prior'),c=groupVal(a,code2,'current'); return {p:p,c:c}; }
   var AC=gp('11'), ANC=gp('12'), PC=gp('21'), PNC=gp('22');
   if(AC.p===0&&AC.c===0){ AC={p:sumCorriente(a,'ACTIVO','prior'),c:sumCorriente(a,'ACTIVO','current')}; }
   if(PC.p===0&&PC.c===0){ PC={p:sumCorriente(a,'PASIVO','prior'),c:sumCorriente(a,'PASIVO','current')}; }
-  var cxc=leafSumByName(a,'ACTIVO',/cobrar|cliente/,/proveedor|anticipo a proveedor/);
-  var inv=leafSumByName(a,'ACTIVO',/inventario|mercader|existenci/);
-  var cxp=leafSumByName(a,'PASIVO',/pagar|proveedor/);
-  var oblig=leafSumByName(a,'PASIVO',/obligacion|bancari|financ|prestamo/);
-  return [
-    {l:'Activo corriente',p:AC.p,c:AC.c},
-    {l:'Cuentas por cobrar',p:cxc.p,c:cxc.c,detail:true},
-    {l:'Inventarios',p:inv.p,c:inv.c,detail:true},
-    {l:'Activo no corriente',p:ANC.p,c:ANC.c},
-    {l:'TOTAL ACTIVO',p:agg.activo.p,c:agg.activo.c,total:true},
-    {l:'Pasivo corriente',p:PC.p,c:PC.c},
-    {l:'Cuentas por pagar',p:cxp.p,c:cxp.c,detail:true},
-    {l:'Obligaciones financieras',p:oblig.p,c:oblig.c,detail:true},
-    {l:'Pasivo no corriente',p:PNC.p,c:PNC.c},
-    {l:'TOTAL PASIVO',p:agg.pasivo.p,c:agg.pasivo.c,total:true},
-    {l:'PATRIMONIO',p:agg.patrimonio.p,c:agg.patrimonio.c,total:true}
-  ];
+  var rows=[{l:'Activo corriente',p:AC.p,c:AC.c}];
+  rows=rows.concat(esfDetallePorNota('ACTIVO',true));
+  rows.push({l:'Activo no corriente',p:ANC.p,c:ANC.c});
+  rows=rows.concat(esfDetallePorNota('ACTIVO',false));
+  rows.push({l:'TOTAL ACTIVO',p:agg.activo.p,c:agg.activo.c,total:true});
+  rows.push({l:'Pasivo corriente',p:PC.p,c:PC.c});
+  rows=rows.concat(esfDetallePorNota('PASIVO',true));
+  rows.push({l:'Pasivo no corriente',p:PNC.p,c:PNC.c});
+  rows=rows.concat(esfDetallePorNota('PASIVO',false));
+  rows.push({l:'TOTAL PASIVO',p:agg.pasivo.p,c:agg.pasivo.c,total:true});
+  rows.push({l:'PATRIMONIO',p:agg.patrimonio.p,c:agg.patrimonio.c,total:true});
+  return rows;
 }
 function obsVar(l,p,c){
   var pv=varPct(p,c);
@@ -1759,7 +1770,8 @@ function drawAnaliticoCharts(){
   var c=chColors(), agg=state.result.agg, esf=esfResumen();
   function destroy(k){ if(CHARTS[k]){ CHARTS[k].destroy(); delete CHARTS[k]; } }
   Chart.defaults.font.family='Arial, Helvetica, sans-serif';
-  var AC=esf[0].c, ANC=esf[1].c;
+  function esfRow(l){ return esf.filter(function(r){return r.l===l;})[0]||{c:0,p:0}; }
+  var AC=esfRow('Activo corriente').c, ANC=esfRow('Activo no corriente').c;
   var elAct=$('chAct');
   if(elAct){ destroy('act');
     CHARTS['act']=new Chart(elAct,{type:'doughnut',data:{labels:['Activo corriente','Activo no corriente'],
