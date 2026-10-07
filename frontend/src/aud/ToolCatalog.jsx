@@ -7,6 +7,7 @@ import InformeCumplimientoTributarioTool from "./InformeCumplimientoTributarioTo
 import MotorBalancesTool from "./MotorBalancesTool.jsx";
 import VnrTool from "./vnr/VnrTool.jsx";
 import ConfirmacionesTool from "./confirmaciones/ConfirmacionesTool.jsx";
+import MotorIngestaTool from "./ingesta/MotorIngestaTool.jsx";
 
 const PruebasEncargo = lazy(() => import("./niif/PruebasEncargo.jsx"));
 const MotorAnaliticoTool = lazy(() => import("./motorAnalitico/MotorAnaliticoTool.jsx"));
@@ -56,6 +57,17 @@ export default function ToolCatalog({ projectId }) {
         <Suspense fallback={<p className="muted">Cargando…</p>}>
           <PruebasEncargo proyecto={projectId ? { id: projectId } : null} herramienta={activeTool} />
         </Suspense>
+      </div>
+    );
+  }
+
+  if (activeTool === "AUD.INGESTA.MOTOR") {
+    return (
+      <div className="aud-tool-wrap">
+        <button className="link aud-back" onClick={() => setActiveTool(null)}>
+          {STRINGS.back_to_catalog}
+        </button>
+        <MotorIngestaTool />
       </div>
     );
   }

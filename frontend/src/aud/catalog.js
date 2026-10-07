@@ -4,6 +4,26 @@
 
 export const CATEGORIES = [
   {
+    id: "INGESTA",
+    label: "Motor de ingesta",
+    type: "herramienta",
+    tools: [
+      {
+        id: "AUD.INGESTA.MOTOR",
+        label: "Motor de ingesta y normalización · capa transversal",
+        description:
+          "Ingiere, normaliza y valida un documento una sola vez (F-101/103/104, ATS, balances, mayores, XML/PDF/Excel) y entrega un dataset con trazabilidad al origen, método de extracción y confianza por campo. Determinístico primero: la IA no se dispara al ingerir.",
+        pruebas: [
+          "Clasificación determinista del documento",
+          "Extracción con trazabilidad al origen (archivo·página·fila·celda)",
+          "Normalización de montos, fechas y tipos (regional . y ,)",
+          "Nivel de confianza por campo y cola de revisión",
+          "Validación de calidad y sello SHA-256 reproducible",
+        ],
+      },
+    ],
+  },
+  {
     id: "MOTOR_BALANCES",
     label: "Motor de balances",
     type: "herramienta",

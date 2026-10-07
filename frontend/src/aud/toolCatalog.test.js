@@ -12,6 +12,17 @@ describe("catálogo AUD", () => {
   });
 });
 
+describe("Motor de ingesta", () => {
+  it("encabeza el catálogo y abre como herramienta (no en Pruebas del encargo)", () => {
+    const ids = CATEGORIES.map((c) => c.id);
+    // Va primero: es el primer paso del pipeline (ingesta → normaliza → consumo)
+    // y así no rompe la adyacencia MOTOR_BALANCES → MOTOR_ANALITICO de abajo.
+    expect(ids[0]).toBe("INGESTA");
+    expect(CATEGORIES[0].tools[0].id).toBe("AUD.INGESTA.MOTOR");
+    expect(abrePruebasEncargo("AUD.INGESTA.MOTOR")).toBe(false);
+  });
+});
+
 describe("Motor de auditoría analítica", () => {
   it("está en el catálogo junto al Motor de balances", () => {
     const ids = CATEGORIES.map((c) => c.id);
