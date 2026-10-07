@@ -47,6 +47,10 @@ export const STRINGS = {
   of_failed: "Falló la generación",
   of_new: "Nuevo papel de trabajo",
   of_recent: "Generados recientemente",
+  of_recent_editar: "✏ editar",
+  of_recent_editando: "abriendo…",
+  of_recent_editar_title:
+    "Reabrir este encargo para corregir los documentos, los datos o la clasificación y volver a ejecutarlo.",
   of_need_pdf: "Sube al menos 1 PDF F-104 para continuar.",
 
   // ---- Workspace de Obligaciones Fiscales (estilo ICT) ----

@@ -370,6 +370,46 @@ def aprobar_endpoint(
     return JobOut.model_validate(service.get_job(db, current, job_id))
 
 
+@router.post("/jobs/{job_id}/reabrir", response_model=JobOut)
+def reabrir_endpoint(
+    job_id: int,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Reabre un encargo ya generado ('done') para corregir los documentos,
+    los datos del encargo o la clasificación y volver a ejecutarlo.
+
+    Lo deja en 'revision': desde ahí el auditor puede reemplazar archivos en
+    los slots, editar los datos, corregir la clasificación cuenta por cuenta y
+    volver a Procesar / Aprobar para regenerar el Excel.
+    """
+    try:
+        job = service.get_job(db, current, job_id)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    if job.status != "done":
+        raise HTTPException(
+            409,
+            detail=(
+                f"Solo se puede reabrir un encargo terminado; este está en "
+                f"'{job.status}'."
+            ),
+        )
+    # Los documentos deben seguir en disco: el cleanup los borra al expirar o
+    # poco después de la descarga. Sin el Mayor General no hay nada que
+    # re-procesar, así que se avisa en vez de reabrir un encargo vacío.
+    if not file_storage.list_inputs(file_storage.job_dir(job_id), "mayor_general"):
+        raise HTTPException(
+            410,
+            detail=(
+                "Los documentos de este encargo ya no están disponibles "
+                "(expiró o se limpió tras la descarga). Crea un encargo nuevo."
+            ),
+        )
+    job = service.reabrir_job(db, current, job_id)
+    return JobOut.model_validate(job)
+
+
 @router.get("/categorias")
 def list_categorias_endpoint(
     current: User = Depends(get_current_user),
