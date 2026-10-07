@@ -639,7 +639,14 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             por_ds = {r["dataset"]: r for r in reg["requests"] if r.get("dataset")}
             principal = proc.PRINCIPAL
             if not conjuntos.get(principal):
-                raise ReglaIncumplida("Suba el anexo de cartera del ejercicio corriente antes de procesar.")
+                # El anexo principal de ESTA herramienta (no «cartera»: eso solo aplica a
+                # cxc/PCE/pérdidas incurridas). Se nombra desde el propio requerimiento para
+                # que el mensaje sea correcto en cada prueba (efectivo → anexo de caja y bancos).
+                anexo = (por_ds.get(principal) or {}).get("document") or "el anexo principal"
+                raise ReglaIncumplida(
+                    f"Falta el anexo principal «{anexo}» con sus columnas reconocidas: "
+                    "súbalo y asigne sus columnas antes de procesar."
+                )
             filas_ds, mapeos, errores, avisos = {}, [], [], []
             for ds, partes in conjuntos.items():
                 if ds not in por_ds or not isinstance(partes, list) or len(partes) > 60:

@@ -237,3 +237,30 @@ def test_anexo_mapeado_y_extraido_con_ia_no_se_duplica(client, monkeypatch):
         "cuentas": [{"fileId": rq1, "sheet": "Datos", "header": 1, "mapping": mapa}]}}).json()
     cuentas = p["registro"]["datasets"]["cuentas"]
     assert len(cuentas) == n, f"se duplicaron las cuentas: {len(cuentas)} != {n}"
+
+
+def test_guard_principal_nombra_el_anexo_de_la_prueba_no_cartera(client):
+    """Si al Procesar falta el anexo PRINCIPAL (dataset `cuentas`), el servidor avisa
+    nombrando el anexo de ESTA prueba (caja y bancos), no «cartera» (bug reportado por
+    el dueño 2026-10-06: en Efectivo salía «Suba el anexo de cartera…», mezclando pruebas)."""
+    tok, pid = _staff_con_proyecto(client)
+    ficha = {**FICHA, "visit": "Preliminar"}
+    assert client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok), json=ficha).status_code == 200
+    p = client.post(f"{BASE}/proyectos/{pid}/pruebas", headers=_h(tok),
+                    json={"origen": "proc:efectivo_equivalentes"}).json()
+    p = _accion(client, tok, p, "research").json()
+    p = _accion(client, tok, p, "generate_program").json()
+    prog = p["registro"]["program"]
+    fuentes = p["registro"]["sources"]
+    for s in fuentes:
+        s.update(verified=True, section="párr. aplicable", date="vigente", procedures=[x["code"] for x in prog])
+    p = _accion(client, tok, p, "approve_program", {"program": prog, "sources": fuentes}).json()
+    p = _accion(client, tok, p, "generate_request").json()
+    p = _accion(client, tok, p, "approve_request", {"requests": p["registro"]["requests"]}).json()
+
+    # Procesar sin el anexo principal en el payload → guard.
+    r = _accion(client, tok, p, "map_validate", {"datasets": {}})
+    assert r.status_code == 400, r.text
+    detalle = r.json()["detail"]
+    assert "cartera" not in detalle.lower(), f"el mensaje de Efectivo no debe decir «cartera»: {detalle}"
+    assert "caja" in detalle.lower(), f"el mensaje debe nombrar el anexo de caja y bancos: {detalle}"
