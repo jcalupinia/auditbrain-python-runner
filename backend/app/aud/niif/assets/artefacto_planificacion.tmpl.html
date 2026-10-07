@@ -1287,8 +1287,34 @@ function computeAggregates(accts){
     costos:{p:T('COSTOS','prior'),c:T('COSTOS','current')},
     gastos:{p:T('GASTOS','prior'),c:T('GASTOS','current')}
   };
+  // Algunos planes de cuentas agrupan el costo de ventas y los gastos bajo un solo rubro de egresos (p. ej. 5=EGRESOS
+  // con 5.1=PRODUCCIÓN = costo de ventas) y no declaran una sección COSTOS propia. Sin denominador de costo, el margen
+  // bruto y la rotación de inventario quedan en n/a. Si no se detectó COSTOS, se separa el costo de ventas por nombre
+  // (sumando las hojas de los bloques «producción / costo de ventas») y se descuenta de los gastos, sin doble conteo.
+  if(Math.abs(A.costos.p)<0.01&&Math.abs(A.costos.c)<0.01){
+    var cv=costoDeVentasEnGastos(accts);
+    if(Math.abs(cv.p)>0.01||Math.abs(cv.c)>0.01){
+      A.costos={p:cv.p,c:cv.c};
+      A.gastos={p:A.gastos.p-cv.p,c:A.gastos.c-cv.c};
+    }
+  }
   A.utilidad={p:A.ingresos.p-A.costos.p-A.gastos.p, c:A.ingresos.c-A.costos.c-A.gastos.c};
   return A;
+}
+function costoDeVentasEnGastos(accts){
+  var heads=accts.filter(function(a){ if(a.section!=='GASTOS') return false;
+    var nm=stripAccents((a.name||'').toLowerCase());
+    return /costo de venta|costo de produccion|costos de produccion|^produccion\b/.test(nm);
+  }).map(function(a){return a.code;});
+  if(!heads.length) return {p:0,c:0};
+  var codes=accts.map(function(a){return a.code;}), p=0,c=0;
+  accts.forEach(function(a){ if(a.section!=='GASTOS') return;
+    var under=heads.some(function(h){ return a.code===h || (a.code.indexOf(h)===0&&a.code.length>h.length); });
+    if(!under) return;
+    var leaf=!codes.some(function(o){return o!==a.code&&o.length>a.code.length&&o.indexOf(a.code)===0;});
+    if(leaf){ p+=a.prior; c+=a.current; }
+  });
+  return {p:p,c:c};
 }
 
 /* ============================ render results ============================ */
@@ -1466,9 +1492,17 @@ function renderStats(agg){
   }).join('');
 }
 function renderCheck(agg,priorLabel,currentLabel){
-  var dP=agg.activo.p-agg.pasivo.p-agg.patrimonio.p-agg.utilidad.p;
   var dC=agg.activo.c-agg.pasivo.c-agg.patrimonio.c-agg.utilidad.c;
   var tol=Math.max(1,Math.abs(agg.activo.c)*0.001);
+  // En la revisión preliminar el período anterior combina el balance del cierre (diciembre) con el estado de resultados
+  // del corte interanual (agosto, real o prorrateado): a esa fecha NO hay estado de situación financiera, así que su
+  // «cuadre» mezclaría 12 meses de balance con pocos meses de resultado y no aplica. Solo se valida el corte actual.
+  if(state.mode==='preliminar'){
+    if(Math.abs(dC)<tol)
+      return '<div class="check-banner ok">✓<div><b>Balance cuadrado</b>Activo = Pasivo + Patrimonio + Resultado del ejercicio en '+escapeHtml(currentLabel)+'. El período anterior compara contra el estado de resultados interanual (proyección); a esa fecha no hay situación financiera, así que no aplica cuadre.</div></div>';
+    return '<div class="check-banner warn">⚠<div><b>Diferencia de cuadre (verificación)</b>Activo − Pasivo − Patrimonio − Resultado ('+escapeHtml(currentLabel)+'): '+fmtMoney(dC)+'. Puede deberse a que el resultado del ejercicio aún no se cierra a patrimonio o a diferencias del propio balance de comprobación; revísalo antes de presentar.</div></div>';
+  }
+  var dP=agg.activo.p-agg.pasivo.p-agg.patrimonio.p-agg.utilidad.p;
   if(Math.abs(dP)<tol&&Math.abs(dC)<tol)
     return '<div class="check-banner ok">✓<div><b>Balance cuadrado</b>Activo = Pasivo + Patrimonio + Resultado del ejercicio, en ambos períodos.</div></div>';
   return '<div class="check-banner warn">⚠<div><b>Diferencia de cuadre (verificación)</b>Activo − Pasivo − Patrimonio − Resultado: '+escapeHtml(priorLabel)+' '+fmtMoney(dP)+' · '+escapeHtml(currentLabel)+' '+fmtMoney(dC)+'. Puede deberse a que el resultado del ejercicio aún no se cierra a patrimonio o a diferencias del propio balance de comprobación; revísalo antes de presentar.</div></div>';
@@ -2426,7 +2460,9 @@ function cuadreEstados(){
   var difESF=agg.activo.c-(agg.pasivo.c+agg.patrimonio.c+agg.utilidad.c);
   var difESFp=agg.activo.p-(agg.pasivo.p+agg.patrimonio.p+agg.utilidad.p);
   out.push({est:'Situación financiera — '+escapeHtml(state.result.currentLabel),izq:'Activo',izqv:agg.activo.c,der:'Pasivo + Patrimonio + Resultado',derv:agg.pasivo.c+agg.patrimonio.c+agg.utilidad.c,dif:difESF});
-  out.push({est:'Situación financiera — '+escapeHtml(state.result.priorLabel),izq:'Activo',izqv:agg.activo.p,der:'Pasivo + Patrimonio + Resultado',derv:agg.pasivo.p+agg.patrimonio.p+agg.utilidad.p,dif:difESFp});
+  // En preliminar no hay situación financiera al corte interanual del ER (solo proyección), así que su cuadre no aplica.
+  if(state.mode!=='preliminar')
+    out.push({est:'Situación financiera — '+escapeHtml(state.result.priorLabel),izq:'Activo',izqv:agg.activo.p,der:'Pasivo + Patrimonio + Resultado',derv:agg.pasivo.p+agg.patrimonio.p+agg.utilidad.p,dif:difESFp});
   return out;
 }
 function detectAnomalies(){
@@ -2554,7 +2590,9 @@ function generateAnalysis(){
 function renderResults(){
   var priorLabel=els.periodPrior.value.trim()||'Anterior';
   var currentLabel=els.periodCurrent.value.trim()||'Actual';
-  var isPrelimERI=(state.mode==='preliminar'&&state.hasERISameCut);
+  // En la revisión preliminar el ER comparativo es el corte INTERANUAL (p. ej. agosto del año anterior), ya sea el ERI
+  // real al mismo corte o el prorrateo de diciembre; su rótulo sale del botón «Período del ERI comparativo (año anterior)».
+  var isPrelimERI=(state.mode==='preliminar');
   var eriPriorLabel=isPrelimERI?(els.periodEriPrior.value.trim()||priorLabel):priorLabel;
   computeDispSigns();
   var accts=accountsModel();
