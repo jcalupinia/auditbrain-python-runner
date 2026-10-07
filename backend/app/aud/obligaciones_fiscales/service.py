@@ -126,6 +126,31 @@ def mark_downloaded(db: Session, job_id: int) -> None:
         db.commit()
 
 
+def reabrir_job(db: Session, user, job_id: int) -> ToolJob:
+    """Reabre un encargo ya generado para corregir lo cargado y re-ejecutar.
+
+    Lo devuelve a 'revision' (donde los documentos, los datos del encargo y la
+    clasificación vuelven a ser editables y se puede re-procesar y re-aprobar),
+    reinicia el TTL y limpia la marca de descarga y la fecha de fin, para que
+    el cleanup no lo purgue mientras el auditor lo está corrigiendo (el lugar
+    de paso limpia lo terminado/descargado, no lo que está en curso).
+
+    Las validaciones de estado ('done') y de que los documentos sigan en disco
+    las hace el router, para devolver los códigos HTTP adecuados.
+    """
+    job = get_job(db, user, job_id)
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    job.status = "revision"
+    job.finished_at = None
+    job.downloaded_at = None
+    job.error_message = None
+    job.expires_at = now + datetime.timedelta(minutes=settings.AUD_OF_JOB_TTL_MINUTES)
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job
+
+
 def delete_job(db: Session, user, job_id: int) -> None:
     job = get_job(db, user, job_id)
     db.delete(job)

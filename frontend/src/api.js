@@ -1332,6 +1332,17 @@ export async function aprobarOF(jobId) {
   );
 }
 
+// Reabre un encargo ya generado ('done') para corregir lo cargado (documentos,
+// datos o clasificación) y volver a ejecutarlo. Lo deja en 'revision'.
+export async function reabrirOF(jobId) {
+  return parse(
+    await apiFetch(`${OF_BASE}/jobs/${jobId}/reabrir`, {
+      method: "POST",
+      headers: authHeaders(),
+    })
+  );
+}
+
 // `procesar` y `aprobar` disparan el trabajo pesado en segundo plano y
 // responden al instante con el job en 'running'. Este helper consulta el
 // estado del job hasta que llega a uno de los `estadosFinales` (p.ej.

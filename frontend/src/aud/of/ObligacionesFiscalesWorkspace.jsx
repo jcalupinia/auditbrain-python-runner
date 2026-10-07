@@ -56,6 +56,7 @@ export default function ObligacionesFiscalesWorkspace({ projectId }) {
   const [procesando, setProcesando] = useState(false);
   const [descargando, setDescargando] = useState(false);
   const [encerando, setEncerando] = useState(false);
+  const [reabriendo, setReabriendo] = useState(0); // id del encargo que se está reabriendo
   const [modal, setModal] = useState({ open: false, mode: "crear" });
 
   const cargarSlots = useCallback(async (jobId) => {
@@ -142,6 +143,24 @@ export default function ObligacionesFiscalesWorkspace({ projectId }) {
     }
   }
 
+  async function handleReabrir(jobId) {
+    setReabriendo(jobId);
+    setError("");
+    try {
+      // Devuelve el encargo a 'revision' y lo deja activo para corregir
+      // documentos, datos o clasificación y volver a ejecutar.
+      const reabierto = await api.reabrirOF(jobId);
+      await cargarTodo();
+      setJob(reabierto);
+      await cargarSlots(reabierto.id);
+      setSelected("clasificacion");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setReabriendo(0);
+    }
+  }
+
   function handleAprobado(jobActualizado) {
     setJob(jobActualizado);
     cargarTodo();
@@ -209,6 +228,13 @@ export default function ObligacionesFiscalesWorkspace({ projectId }) {
                         className="link"
                         onClick={() => api.downloadObligacionesFiscalesJob(j.id, nombreCliente(j))}
                       > · ↓ descargar</button>
+                      <button
+                        type="button"
+                        className="link"
+                        disabled={reabriendo === j.id}
+                        title={STRINGS.of_recent_editar_title}
+                        onClick={() => handleReabrir(j.id)}
+                      > · {reabriendo === j.id ? STRINGS.of_recent_editando : STRINGS.of_recent_editar}</button>
                     </li>
                   ))}
                 </ul>
@@ -365,6 +391,13 @@ export default function ObligacionesFiscalesWorkspace({ projectId }) {
                       className="link"
                       onClick={() => api.downloadObligacionesFiscalesJob(j.id, nombreCliente(j))}
                     > · ↓ descargar</button>
+                    <button
+                      type="button"
+                      className="link"
+                      disabled={reabriendo === j.id}
+                      title={STRINGS.of_recent_editar_title}
+                      onClick={() => handleReabrir(j.id)}
+                    > · {reabriendo === j.id ? STRINGS.of_recent_editando : STRINGS.of_recent_editar}</button>
                   </li>
                 ))}
               </ul>
