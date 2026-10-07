@@ -118,10 +118,32 @@ def mark_failed(db: Session, job_id: int, error_message: str) -> None:
         db.commit()
 
 
+def touch_job(db: Session, job_id: int) -> None:
+    """Reinicia el TTL del encargo: lo mantiene vivo mientras el auditor lo
+    está usando (subir documentos, procesar, aprobar, descargar, reabrir).
+
+    La limpieza de Obligaciones Fiscales es por INACTIVIDAD: un encargo solo se
+    borra tras un buen rato sin tocarlo (o cuando el auditor le da «Encerar»).
+    Descargar NO borra nada: durante la revisión el auditor puede descargar,
+    detectar un dato mal cargado, reabrir, corregir y volver a descargar sin
+    perder los documentos.
+    """
+    job = db.get(ToolJob, job_id)
+    if job:
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        job.expires_at = now + datetime.timedelta(minutes=settings.AUD_OF_JOB_TTL_MINUTES)
+        db.add(job)
+        db.commit()
+
+
 def mark_downloaded(db: Session, job_id: int) -> None:
     job = db.get(ToolJob, job_id)
     if job:
-        job.downloaded_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        job.downloaded_at = now
+        # Descargar es actividad: mantiene vivo el encargo (reinicia el TTL),
+        # NO lo marca para borrado. Así se puede reabrir y volver a descargar.
+        job.expires_at = now + datetime.timedelta(minutes=settings.AUD_OF_JOB_TTL_MINUTES)
         db.add(job)
         db.commit()
 

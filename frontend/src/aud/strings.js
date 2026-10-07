@@ -51,6 +51,12 @@ export const STRINGS = {
   of_recent_editando: "abriendo…",
   of_recent_editar_title:
     "Reabrir este encargo para corregir los documentos, los datos o la clasificación y volver a ejecutarlo.",
+  of_recent_borrar: "🗑 borrar",
+  of_recent_borrando: "borrando…",
+  of_recent_borrar_title:
+    "Borrar este encargo y sus documentos. Los encargos se mantienen hasta que los borres aquí.",
+  of_recent_borrar_confirm:
+    "¿Borrar este encargo y sus documentos? Esta acción no se puede deshacer.",
   of_need_pdf: "Sube al menos 1 PDF F-104 para continuar.",
 
   // ---- Workspace de Obligaciones Fiscales (estilo ICT) ----

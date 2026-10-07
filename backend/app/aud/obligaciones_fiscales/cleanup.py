@@ -1,10 +1,17 @@
 """Cleanup periódico de jobs expirados y /tmp huérfanos.
 
 Se ejecuta en background al arrancar la app (ver app.py startup hook).
+
+Retención MANUAL (decisión del dueño, 2026-10-07): el encargo se mantiene hasta
+que el auditor le da «borrar»/«Encerar». NADA se autoelimina por tiempo y
+descargar NO borra nada, así que durante la revisión se puede descargar →
+corregir un dato mal cargado → volver a descargar sin perder los documentos.
+
 Borra:
-- Jobs con expires_at < ahora → marca status='expired', borra /tmp.
-- Jobs descargados hace > N min → borra /tmp (DB se mantiene para historial).
-- Directorios /tmp huérfanos (sin job en DB pero con mtime > TTL).
+- Jobs expirados por inactividad SOLO si AUD_OF_RETENCION_ENABLED=true (red de
+  seguridad opcional; el TTL se reinicia en cada acción). Por defecto, no.
+- Zombie jobs ('processing' colgado > 30 min) → los marca 'error' (no borra).
+- Directorios /tmp huérfanos (sin job en DB) con mtime > TTL.
 """
 
 from __future__ import annotations
@@ -28,41 +35,31 @@ def cleanup_once() -> dict:
     from backend.app.ict import service as ict_service
 
     now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
-    summary = {"expired_jobs": 0, "post_download_cleanups": 0, "orphan_dirs": 0, "zombie_jobs": 0, "ict_files_deleted": 0}
+    summary = {"expired_jobs": 0, "orphan_dirs": 0, "zombie_jobs": 0, "ict_files_deleted": 0}
 
     db = SessionLocal()
     try:
-        # 1. Jobs expirados por TTL
-        expired = db.execute(
-            select(ToolJob).where(
-                ToolJob.expires_at < now,
-                ToolJob.status.in_(
-                    ["borrador", "revision", "pending", "running", "processing", "done"]
-                ),
-            )
-        ).scalars().all()
-        for j in expired:
-            file_storage.delete_job_dir(j.id)
-            j.status = "expired"
-            db.add(j)
-            summary["expired_jobs"] += 1
+        # 1. Jobs expirados por INACTIVIDAD. Por defecto el BORRADO es MANUAL
+        #    (AUD_OF_RETENCION_ENABLED=false): el encargo se mantiene hasta que
+        #    el auditor le da «borrar»/«Encerar», así que este bloque se omite.
+        #    Con la retención activada, se borra el encargo sin tocarse en todo
+        #    el TTL (cada acción lo reinicia). Descargar NUNCA expira el encargo.
+        if settings.AUD_OF_RETENCION_ENABLED:
+            expired = db.execute(
+                select(ToolJob).where(
+                    ToolJob.expires_at < now,
+                    ToolJob.status.in_(
+                        ["borrador", "revision", "pending", "running", "processing", "done"]
+                    ),
+                )
+            ).scalars().all()
+            for j in expired:
+                file_storage.delete_job_dir(j.id)
+                j.status = "expired"
+                db.add(j)
+                summary["expired_jobs"] += 1
 
-        # 2. Jobs descargados hace > N min
-        post_dl_threshold = now - datetime.timedelta(
-            minutes=settings.AUD_OF_POST_DOWNLOAD_TTL_MINUTES
-        )
-        downloaded_old = db.execute(
-            select(ToolJob).where(
-                ToolJob.downloaded_at.is_not(None),
-                ToolJob.downloaded_at < post_dl_threshold,
-                ToolJob.status == "done",
-            )
-        ).scalars().all()
-        for j in downloaded_old:
-            file_storage.delete_job_dir(j.id)
-            summary["post_download_cleanups"] += 1
-
-        # 4. Zombie jobs: status 'processing' por > 30 min → error
+        # 2. Zombie jobs: status 'processing' por > 30 min → error
         zombie_threshold = now - datetime.timedelta(minutes=30)
         zombies = db.execute(
             select(ToolJob).where(

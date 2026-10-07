@@ -44,7 +44,20 @@ class Settings:
     AUD_OF_TMP_DIR: str = os.getenv(
         "AUD_OF_TMP_DIR", "/tmp/auditbrain/obligaciones_fiscales"
     )
-    AUD_OF_JOB_TTL_MINUTES: int = int(os.getenv("AUD_OF_JOB_TTL_MINUTES", "60"))
+    # Retención de encargos de Obligaciones Fiscales (decisión del dueño,
+    # 2026-10-07): BORRADO MANUAL. El encargo se mantiene hasta que el auditor
+    # le da «borrar»/«Encerar»; NADA se autoelimina por tiempo. Descargar NO
+    # borra los documentos: durante la revisión se puede descargar, corregir un
+    # dato mal cargado y volver a descargar.
+    #   - AUD_OF_RETENCION_ENABLED="true" reactiva la limpieza por inactividad
+    #     (red de seguridad si el disco del servidor lo exige): un encargo sin
+    #     tocarse en todo el TTL se borra. Cada acción reinicia el TTL.
+    AUD_OF_RETENCION_ENABLED: bool = (
+        os.getenv("AUD_OF_RETENCION_ENABLED", "false").lower() == "true"
+    )
+    AUD_OF_JOB_TTL_MINUTES: int = int(os.getenv("AUD_OF_JOB_TTL_MINUTES", "240"))
+    # Obsoleto desde 2026-10-07: descargar ya no programa el borrado. Se conserva
+    # por compatibilidad con despliegues que aún definan la env var; sin uso.
     AUD_OF_POST_DOWNLOAD_TTL_MINUTES: int = int(
         os.getenv("AUD_OF_POST_DOWNLOAD_TTL_MINUTES", "5")
     )
