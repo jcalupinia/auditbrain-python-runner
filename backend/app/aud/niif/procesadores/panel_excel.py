@@ -475,8 +475,12 @@ def portada(ws, wd, definicion, reg, hojas, titulos, estado, version, grupos_nav
     for r, alto in ((1, 8), (2, 27), (3, 27), (4, 8)):
         ws.row_dimensions[r].height = alto
     _caja(ws, 2, 3, 2, 6, CARD)
-    ws.merge_cells("D2:F2")
-    ws.merge_cells("D3:F3")
+    # El logo de la compañía auditada (si se cargó en la ficha y es raster) va a la
+    # derecha de la barra, en la columna F; por eso el nombre de la firma ocupa D:E.
+    logo_cli = marca.imagen_excel_uri(e.get("logoCliente"), 48)
+    col_marca = "E" if logo_cli is not None else "F"
+    ws.merge_cells(f"D2:{col_marca}2")
+    ws.merge_cells(f"D3:{col_marca}3")
     ws["D2"].value = "AuditConsulting Auditores Cía. Ltda."
     ws["D2"].font = Font(name=est.FONT_TITULO, size=13, bold=True, color=TEXTO)
     ws["D2"].alignment = Alignment(horizontal="left", vertical="bottom", indent=1)
@@ -488,6 +492,10 @@ def portada(ws, wd, definicion, reg, hojas, titulos, estado, version, grupos_nav
     L._ancla(ws, firma, 1, 1, 12, 9)
     ia = marca.imagen_excel("audit_ia", alto_logo)
     L._ancla(ws, ia, 2, 1, 16, 9)
+    if logo_cli is not None:
+        col_px = round(ANCHO_COL * 7.2)           # ancho de la columna F en píxeles (aprox.)
+        dx = max(4, col_px - int(logo_cli.width) - 10)   # alineado a la derecha dentro de F
+        L._ancla(ws, logo_cli, 5, 1, dx, 12)
 
     # Encabezado: título, cliente y chips.
     ws.row_dimensions[6].height = 30

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CAMPOS_FICHA,
   ETAPAS,
   alternarProcedimiento,
   estadoTributario,
@@ -14,6 +15,14 @@ import { STATES } from "./sitio/tools/domain.mjs";
 describe("etapas de una prueba", () => {
   it("son las 9 del sitio", () => {
     expect(ETAPAS).toHaveLength(9);
+  });
+});
+
+describe("ficha del encargo", () => {
+  it("incluye el logo de la compañía auditada entre sus campos", () => {
+    // El logo viaja en la ficha (datos.logoCliente) y reemplaza al de ejemplo
+    // en el HTML del papel y en la portada del Excel/Word/PowerPoint.
+    expect(CAMPOS_FICHA).toContain("logoCliente");
   });
 
   it("cada uno de los 13 estados del sitio cae en una etapa, en orden", () => {

@@ -240,6 +240,13 @@ def docx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     _texto(pie, PIE, 7, C["texto2"])
 
     # Panel: título, cliente, chips.
+    # Logo de la compañía auditada (si se cargó en la ficha y es raster), arriba a la derecha.
+    fl_cli = marca.flujo_uri(e.get("logoCliente"))
+    if fl_cli is not None:
+        pl = doc.add_paragraph()
+        pl.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        pl.paragraph_format.space_after = Pt(2)
+        pl.add_run().add_picture(fl_cli, height=Cm(1.3))
     _parrafo(doc, definicion.get("name", ""), 20, C["texto"], True, despues=2)
     _parrafo(doc, f"{e.get('client', '')} · RUC {e.get('ruc', '')} · {definicion.get('area', '')}", 10, C["texto2"], despues=6)
     chips = _chips(p, e, version, estado)
@@ -525,6 +532,10 @@ def pptx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     x_txt = x_ia + Inches(marca.ancho_para("audit_ia", 0.66)) + Inches(0.3)
     _tx(s, x_txt, Inches(0.22), Inches(6), Inches(0.66),
         [("AuditConsulting Auditores", 16, T["texto"], True), ("AUDIT-IA · Papel de trabajo NIIF", 11, T["texto2"], False)], ancla="middle")
+    # Logo de la compañía auditada (si se cargó en la ficha y es raster), a la derecha de la barra.
+    fl_cli, ancho_cli = marca.flujo_uri(e.get("logoCliente")), marca.ancho_uri(e.get("logoCliente"), 0.66)
+    if fl_cli is not None and ancho_cli:
+        s.shapes.add_picture(fl_cli, W - Inches(0.45) - Inches(ancho_cli), Inches(0.2), height=Inches(0.66))
     _tx(s, Inches(0.8), Inches(2.3), W - Inches(1.6), Inches(1.5), [(definicion.get("name", ""), 38, T["texto"], True)])
     _tx(s, Inches(0.8), Inches(3.85), W - Inches(1.6), Inches(0.5),
         [(f"{e.get('client', '')} · RUC {e.get('ruc', '')} · {definicion.get('area', '')}", 16, T["texto2"], False)])

@@ -3100,7 +3100,16 @@ function wireLogoControls(){
   if(rem) rem.addEventListener('click',function(){ state.clientLogo=null; applyClientLogo(); });
 }
 function boot(){
-  if(typeof LOGOS!=='undefined' && state.clientLogo===null) state.clientLogo=LOGOS.client||null;
+  // Logo de la compañía auditada: manda el inyectado en la ficha (AUDITIA.clientLogo).
+  // El de ejemplo (LOGOS.client = LANSEY) solo se usa en el artefacto de demostración
+  // —el que NO trae una ficha real, sin nombre de compañía (AUDITIA.company)—. En una
+  // corrida real sin logo cargado, el hero muestra el placeholder «Logo del cliente»,
+  // nunca LANSEY. Se resuelve aquí (no en la rama de abajo) para no depender de que
+  // loadLansey() llegue a ejecutarse.
+  if(state.clientLogo===null){
+    if(typeof AUDITIA!=='undefined' && AUDITIA && AUDITIA.clientLogo) state.clientLogo=AUDITIA.clientLogo;
+    else if(!(typeof AUDITIA!=='undefined' && AUDITIA && AUDITIA.company) && typeof LOGOS!=='undefined') state.clientLogo=LOGOS.client||null;
+  }
   setLogos(); wireLogoControls();
   var ok=loadLansey();
   if(!ok){
