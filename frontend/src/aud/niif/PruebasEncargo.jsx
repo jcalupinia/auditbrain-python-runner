@@ -539,16 +539,14 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
                     <input type="checkbox" checked={tributario} onChange={(e) => setTributario(e.target.checked)} /> Incluye
                     tratamiento tributario
                   </label>
-                  <button type="button" className="btn sm primary" disabled={!origen} onClick={crear}>Crear prueba</button>
-                </div>
-                {/* Trae un encargo anterior a la versión vigente de la herramienta sin volver a subir datos. */}
-                <div className="nf-rec-row">
-                  <button type="button" className="btn sm" disabled={!origen || !pruebas.some((p) => p.origen === origen)}
-                    title="Vuelve a procesar la prueba existente de esta herramienta con la versión vigente del papel (mismos datos cargados)."
-                    onClick={actualizar}>Actualizar prueba</button>
-                  <span className="muted" style={{ fontSize: "0.85em" }}>
-                    Re-procesa la prueba ya creada de la herramienta seleccionada con la versión vigente (mismos datos).
-                  </span>
+                  {/* Dos botones apilados: Crear prueba y, debajo, Actualizar prueba (ambos verdes). «Actualizar»
+                      re-procesa la prueba ya creada de la herramienta con la versión vigente, sin volver a subir datos. */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <button type="button" className="btn sm primary" disabled={!origen} onClick={crear}>Crear prueba</button>
+                    <button type="button" className="btn sm primary" disabled={!origen || !pruebas.some((p) => p.origen === origen)}
+                      title="Re-procesa la prueba ya creada de esta herramienta con la versión vigente del papel (mismos datos cargados)."
+                      onClick={actualizar}>Actualizar prueba</button>
+                  </div>
                 </div>
                 {pruebas.length === 0 ? (
                   <p className="muted">Este encargo todavía no tiene pruebas.</p>
