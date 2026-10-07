@@ -54,10 +54,43 @@ def clasificar_cuenta(
     *,
     historial: dict[str, str] | None = None,
     clasificadas: dict[str, str] | None = None,
+    declaradas: dict[str, str] | None = None,
 ) -> ResultadoClasificacion:
-    """Clasifica una cuenta con toda la evidencia disponible."""
+    """Clasifica una cuenta con toda la evidencia disponible.
+
+    ``declaradas`` ({codigo: categoria}) son las cuentas que vienen de un Mayor
+    específico: el auditor declaró su categoría al subir el archivo, así que esa
+    categoría MANDA (confianza alta, origen 'declarada'), sin pasar por las
+    señales. Un archivo específico puede traer varias cuentas, todas con la
+    misma categoría declarada.
+    """
     historial = historial or {}
     clasificadas = clasificadas or {}
+    declaradas = declaradas or {}
+
+    if perfil.codigo in declaradas:
+        categoria = declaradas[perfil.codigo]
+        tarifa = (
+            sig.extraer_tarifa(perfil.nombre)
+            if categoria in CATEGORIAS_CON_TARIFA
+            else None
+        )
+        return ResultadoClasificacion(
+            codigo=perfil.codigo,
+            nombre=perfil.nombre,
+            categoria=categoria,
+            confianza="alta",
+            origen="declarada",
+            tarifa=tarifa,
+            puntajes={categoria: sig.PESO_HISTORIAL},
+            senales=[
+                Senal(
+                    categoria=categoria,
+                    puntaje=sig.PESO_HISTORIAL,
+                    motivo="categoría declarada por el auditor (Mayor específico)",
+                )
+            ],
+        )
 
     senales: list[Senal] = []
     senales += sig.senal_historial(perfil, historial)
@@ -93,15 +126,22 @@ def clasificar(
     perfiles: dict[str, PerfilCuenta],
     *,
     historial: dict[str, str] | None = None,
+    declaradas: dict[str, str] | None = None,
 ) -> list[ResultadoClasificacion]:
-    """Clasifica todas las cuentas del mayor en dos pasadas."""
+    """Clasifica todas las cuentas del mayor en dos pasadas.
+
+    ``declaradas`` ({codigo: categoria}) fija la categoría de las cuentas que
+    vienen de un Mayor específico (el auditor la declaró al subirlo).
+    """
     historial = historial or {}
+    declaradas = declaradas or {}
 
     primera = {
-        codigo: clasificar_cuenta(p, historial=historial)
+        codigo: clasificar_cuenta(p, historial=historial, declaradas=declaradas)
         for codigo, p in perfiles.items()
     }
-    # Solo lo resuelto con confianza alta sirve de apoyo para las demás.
+    # Solo lo resuelto con confianza alta sirve de apoyo para las demás (las
+    # declaradas entran acá porque quedan con confianza alta).
     apoyo = {
         codigo: r.categoria
         for codigo, r in primera.items()
@@ -109,7 +149,7 @@ def clasificar(
     }
 
     segunda = [
-        clasificar_cuenta(p, historial=historial, clasificadas=apoyo)
+        clasificar_cuenta(p, historial=historial, clasificadas=apoyo, declaradas=declaradas)
         for p in perfiles.values()
     ]
     return sorted(segunda, key=lambda r: r.codigo)

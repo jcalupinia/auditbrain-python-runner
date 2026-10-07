@@ -15,6 +15,7 @@ Estructura:
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import time
@@ -24,6 +25,10 @@ from backend.app.core.config import settings
 
 OUTPUT_FILENAME = "output.xlsx"
 INPUTS_DIR = "inputs"
+# Sidecar con el mapeo {archivo: categoria} de los Mayores específicos. Vive en
+# la raíz del job (fuera de inputs/), así list_inputs nunca lo devuelve como un
+# input más.
+MAYOR_ESPECIFICO_MAPEO_FILE = "mayor_especifico_mapeo.json"
 
 
 def _root() -> Path:
@@ -71,6 +76,63 @@ def list_inputs(job_dir: Path, slot: str | None = None) -> list[Path]:
         if p.is_file():
             out.append(p)
     return sorted(out)
+
+
+def safe_filename(name: str) -> str:
+    """Versión pública de ``_safe_filename`` (el nombre con el que se guarda)."""
+    return _safe_filename(name)
+
+
+def delete_input(job_dir: Path, slot: str, filename: str) -> bool:
+    """Borra UN archivo del slot (por nombre ya saneado). Devuelve si existía."""
+    slot_dir = job_dir / INPUTS_DIR / _safe_filename(slot)
+    target = slot_dir / _safe_filename(filename)
+    if target.exists() and target.is_file():
+        target.unlink()
+        return True
+    return False
+
+
+def _mapeo_path(job_dir: Path) -> Path:
+    return job_dir / MAYOR_ESPECIFICO_MAPEO_FILE
+
+
+def read_mayor_especifico_mapeo(job_dir: Path) -> dict[str, str]:
+    """Lee el mapeo {archivo: categoria} de los Mayores específicos."""
+    p = _mapeo_path(job_dir)
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def write_mayor_especifico_mapeo(job_dir: Path, mapeo: dict[str, str]) -> None:
+    job_dir.mkdir(parents=True, exist_ok=True)
+    _mapeo_path(job_dir).write_text(
+        json.dumps(mapeo, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def set_mayor_especifico_categoria(job_dir: Path, filename: str, categoria: str) -> None:
+    """Registra la categoría de UN archivo de Mayor específico."""
+    mapeo = read_mayor_especifico_mapeo(job_dir)
+    mapeo[_safe_filename(filename)] = categoria
+    write_mayor_especifico_mapeo(job_dir, mapeo)
+
+
+def unset_mayor_especifico_categoria(job_dir: Path, filename: str | None = None) -> None:
+    """Quita del mapeo un archivo (o todos si filename es None)."""
+    if filename is None:
+        p = _mapeo_path(job_dir)
+        if p.exists():
+            p.unlink()
+        return
+    mapeo = read_mayor_especifico_mapeo(job_dir)
+    mapeo.pop(_safe_filename(filename), None)
+    write_mayor_especifico_mapeo(job_dir, mapeo)
 
 
 def output_path(job_dir: Path) -> Path:

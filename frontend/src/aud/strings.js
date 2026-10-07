@@ -18,10 +18,22 @@ export const STRINGS = {
   of_slot_f103: "F-103 Retenciones IR (PDFs mensuales) — opcional en M1",
   of_slot_f104: "F-104 IVA (PDFs mensuales) — requerido",
   of_slot_ats: "Anexo Transaccional (XML o PDF) — opcional en M1",
-  of_slot_mayor_general: "Mayor General de Impuestos (Excel) — requerido",
+  of_slot_mayor_general:
+    "Mayor General de Impuestos completo (Excel) — o Mayores específicos",
   of_slot_mayor_especifico:
-    "Mayor específico para prueba puntual (Excel) — opcional",
+    "Mayores específicos para los cruces (Excel), cada uno con su categoría",
   of_mayor_especifico_categoria: "¿A qué categoría corresponde?",
+  // Carga de Mayores específicos (varios, cada uno con su categoría)
+  of_esp_titulo: "Mayores específicos (para los cruces)",
+  of_esp_elige_categoria: "Elige la categoría antes de agregar el archivo.",
+  of_esp_categoria_placeholder: "Categoría de este mayor…",
+  of_esp_categoria_title: "Categoría tributaria a la que corresponde este mayor",
+  of_esp_agregar: "➕ Agregar mayor",
+  of_esp_agregar_title: "Subir uno o varios archivos con la categoría elegida",
+  of_esp_hint:
+    "Puedes subir varios: elige una categoría y agrega; cambia la categoría y agrega más.",
+  of_esp_sin_categoria: "sin categoría",
+  of_esp_quitar_title: "Quitar este mayor específico",
   of_slot_f101: "F-101 Renta anual (PDF) — opcional en M1",
   // Etiquetas cortas para los chips de la barra de documentos: con el texto
   // largo la barra ocupaba 5 filas y el workspace no cabía en una pantalla,
@@ -68,7 +80,7 @@ export const STRINGS = {
   of_ws_procesar: "▶ Procesar",
   of_ws_procesando: "⏳ Procesando…",
   of_ws_procesar_disabled_sin_mayor:
-    "Sube el Mayor General de Impuestos antes de procesar.",
+    "Sube el Mayor General completo o al menos un Mayor específico (con su categoría) antes de procesar.",
   of_ws_procesar_disabled_no_borrador:
     "Solo se puede procesar un encargo en borrador o en revisión.",
   of_ws_descargar: "📤 Descargar Excel",

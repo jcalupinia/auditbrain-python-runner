@@ -60,11 +60,11 @@ ALLOWED_MIMES = {
 }
 
 
-async def _save_files(job_dir, slot: str, files: list[UploadFile]) -> int:
-    """Valida + persiste a /tmp. Devuelve count guardado."""
+async def _save_files(job_dir, slot: str, files: list[UploadFile]) -> list[str]:
+    """Valida + persiste a /tmp. Devuelve los nombres (saneados) guardados."""
     allowed = ALLOWED_MIMES.get(slot, set())
     max_bytes = settings.AUD_OF_MAX_FILE_MB * 1024 * 1024
-    count = 0
+    guardados: list[str] = []
     for f in files:
         if not f.filename:
             continue
@@ -79,9 +79,9 @@ async def _save_files(job_dir, slot: str, files: list[UploadFile]) -> int:
                 status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=f"{f.filename}: excede {settings.AUD_OF_MAX_FILE_MB} MB",
             )
-        file_storage.save_input(job_dir, slot, f.filename, data)
-        count += 1
-    return count
+        target = file_storage.save_input(job_dir, slot, f.filename, data)
+        guardados.append(target.name)
+    return guardados
 
 
 @router.post("/jobs", response_model=JobOut, status_code=status.HTTP_201_CREATED)
@@ -119,9 +119,17 @@ def create_job_endpoint(
 def _estado_slots(job_id: int) -> dict[str, dict]:
     d = file_storage.job_dir(job_id)
     estado = {}
+    mapeo_esp = file_storage.read_mayor_especifico_mapeo(d)
     for slot in SLOTS_VALIDOS:
         archivos = file_storage.list_inputs(d, slot)
-        estado[slot] = {"n_archivos": len(archivos), "nombres": [p.name for p in archivos]}
+        info = {"n_archivos": len(archivos), "nombres": [p.name for p in archivos]}
+        if slot == "mayor_especifico":
+            # Lista detallada: cada archivo con la categoría que se le mapeó.
+            info["archivos"] = [
+                {"nombre": p.name, "categoria": mapeo_esp.get(p.name, "")}
+                for p in archivos
+            ]
+        estado[slot] = info
     return estado
 
 
@@ -150,17 +158,33 @@ async def upload_slot_endpoint(
         raise HTTPException(400, detail=f"Slot desconocido: {slot}")
     job = _job_editable(db, current, job_id)
 
-    if slot == "mayor_especifico" and not categoria:
-        raise HTTPException(
-            400,
-            detail="El mayor específico exige declarar la categoria a la que pertenece.",
-        )
+    if slot == "mayor_especifico":
+        from backend.app.aud.obligaciones_fiscales.mayor import catalogo_service
+
+        if not categoria:
+            raise HTTPException(
+                400,
+                detail="El mayor específico exige declarar la categoría a la que pertenece.",
+            )
+        validas = {
+            c.codigo
+            for c in catalogo_service.categorias_visibles(
+                db, organization_id=getattr(current, "organization_id", None)
+            )
+        }
+        if categoria not in validas:
+            raise HTTPException(400, detail=f"Categoría desconocida: {categoria}")
 
     job_dir = file_storage.create_job_dir(job_id)
-    await _save_files(job_dir, slot, archivos)
+    guardados = await _save_files(job_dir, slot, archivos)
 
     if slot == "mayor_especifico":
-        job.mayor_especifico_categoria = categoria
+        # Cada archivo específico se mapea a SU categoría (un archivo = una
+        # categoría; un archivo puede traer varias cuentas, todas de esa
+        # categoría). El mapeo por archivo reemplaza al campo único anterior.
+        for nombre in guardados:
+            file_storage.set_mayor_especifico_categoria(job_dir, nombre, categoria)
+        job.mayor_especifico_categoria = categoria  # compat (última categoría)
         db.add(job)
         db.commit()
     service.touch_job(db, job_id)  # actividad: mantiene vivo el encargo
@@ -171,14 +195,25 @@ async def upload_slot_endpoint(
 def clear_slot_endpoint(
     job_id: int,
     slot: str,
+    nombre: str | None = None,
     current: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Borra el slot entero, o UN archivo del slot si se pasa ``nombre``
+    (p. ej. quitar un solo Mayor específico de la lista)."""
     if slot not in SLOTS_VALIDOS:
         raise HTTPException(400, detail=f"Slot desconocido: {slot}")
     _job_editable(db, current, job_id)
-    for p in file_storage.list_inputs(file_storage.job_dir(job_id), slot):
-        p.unlink(missing_ok=True)
+    job_dir = file_storage.job_dir(job_id)
+    if nombre:
+        file_storage.delete_input(job_dir, slot, nombre)
+        if slot == "mayor_especifico":
+            file_storage.unset_mayor_especifico_categoria(job_dir, nombre)
+    else:
+        for p in file_storage.list_inputs(job_dir, slot):
+            p.unlink(missing_ok=True)
+        if slot == "mayor_especifico":
+            file_storage.unset_mayor_especifico_categoria(job_dir, None)
     return _estado_slots(job_id)
 
 
@@ -222,8 +257,20 @@ def procesar_endpoint(
         raise HTTPException(403, detail=str(e))
     if job.status not in ("borrador", "revision", "failed", "running"):
         raise HTTPException(409, detail=f"El job está en estado {job.status}.")
-    if not file_storage.list_inputs(file_storage.job_dir(job_id), "mayor_general"):
-        raise HTTPException(400, detail="Sube el Mayor General de Impuestos antes de procesar.")
+    # El Mayor General NO es indispensable: basta con el Mayor General COMPLETO o
+    # con al menos un Mayor específico mapeado a su categoría. El motor lee los
+    # movimientos de ambos y hace los cruces.
+    job_dir = file_storage.job_dir(job_id)
+    tiene_general = bool(file_storage.list_inputs(job_dir, "mayor_general"))
+    tiene_especifico = bool(file_storage.list_inputs(job_dir, "mayor_especifico"))
+    if not tiene_general and not tiene_especifico:
+        raise HTTPException(
+            400,
+            detail=(
+                "Sube el Mayor General de Impuestos completo o al menos un "
+                "Mayor específico (con su categoría) antes de procesar."
+            ),
+        )
 
     # Estado inmediato para el frontend; el trabajo pesado corre en background.
     service.touch_job(db, job_id)  # actividad: mantiene vivo el encargo

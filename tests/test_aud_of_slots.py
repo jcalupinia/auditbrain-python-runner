@@ -124,7 +124,7 @@ def test_el_mayor_especifico_exige_declarar_la_categoria(client):
         headers=_h(tok), files=[("archivos", xlsx)],
     )
     assert r.status_code == 400
-    assert "categoria" in r.text.lower()
+    assert "categor" in r.text.lower()
 
 
 def test_el_mayor_especifico_guarda_la_categoria_declarada(client):
