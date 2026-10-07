@@ -1281,3 +1281,35 @@ def test_prioridad_baja_hojas_de_cierre_y_secciones_del_libro():
     # Una cédula del procesador que empieza con 13_ o 14_ ya no cae en «Resultado» ni en «Documentación».
     assert libro._seccion({"name": "13_Riesgos_Balance"}) == 1 and libro._seccion({"name": "14_Perfil"}) == 1
     assert libro._seccion({"name": libro.HOJA_CONCLUSION}) == 0 and libro._seccion({"name": libro.HOJA_CONTROL}) == 3
+
+
+def test_costo_de_ventas_escondido_en_egresos():
+    """Plan sin sección «Costos» (p. ej. 5=EGRESOS con 5.1=PRODUCCIÓN = costo de ventas): el costo de ventas se
+    detecta por nombre dentro de los gastos para que el margen bruto y la rotación de inventario no queden en «n/a»,
+    sin alterar la utilidad ni la cuadratura. Espejo del carve-out del artefacto HTML."""
+    def bal(campo):
+        filas = [("1", "ACTIVO", 1000), ("11", "Activo corriente", 1000), ("1101", "Caja", 700),
+                 ("1103", "INVENTARIOS", 300),
+                 ("2", "PASIVO", -400), ("21", "Pasivo corriente", -400), ("2101", "Proveedores", -400),
+                 ("3", "PATRIMONIO", -600), ("31", "Capital", -600),
+                 ("4", "INGRESOS", -500), ("41", "Ventas", -500),
+                 ("5", "EGRESOS", 500), ("51", "PRODUCCION", 300), ("5101", "Materia prima", 300),
+                 ("52", "GASTOS", 200), ("5201", "Sueldos", 200)]
+        return [{"codigo": c, "cuenta": n, campo: v, "_row": i + 2} for i, (c, n, v) in enumerate(filas)]
+    ds = {"balance_anterior": bal("saldo_anterior"), "balance_actual": bal("saldo_actual")}
+    par = {"tipoRevision": "Final", "baseMaterialidad": "Ingresos", "pctIngresos": 1, "pctDesempeno": 50, "pctTrivial": 5}
+    r = m.ejecutar(ds, par, "2025-12-31")
+    e = r["detalle"]["est9"]["act"]
+    assert abs(e["(−) Costo de ventas"] - 300) < 0.01          # detectado desde 51 PRODUCCIÓN
+    assert abs(e["Utilidad bruta"] - 200) < 0.01               # 500 ventas − 300 costo
+    assert abs(e["(−) Gastos operativos"] - 200) < 0.01        # 500 egresos − 300 costo, sin doble conteo
+    assert abs(e["Diferencia de cuadre"]) < 0.01               # la cuadratura no se altera
+    dias_inv = m._indices(e, 365)["diasInventario"]
+    assert dias_inv is not None and dias_inv > 0               # rotación de inventario calculable (antes «n/a»)
+
+
+def test_cliente_con_seccion_costos_no_se_altera():
+    """El carve-out solo actúa cuando el mapa NO trae «Costos»: el ejemplo (con su sección Costos real) no cambia."""
+    e0 = m.EJEMPLO
+    r = m.ejecutar(e0["datasets"], e0["parametros"], e0["corte"])
+    assert r["detalle"]["est9"]["act"]["(−) Costo de ventas"] != 0

@@ -565,6 +565,28 @@ def _rubro_eri(cod: str, nombre: str, sec: str) -> str:
     return ""
 
 
+_PAT_COSTO_VENTAS = re.compile(r"costo de venta|costo de produccion|costos de produccion|^produccion\b")
+
+
+def _marcar_costo_de_ventas_en_gastos(cuentas: list) -> None:
+    """Costo de ventas escondido en los egresos. Algunos planes de cuentas agrupan costo de ventas y gastos
+    bajo un solo rubro de egresos (p. ej. 5=EGRESOS con 5.1=PRODUCCIÓN) y NO declaran una clasificación
+    «Costos» en el mapa. Entonces el costo de ventas queda en 0 y el margen bruto y la rotación de inventario
+    salen «n/a». Esta función marca el subárbol de costo de ventas —que el mapa dejó como «Gastos»— con el
+    rubro «Costo de ventas», SIN tocar la sección (la cuadratura y las bases de materialidad usan la sección
+    del mapa; cambiarla haría doble conteo con la cuenta madre de egresos). Es el espejo del carve-out por
+    nombre del artefacto HTML (`costoDeVentasEnGastos`). No hace nada si el mapa ya trae una sección «Costos»."""
+    if any(x["sec"] == "Costos" for x in cuentas):
+        return
+    heads = [x["codigo"] for x in cuentas
+             if x["sec"] == "Gastos" and _PAT_COSTO_VENTAS.search(_sin_tildes(x["cuenta"]).lower())]
+    if not heads:
+        return
+    for x in cuentas:
+        if x["sec"] == "Gastos" and any(_debajo(x["codigo"], h) for h in heads):
+            x["rubro"] = "Costo de ventas"
+
+
 def _rubro_indice(nombre: str, sec: str) -> str:
     if sec == "Activo":
         if _busca(nombre, "efectivo", "caja", "banco") and not _busca(nombre, "restringid"):
@@ -856,6 +878,7 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                   for y in cuentas if y["codigo"] != x["codigo"] and _debajo(x["codigo"], y["codigo"])}
     _keep |= _ancestros
     cuentas = [x for x in cuentas if x["codigo"] in _keep]
+    _marcar_costo_de_ventas_en_gastos(cuentas)   # costo de ventas escondido en egresos (plan sin sección «Costos»)
 
     for x in cuentas:
         x["pind"] = "" if not x["rind"] else _superior(x, cuentas, "rind")
@@ -892,11 +915,17 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         ing = cs(k, sec="Ingresos", supsec="Sí")
         gas = cs(k, sec="Gastos", supsec="Sí")
         e["Ventas netas"] = ing if todas_cero else v41[k]
-        e["(−) Costo de ventas"] = cs(k, sec="Costos", supsec="Sí")
+        # Costo de ventas: la clasificación «Costos» del mapa MÁS el costo de ventas escondido en los egresos
+        # (subárbol marcado con rubro «Costo de ventas» dentro de la sección «Gastos»). Para un plan normal el
+        # segundo término es 0 (no cambia nada); para un plan 5=EGRESOS/5.1=PRODUCCIÓN aporta el costo real.
+        cv_gastos = cs(k, rubro="Costo de ventas", sec="Gastos", detalle="Sí")
+        e["(−) Costo de ventas"] = cs(k, sec="Costos", supsec="Sí") + cv_gastos
         e["Utilidad bruta"] = e["Ventas netas"] - e["(−) Costo de ventas"]
         e["(−) Gastos financieros"] = cs(k, rubro="Gastos financieros", detalle="Sí")
         e["(−) Participación e impuestos"] = cs(k, rubro="Impuestos y participación", detalle="Sí")
-        e["(−) Gastos operativos"] = gas - e["(−) Gastos financieros"] - e["(−) Participación e impuestos"]
+        # Gastos operativos: el total de egresos (sección «Gastos») menos el costo de ventas que vive dentro de
+        # esa sección, menos financieros e impuestos. Sin el descuento habría doble conteo en el plan 5=EGRESOS.
+        e["(−) Gastos operativos"] = gas - cv_gastos - e["(−) Gastos financieros"] - e["(−) Participación e impuestos"]
         e["Utilidad operativa"] = e["Utilidad bruta"] - e["(−) Gastos operativos"]
         e["(+) Otros ingresos"] = ing - e["Ventas netas"]
         e[UAI] = e["Utilidad operativa"] + e["(+) Otros ingresos"] - e["(−) Gastos financieros"]
@@ -2253,10 +2282,10 @@ def hojas(res: dict) -> list[dict]:
                 "Diferencia de cuadre": f"{c9}{F9['TOTAL ACTIVO']}-{c9}{F9['PASIVO + PATRIMONIO TOTAL']}",
                 "Ventas netas": (f'IF(AND({sif("G", rubro="Ventas", sr="Sí")}=0,{sif("H", rubro="Ventas", sr="Sí")}=0),'
                                  f'{sif(c8, sec="Ingresos", ss="Sí")},{sif(c8, rubro="Ventas", sr="Sí")})'),
-                "(−) Costo de ventas": sif(c8, sec="Costos", ss="Sí"),
+                "(−) Costo de ventas": f'{sif(c8, sec="Costos", ss="Sí")}+{sif(c8, rubro="Costo de ventas", sec="Gastos", det="Sí")}',
                 "Utilidad bruta": f"{c9}{F9['Ventas netas']}-{c9}{F9['(−) Costo de ventas']}",
-                "(−) Gastos operativos": (f"{sif(c8, sec='Gastos', ss='Sí')}-{c9}{F9['(−) Gastos financieros']}"
-                                          f"-{c9}{F9['(−) Participación e impuestos']}"),
+                "(−) Gastos operativos": (f"{sif(c8, sec='Gastos', ss='Sí')}-{sif(c8, rubro='Costo de ventas', sec='Gastos', det='Sí')}"
+                                          f"-{c9}{F9['(−) Gastos financieros']}-{c9}{F9['(−) Participación e impuestos']}"),
                 "Utilidad operativa": f"{c9}{F9['Utilidad bruta']}-{c9}{F9['(−) Gastos operativos']}",
                 "(+) Otros ingresos": f"{sif(c8, sec='Ingresos', ss='Sí')}-{c9}{F9['Ventas netas']}",
                 "(−) Gastos financieros": sif(c8, rubro="Gastos financieros", det="Sí"),
