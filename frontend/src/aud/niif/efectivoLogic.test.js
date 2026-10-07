@@ -6,6 +6,7 @@ import {
   estadoPrueba,
   estadoRequerimiento,
   puedeEncerar,
+  puedeReabrirDatos,
   puedeSubir,
   separarRequerimientos,
 } from "./efectivoLogic";
@@ -105,6 +106,17 @@ describe("puedeSubir y puedeEncerar", () => {
   it("una versión aprobada no se puede encerar", () => {
     expect(puedeEncerar("APROBADO")).toBe(false);
     expect(puedeEncerar("RESULTADOS_ANALIZADOS")).toBe(true);
+  });
+  it("puedeReabrirDatos: se puede corregir documentos tras procesar, pero no si está aprobada", () => {
+    // Procesada y no aprobada → se ofrece «Corregir documentos» (reabre la carga).
+    expect(puedeReabrirDatos("PRUEBA_EJECUTADA")).toBe(true);
+    expect(puedeReabrirDatos("RESULTADOS_ANALIZADOS")).toBe(true);
+    expect(puedeReabrirDatos("EN_REVISION")).toBe(true);
+    // Aprobada: evidencia inmutable (NIA 230); el servidor también lo bloquea.
+    expect(puedeReabrirDatos("APROBADO")).toBe(false);
+    // En la ventana de subida el borrado directo (✕) ya sirve; no hace falta reabrir.
+    expect(puedeReabrirDatos("DOCUMENTACION_RECIBIDA")).toBe(false);
+    expect(puedeReabrirDatos("REQUERIMIENTO_APROBADO")).toBe(false);
   });
 });
 

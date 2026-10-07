@@ -34,6 +34,17 @@ export const puedeSubir = (estado) => ESTADOS_CON_SUBIDA.includes(estado);
 // Una versión aprobada no se puede encerar (NIA 230); el servidor también lo bloquea.
 export const puedeEncerar = (estado) => estado !== "APROBADO";
 
+// Estados desde los que se puede REABRIR la etapa de datos (acción return_to_data del
+// servidor) para corregir o reemplazar un documento ya cargado. Reabrir lleva la prueba
+// de vuelta a DOCUMENTACION_RECIBIDA, donde se puede borrar un archivo (botón ✕) y volver
+// a subirlo. APROBADO queda fuera: la versión aprobada es evidencia inmutable (NIA 230) y
+// el servidor también lo bloquea. Debe reflejar exactamente el guard de
+// `servicio.py::return_to_data`.
+export const ESTADOS_REABRIBLES = [
+  "PRUEBA_CONFIGURADA", "METODOLOGIA_APROBADA", "PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS", "EN_REVISION",
+];
+export const puedeReabrirDatos = (estado) => ESTADOS_REABRIBLES.includes(estado);
+
 // Separa la lista de requerimientos en las tarjetas primarias (en el orden que fija
 // la config de la herramienta) y los documentos de soporte (todo lo demás, en su
 // orden original). `principales` es la lista `[{id, titulo}, …]` de `procesoConfig`.
