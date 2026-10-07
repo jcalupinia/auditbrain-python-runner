@@ -1313,3 +1313,22 @@ def test_cliente_con_seccion_costos_no_se_altera():
     e0 = m.EJEMPLO
     r = m.ejecutar(e0["datasets"], e0["parametros"], e0["corte"])
     assert r["detalle"]["est9"]["act"]["(−) Costo de ventas"] != 0
+
+
+def test_notas_balance_usa_los_codigos_del_rq_006():
+    """Si el auditor carga las notas del año anterior con sus códigos (RQ-006), las notas armadas del balance usan
+    ESE mapeo cuenta→nota (no el estándar del SRI), para conciliar con un plan de cuentas que numera distinto."""
+    def bal(campo):
+        filas = [("1", "ACTIVO", 1000), ("11", "Activo corriente", 1000), ("1103", "Inventarios propios", 600),
+                 ("1104", "Clientes", 400),
+                 ("2", "PASIVO", -500), ("21", "Pasivo corriente", -500), ("2101", "Proveedores", -500),
+                 ("3", "PATRIMONIO", -500), ("31", "Capital", -500)]
+        return [{"codigo": c, "cuenta": n, campo: v, "_row": i + 2} for i, (c, n, v) in enumerate(filas)]
+    ds = {"balance_anterior": bal("saldo_anterior"), "balance_actual": bal("saldo_actual"),
+          "notas_estados_financieros": [{"nota": "X", "titulo": "Inventarios de la empresa", "codigos": "1103",
+                                         "saldo_auditado": 0, "_row": 2}]}
+    r = m.ejecutar(ds, {"tipoRevision": "Final", "baseMaterialidad": "Ingresos", "pctIngresos": 1,
+                        "pctDesempeno": 50, "pctTrivial": 5}, "2025-12-31")
+    h = next(h for h in m.hojas(r) if h["name"] == "15N_Notas_EEFF")
+    etqs = [str((row[0].get("v") if isinstance(row[0], dict) else row[0]) or "") for row in h["rows"]]
+    assert any("Inventarios de la empresa" in e for e in etqs)   # el título del RQ, no el estándar

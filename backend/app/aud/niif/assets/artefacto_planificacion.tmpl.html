@@ -947,6 +947,7 @@ var state={
   files:{prior:null,current:null,eriPrior:null},   // {wb,sheetName,sheetNames,rows,model,fileName,sample}
   digitMap:Object.assign({},DEFAULT_DIGIT_MAP),
   sectionOverride:{},          // code -> section (manual)
+  noteOverride:{},             // code -> índice de NOTES_ESF_MAP o '__none__' (reasignación manual de cuentas a notas)
   unified:[], result:null, depth:3, currentCompany:'',
   mat:{ basePeriod:'auto', baseKey:'ing', perfPct:50, trivPct:5,
         pct:{uai:5, ing:1, act:1, pat:1, gas:0.5}, justif:null, justifManual:false },
@@ -1183,6 +1184,15 @@ function renderAcctList(filter){
   });
 }
 els.clsFilter.addEventListener('input',function(){ renderAcctList(els.clsFilter.value); });
+// Reasignación de cuentas a notas: al cambiar un desplegable, se guarda y se recalculan solo las tarjetas de notas.
+loadNoteOverride();
+(function(){ var pn=document.getElementById('panel-notas'); if(!pn) return;
+  pn.addEventListener('change',function(e){
+    var sel=e.target; if(!sel||!sel.classList||!sel.classList.contains('nota-assign')) return;
+    var v=sel.value; state.noteOverride[sel.dataset.code]=(v==='__none__')?'__none__':parseInt(v,10);
+    saveNoteOverride(); var cont=document.getElementById('notaCards'); if(cont) cont.innerHTML=renderNoteCards();
+  });
+})();
 
 /* ============================ compute ============================ */
 function priorSourceModel(){ return state.files.prior?state.files.prior.model:null; }
@@ -2337,19 +2347,53 @@ function noteBreakdown(codes){
   }
   return rows;
 }
-function renderNotas(){
-  var ND=(typeof NOTAS_DATA!=='undefined')?NOTAS_DATA:[];
-  var M=(typeof NOTAS_META!=='undefined')?NOTAS_META:{period:''};
-  if(!state.result) return '<p class="small-note">Genera el análisis para ver las notas.</p>';
-  var cur=state.result.currentLabel||'Agosto 2026', pri=state.result.priorLabel||'Diciembre 2025';
-  var html='<div class="notas-intro"><div class="eyebrow">Notas a los estados financieros</div>'+
-    '<p>Cada nota de balance se presenta <b>comparativa</b>: cierre <b>'+escapeHtml(pri)+'</b> frente a tu corte de revisión preliminar <b>'+escapeHtml(cur)+'</b>, con el desglose de subcuentas tomado del balance de comprobación. Abajo se incluye la composición auditada al cierre 2025 como respaldo.</p></div>';
-  // ---- Notas de balance, comparativas Dic-2025 -> Ago-2026 ----
-  html+='<div class="notas-nav">'+NOTES_ESF_MAP.map(function(m,i){return '<a href="#ncmp-'+i+'" class="notas-chip">N'+m.ref+'</a>';}).join('')+'</div>';
+/* --- Reasignación de cuentas a notas (desplegable por cuenta) --- */
+function noteOptionsHtml(sel){
+  var o='<option value="__none__"'+(String(sel)==='__none__'?' selected':'')+'>— Sin nota —</option>';
   NOTES_ESF_MAP.forEach(function(m,i){
-    var rows=noteBreakdown(m.codes);
-    var tp=groupSum(m.codes,'prior'), tc=groupSum(m.codes,'current');
+    o+='<option value="'+i+'"'+(String(sel)===String(i)?' selected':'')+'>N'+escapeHtml(m.ref)+' · '+escapeHtml(m.t)+'</option>';
+  });
+  return o;
+}
+// Nota por defecto de una cuenta: el prefijo MÁS LARGO de NOTES_ESF_MAP que la contiene (plan estándar del SRI).
+// Se comparan los códigos SOLO por sus dígitos (quitando puntos), para que funcione con «1.1.03» o «1103».
+function digitsOf(code){ return String(code).replace(/\D/g,''); }
+function defaultNoteIdx(code){
+  var nc=digitsOf(code), best=null, bl=-1;
+  NOTES_ESF_MAP.forEach(function(m,i){ m.codes.forEach(function(cd){
+    var ncd=digitsOf(cd);
+    if(ncd && nc.indexOf(ncd)===0 && ncd.length>bl){ best=i; bl=ncd.length; }
+  }); });
+  return best;
+}
+function noteIdxOf(code){
+  if(state.noteOverride[code]!==undefined) return state.noteOverride[code];
+  var d=defaultNoteIdx(code); return d===null?'__none__':d;
+}
+// Cuentas asignables: rubros del balance (Activo/Pasivo a nivel de cuenta = 4 dígitos, con saldo en algún período).
+function noteAssignables(){
+  if(!state.result) return [];
+  return state.result.accts.filter(function(a){
+    return (a.section==='ACTIVO'||a.section==='PASIVO') && digitsOf(a.code).length===4 &&
+           !(Math.abs(a.prior||0)<0.005 && Math.abs(a.current||0)<0.005);
+  });
+}
+// Códigos (rubros) asignados a la nota i, respetando los overrides del auditor.
+function noteHeadsFor(i){
+  return noteAssignables().filter(function(a){ return String(noteIdxOf(a.code))===String(i); }).map(function(a){return a.code;});
+}
+function saveNoteOverride(){ try{ localStorage.setItem('auditia_noteOverride', JSON.stringify(state.noteOverride)); }catch(e){} }
+function loadNoteOverride(){ try{ var s=localStorage.getItem('auditia_noteOverride'); if(s) state.noteOverride=JSON.parse(s)||{}; }catch(e){} }
+
+function renderNoteCards(){
+  var cur=state.result.currentLabel||'Agosto 2026', pri=state.result.priorLabel||'Diciembre 2025';
+  var html='<div class="notas-nav">'+NOTES_ESF_MAP.map(function(m,i){return '<a href="#ncmp-'+i+'" class="notas-chip">N'+m.ref+'</a>';}).join('')+'</div>';
+  NOTES_ESF_MAP.forEach(function(m,i){
+    var codes=noteHeadsFor(i);
+    var rows=codes.length?noteBreakdown(codes):[];
+    var tp=groupSum(codes,'prior'), tc=groupSum(codes,'current');
     html+='<div class="nota-card" id="ncmp-'+i+'"><div class="nota-h"><span class="nota-num">Nota '+escapeHtml(m.ref)+'</span>'+escapeHtml(m.t)+'</div>';
+    if(!codes.length){ html+='<p class="small-note" style="padding:6px 10px;">Sin cuentas asignadas. Usa «Reasignar cuentas a notas» para asignarlas.</p></div>'; return; }
     html+='<div class="table-scroll"><table class="report-table nota-table"><thead><tr><th>Cuenta</th><th class="num-cell">'+escapeHtml(pri)+'</th><th class="num-cell">'+escapeHtml(cur)+'</th><th class="num-cell">Variación $</th><th class="num-cell">Variación %</th></tr></thead><tbody>';
     rows.forEach(function(x){
       html+='<tr><td><span class="acct-name">'+escapeHtml(x.name)+'</span></td>'+
@@ -2361,6 +2405,29 @@ function renderNotas(){
       '<td class="num-cell">'+varCell(tc-tp)+'</td><td class="num-cell">'+pctPill(varPct(tp,tc))+'</td></tr>';
     html+='</tbody></table></div></div>';
   });
+  return html;
+}
+function noteEditorHtml(){
+  var asg=noteAssignables();
+  if(!asg.length) return '';
+  var cambiadas=Object.keys(state.noteOverride).length;
+  return '<details class="nota-details"'+(cambiadas?' open':'')+'><summary><span class="nota-num">⚙</span>Reasignar cuentas a notas'+(cambiadas?' · '+cambiadas+' ajustadas':'')+'</summary>'+
+    '<p class="small-note" style="margin:6px 0;">Elige a qué nota pertenece cada rubro del balance. Por defecto usa el plan estándar del SRI; si no coincide con tus notas reales (p. ej. tu 1.1.03 es Inventarios, no Cuentas por cobrar), reasígnalo aquí y el total y el desglose de la nota se recalculan. Se guarda en este navegador.</p>'+
+    '<div class="table-scroll" style="max-height:360px;"><table class="report-table"><thead><tr><th>Código</th><th>Cuenta</th><th class="num-cell">Saldo al corte</th><th>Nota</th></tr></thead><tbody>'+
+    asg.map(function(a){ return '<tr><td class="code-cell">'+escapeHtml(a.code)+'</td><td>'+escapeHtml(a.name)+'</td><td class="num-cell">'+fmtMoney(a.current)+'</td><td><select class="nota-assign" data-code="'+escapeHtml(a.code)+'">'+noteOptionsHtml(noteIdxOf(a.code))+'</select></td></tr>'; }).join('')+
+    '</tbody></table></div></details>';
+}
+
+function renderNotas(){
+  var ND=(typeof NOTAS_DATA!=='undefined')?NOTAS_DATA:[];
+  var M=(typeof NOTAS_META!=='undefined')?NOTAS_META:{period:''};
+  if(!state.result) return '<p class="small-note">Genera el análisis para ver las notas.</p>';
+  var cur=state.result.currentLabel||'Agosto 2026', pri=state.result.priorLabel||'Diciembre 2025';
+  var html='<div class="notas-intro"><div class="eyebrow">Notas a los estados financieros</div>'+
+    '<p>Cada nota de balance se presenta <b>comparativa</b>: cierre <b>'+escapeHtml(pri)+'</b> frente a tu corte de revisión preliminar <b>'+escapeHtml(cur)+'</b>, con el desglose de subcuentas tomado del balance de comprobación. Abajo se incluye la composición auditada al cierre 2025 como respaldo.</p></div>';
+  // ---- Reasignación de cuentas a notas + notas de balance comparativas ----
+  html+=noteEditorHtml();
+  html+='<div id="notaCards">'+renderNoteCards()+'</div>';
   html+='<p class="small-note" style="margin:8px 0 4px;">Desglose y saldos tomados del balance de comprobación cargado (Dic-2025 y Ago-2026). Las notas de resultados (ingresos, costos y gastos, conciliación tributaria) son anuales; su comparativo del mismo corte está en las pestañas Estado de Resultados y Analítico Preliminar.</p>';
   // ---- Composición auditada al cierre 2025 (respaldo) ----
   html+='<h3 class="an-h">Composición auditada al cierre 2025 (respaldo)</h3>';
@@ -2854,14 +2921,15 @@ function exportExcel(){
     var ws=wb.addWorksheet('Notas EEFF'); ws.columns=[{width:56},{width:20},{width:20},{width:18},{width:12}];
     title(ws,'NOTAS A LOS ESTADOS FINANCIEROS — COMPARATIVO '+pri+' → '+cur,5);
     var r=2;
-    NOTES_ESF_MAP.forEach(function(m){
+    NOTES_ESF_MAP.forEach(function(m,i){
+      var codes=noteHeadsFor(i);   // respeta la reasignación manual de cuentas a notas
       subhead(ws,r,'Nota '+m.ref+' — '+m.t,5); r++;
       header(ws,r,['Cuenta',pri,cur,'Variación $','Var %']); r++;
-      noteBreakdown(m.codes).forEach(function(x){
+      (codes.length?noteBreakdown(codes):[]).forEach(function(x){
         ws.getRow(r).values=[x.name, x.prior, x.current, {formula:'C'+r+'-B'+r}, {formula:'IF(B'+r+'=0,"",(C'+r+'-B'+r+')/ABS(B'+r+'))'}];
         money(ws.getCell(r,2)); money(ws.getCell(r,3)); money(ws.getCell(r,4)); ws.getCell(r,5).numFmt='0.0%'; r++;
       });
-      var tp=groupSum(m.codes,'prior'), tc=groupSum(m.codes,'current');
+      var tp=groupSum(codes,'prior'), tc=groupSum(codes,'current');
       var rr=ws.getRow(r); rr.values=['Total '+m.t, tp, tc, {formula:'C'+r+'-B'+r}, {formula:'IF(B'+r+'=0,"",(C'+r+'-B'+r+')/ABS(B'+r+'))'}];
       money(ws.getCell(r,2)); money(ws.getCell(r,3)); money(ws.getCell(r,4)); ws.getCell(r,5).numFmt='0.0%';
       rr.eachCell(function(c){ c.font={bold:true,color:{argb:WHITE}}; fill(c,TEAL); }); r+=2;
