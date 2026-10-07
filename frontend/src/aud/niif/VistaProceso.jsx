@@ -11,6 +11,7 @@ import {
   estadoPrueba,
   estadoRequerimiento,
   puedeEncerar,
+  puedeReabrirDatos,
   puedeSubir,
   separarRequerimientos,
 } from "./efectivoLogic";
@@ -235,6 +236,15 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   }
 
   const prepararRequerimiento = () => correr(() => prepararBaseTecnica(prueba));
+
+  // Reabre la etapa de datos para corregir/reemplazar un documento ya cargado cuando la
+  // prueba ya se procesó (el borrado directo con ✕ solo está disponible en la ventana de
+  // subida). return_to_data respeta el bloqueo de versiones aprobadas (NIA 230).
+  const reabrirParaCorregir = () =>
+    correr(() => onAccion("return_to_data", {
+      comment: "Reapertura de la carga para corregir o reemplazar un documento del requerimiento.",
+    }));
+  const puedeCorregirDocs = puedeReabrirDatos(estado) && !bloqueado;
 
   const procesar = () =>
     correr(async () => {
@@ -490,6 +500,16 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
         <header className="nf-ef-paso-h">
           <span className="nf-ef-num">1</span>
           <h3>Requerimientos de información</h3>
+          {puedeCorregirDocs && (
+            <button
+              type="button"
+              className="nf-ef-btn"
+              onClick={reabrirParaCorregir}
+              title="Reabre la carga para borrar un documento (botón ✕) y volver a subirlo"
+            >
+              {trabajando ? "Reabriendo…" : "Corregir documentos"}
+            </button>
+          )}
         </header>
         {!conRequerimiento && (
           <div className="nf-ef-preparar">
