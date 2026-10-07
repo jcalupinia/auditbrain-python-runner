@@ -479,6 +479,25 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
     }
   }
 
+  // «Actualizar prueba»: re-procesa con la versión vigente de la herramienta la prueba ya creada de la
+  // herramienta seleccionada, con los mismos datos cargados (no reinicia ni pide volver a subir nada).
+  // Un encargo anterior pasa así a la versión nueva del papel sin crear otra prueba.
+  async function actualizar() {
+    setError("");
+    const existente = pruebas.find((p) => p.origen === origen);
+    if (!existente) {
+      setError("No hay una prueba de esa herramienta en este encargo para actualizar. Créela primero.");
+      return;
+    }
+    try {
+      await api.cicloAccion(existente.id, "refrescar", existente.revision, {});
+      await recargar();
+      setAbierta(existente.id);
+    } catch (e) {
+      setError(e.message || String(e));
+    }
+  }
+
   // El gobierno del encargo (independencia, enfoque por ciclo, aceptación) vive DENTRO de la
   // planificación: su panel solo aparece cuando la prueba abierta es la de planificación, nunca
   // en las demás pruebas. La lista trae el `origen` (proc:<id>), no la definición.
@@ -521,6 +540,15 @@ function EncargoTrabajo({ proyecto, cliente, herramientaInicial = "" }) {
                     tratamiento tributario
                   </label>
                   <button type="button" className="btn sm primary" disabled={!origen} onClick={crear}>Crear prueba</button>
+                </div>
+                {/* Trae un encargo anterior a la versión vigente de la herramienta sin volver a subir datos. */}
+                <div className="nf-rec-row">
+                  <button type="button" className="btn sm" disabled={!origen || !pruebas.some((p) => p.origen === origen)}
+                    title="Vuelve a procesar la prueba existente de esta herramienta con la versión vigente del papel (mismos datos cargados)."
+                    onClick={actualizar}>Actualizar prueba</button>
+                  <span className="muted" style={{ fontSize: "0.85em" }}>
+                    Re-procesa la prueba ya creada de la herramienta seleccionada con la versión vigente (mismos datos).
+                  </span>
                 </div>
                 {pruebas.length === 0 ? (
                   <p className="muted">Este encargo todavía no tiene pruebas.</p>

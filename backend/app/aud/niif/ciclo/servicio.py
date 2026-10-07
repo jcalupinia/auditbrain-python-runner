@@ -16,8 +16,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 import hashlib
+import logging
 import re
 import uuid
+
+log = logging.getLogger(__name__)
 
 from backend.app.aud.niif.ciclo import almacen, datos, reglas
 # Dentro de aplicar_accion el parámetro `datos` (cuerpo de la acción) tapa al
@@ -848,6 +851,33 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         reg["executedAt"] = _ahora_iso()
         p.estado = siguiente
 
+    elif accion == "refrescar":
+        # «Actualizar prueba»: regenera el papel con el código ACTUAL del motor, con los MISMOS datos
+        # ya cargados, sin reiniciar el ciclo ni perder el trabajo. Así un encargo procesado con una
+        # versión anterior pasa a la versión vigente de la herramienta (backend y papel). No cambia el
+        # estado. Sirve para las 20 herramientas: procesadores y pruebas declarativas.
+        if not reg.get("run"):
+            raise ReglaIncumplida("Primero ejecute la prueba; aún no hay un resultado que actualizar.")
+        from backend.app.aud.niif import estudio
+        proc = procesadores.de(p.definicion)
+        try:
+            if proc is not None:
+                reg["run"] = _run_procesador(db, p, reg, proc)
+            else:
+                run = estudio.ejecutar_definicion(p.definicion, reg.get("rows") or [],
+                                                  reg.get("parameters") or {}, reg.get("flows") or [])
+                run["exceptions"] = datos_mod.excepciones(p.definicion, run)
+                reg["run"] = run
+        except (ValueError, KeyError, ArithmeticError, StopIteration) as e:
+            raise ReglaIncumplida(str(e) or "No se pudo actualizar la prueba con la versión vigente.")
+        reg["runHash"] = hashlib.sha256(json.dumps(
+            {"definition": p.definicion, "rows": reg.get("rows"), "parameters": reg.get("parameters"),
+             "flows": reg.get("flows") or [], "run": reg["run"]},
+            ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+        reg["executedAt"] = _ahora_iso()
+        datos = {**datos, "comment": "Prueba actualizada a la versión vigente de la herramienta (mismos datos cargados)."}
+
     elif accion == "analyze":
         p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
         reg["analysis"] = datos_mod.preliminary({**reg, "definition": p.definicion})
@@ -1047,8 +1077,39 @@ def _eventos_papel(db: Session, p: Prueba) -> list[dict]:
     return evs
 
 
+def _run_fresco(db: Session, p: Prueba, reg: dict) -> dict | None:
+    """Regenera el resultado del papel con el código ACTUAL del motor, a partir de los datos
+    que el cliente ya cargó (los mismos que se usaron al ejecutar). Así un encargo procesado
+    con una versión anterior sale, al descargar, con la versión vigente del papel —sin tener
+    que re-procesarlo— y sirve para las 20 herramientas (procesadores y pruebas declarativas).
+
+    Devuelve el run nuevo, o None si la prueba aún no se ejecutó o si la regeneración falla
+    (en ese caso se cae al resultado guardado y la descarga nunca se rompe)."""
+    if not (reg or {}).get("run"):
+        return None  # aún no ejecutada: no hay papel que repintar
+    try:
+        from backend.app.aud.niif import estudio
+        proc = procesadores.de(p.definicion)
+        if proc is not None:
+            return _run_procesador(db, p, reg, proc)
+        run = estudio.ejecutar_definicion(p.definicion, reg.get("rows") or [],
+                                          reg.get("parameters") or {}, reg.get("flows") or [])
+        run["exceptions"] = datos_mod.excepciones(p.definicion, run)
+        return run
+    except Exception:  # noqa: BLE001 — la descarga nunca debe romperse por un re-cálculo
+        log.warning("No se pudo regenerar el papel al vuelo de la prueba %s; se usa el resultado guardado.",
+                    getattr(p, "id", "?"), exc_info=True)
+        return None
+
+
 def args_papel(db: Session, p: Prueba) -> tuple:
-    return (p.definicion, p.registro, _eventos_papel(db, p), p.version, p.estado)
+    # El papel se regenera al descargar con el motor vigente (no se pinta el resultado horneado
+    # en una versión anterior). Si no se puede recalcular, se usa el resultado guardado.
+    reg = p.registro
+    fresco = _run_fresco(db, p, reg)
+    if fresco is not None:
+        reg = {**reg, "run": fresco}
+    return (p.definicion, reg, _eventos_papel(db, p), p.version, p.estado)
 
 
 def marcar_descargada(db: Session, p: Prueba) -> None:
