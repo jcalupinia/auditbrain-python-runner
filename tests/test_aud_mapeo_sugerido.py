@@ -40,6 +40,22 @@ def test_encabezado_con_fecha_pegada_saldo_anterior_y_actual():
     assert mapa["saldo_libros"] == 2    # empieza con «saldo actual»
 
 
+def test_anexo_real_cliente_caja_bancos_mapea_columnas_obligatorias():
+    """Encabezados reales del anexo de caja y bancos del cliente (captura del dueño,
+    2026-10-07): «Cuenta · Tipo · Descripción · Saldo anterior 31-12-2025 · Variación ·
+    Saldo al corte 31-08-2026». Deben mapear las 3 obligatorias (id, nombre, saldo_libros)
+    aunque «Saldo al corte» no sea el término canónico («Saldo según libros»)."""
+    from backend.app.aud.niif.procesadores import efectivo_equivalentes as m
+    campos = m.CAMPOS["cuentas"]
+    headers = ["Cuenta", "Tipo", "Descripción", "Saldo anterior 31-12-2025", "Variación", "Saldo al corte  31-08-2026"]
+    mapa = mapeo_sugerido(headers, campos)
+    assert headers[mapa["id"]] == "Cuenta"
+    assert headers[mapa["nombre"]] == "Descripción"
+    assert headers[mapa["tipo"]] == "Tipo"
+    assert headers[mapa["saldo_anterior"]] == "Saldo anterior 31-12-2025"
+    assert mapa["saldo_libros"] == 5, "«Saldo al corte 31-08-2026» debe mapear a saldo_libros"
+
+
 def test_no_reasigna_una_columna_a_dos_campos():
     # Si un encabezado ya fue tomado en el pase exacto, el pase por prefijo no lo roba.
     campos = [
