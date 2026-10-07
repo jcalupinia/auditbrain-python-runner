@@ -668,6 +668,36 @@ const PCE_NIIF9 = {
   ],
 };
 
+// --- Pérdida Crediticia Esperada por cohortes (NIIF 9) — herramienta vigente (AUD-ECL-01) ---
+const PCE_COHORTES = {
+  processor: "pce_cohortes_niif9",
+  icono: "table", color: "teal",
+  eyebrow: "PÉRDIDA CREDITICIA ESPERADA · NIIF 9",
+  titulo: "Pérdida Crediticia Esperada (NIIF 9)",
+  subtitulo: "Matriz de provisiones por cohortes (ventana 24 meses t-2 → t), exposición anclada a EEFF, desdoblamiento del incumplimiento y ajuste prospectivo",
+  principales: [
+    { id: "RQ-001", titulo: "Cartera — Año 1 (t-2, el más antiguo)", icono: "doc", color: "blue", tipos: ".xlsx / .csv" },
+    { id: "RQ-002", titulo: "Cartera — Año 2 (t-1)", icono: "doc", color: "teal", tipos: ".xlsx / .csv" },
+    { id: "RQ-003", titulo: "Cartera — Año 3 (t, corte actual)", icono: "doc", color: "green", tipos: ".xlsx / .csv" },
+    { id: "RQ-004", titulo: "Anexo Inicial de la Provisión (Sumaria)", icono: "table", color: "gold", tipos: ".xlsx / .csv" },
+    { id: "RQ-005", titulo: "Mayor de la Provisión — Año 1 (t-2)", icono: "list", color: "purple", tipos: ".xlsx / .csv" },
+    { id: "RQ-006", titulo: "Mayor de la Provisión — Año 2 (t-1)", icono: "list", color: "purple", tipos: ".xlsx / .csv" },
+    { id: "RQ-007", titulo: "Mayor de la Provisión — Año 3 (t)", icono: "list", color: "purple", tipos: ".xlsx / .csv" },
+  ],
+  ejecuciones: [
+    { clave: "procedimiento", titulo: "Procedimiento de Pérdida Crediticia Esperada", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
+    { clave: "exposicion", titulo: "Exposición Anclada a EEFF", subtitulo: "Cartera por segmento anclada a los estados financieros.", icono: "shield", color: "teal", relacionados: ["RQ-003"], seccion: "sec-03_Exposicion" },
+    { clave: "cohortes", titulo: "Cohortes (Ventana 24 meses)", subtitulo: "Tasa observada por segmento y banda (t-2 → t).", icono: "line", color: "gold", relacionados: ["RQ-001", "RQ-003"], seccion: "sec-04_Cohortes" },
+    { clave: "matriz", titulo: "Matriz de Pérdida Esperada", subtitulo: "PCE por tramo con ajuste prospectivo.", icono: "table", color: "red", relacionados: ["RQ-003"], seccion: "sec-05_Matriz_PCE" },
+    { clave: "por_banda", titulo: "Pérdida por Banda de Mora", subtitulo: "Exposición y pérdida esperada por banda.", icono: "list", color: "green", relacionados: ["RQ-003"], seccion: "sec-06_Por_banda" },
+    { clave: "comparacion", titulo: "Comparación con la Política", subtitulo: "Recálculo frente a la provisión según política.", icono: "calc", color: "purple", relacionados: ["RQ-003"], seccion: "sec-07_Comparacion" },
+    { clave: "movimiento", titulo: "Movimiento de la Provisión", subtitulo: "Reconciliación del saldo anterior al registrado.", icono: "refresh", color: "teal", relacionados: ["RQ-004", "RQ-005"], seccion: "sec-09_Movimiento" },
+    { clave: "anexo_inicial", titulo: "Anexo Inicial de la Provisión", subtitulo: "Sumaria: saldo del año anterior y del actual.", icono: "book", color: "gold", relacionados: ["RQ-004"], seccion: "sec-14_Anexo_inicial" },
+    { clave: "detalle", titulo: "Detalle de Cartera al Corte", subtitulo: "Mora, banda, días de crédito y saldo por factura.", icono: "list", color: "blue", relacionados: ["RQ-003"], seccion: "sec-12_Detalle" },
+    { clave: "hallazgos", titulo: "Hallazgos (CCCEER)", subtitulo: "Hallazgos de auditoría con riesgo y recomendación.", icono: "warning", color: "red", relacionados: "todos", seccion: "sec-10_Hallazgos" },
+  ],
+};
+
 // --- Pérdidas Incurridas (Sección 11 PYMES) ---
 const PERDIDAS_INCURRIDAS_S11 = {
   processor: "perdidas_incurridas_s11",
@@ -717,6 +747,7 @@ export const CONFIG = {
   gastos: GASTOS,
   seguros: SEGUROS,
   arrendamientos: ARRENDAMIENTOS,
+  pce_cohortes: PCE_COHORTES,
   pce: PCE_NIIF9,
   perdidas: PERDIDAS_INCURRIDAS_S11,
 };
