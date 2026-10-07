@@ -80,7 +80,13 @@ def test_cleanup_marks_expired_jobs_and_deletes_dir():
         db.close()
 
 
-def test_cleanup_removes_downloaded_old_dirs():
+def test_descargar_no_borra_los_documentos():
+    """Decisión del dueño (2026-10-07): descargar NO borra los documentos.
+
+    Durante la revisión el auditor descarga, detecta un dato mal cargado,
+    reabre, corrige y vuelve a descargar sin perder los documentos. La limpieza
+    es por INACTIVIDAD: solo borra cuando el TTL (que se reinicia en cada
+    acción) vence."""
     user_id, project_id = _mk_admin_project()
     db = SessionLocal()
     try:
@@ -90,7 +96,6 @@ def test_cleanup_removes_downloaded_old_dirs():
             cliente_name="C", period_label="2025",
         )
         job.status = "done"
-        job.downloaded_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) - datetime.timedelta(minutes=30)
         db.add(job)
         db.commit()
         job_id = job.id
@@ -100,6 +105,42 @@ def test_cleanup_removes_downloaded_old_dirs():
     job_dir = file_storage.create_job_dir(job_id)
     assert job_dir.exists()
 
+    # El auditor descarga: queda registrado, pero reinicia el TTL (no expira).
+    db = SessionLocal()
+    try:
+        service.mark_downloaded(db, job_id)
+        reloaded = db.get(ToolJob, job_id)
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        assert reloaded.downloaded_at is not None
+        assert reloaded.expires_at > now  # sigue vivo tras descargar
+    finally:
+        db.close()
+
     summary = cleanup.cleanup_once()
-    assert summary["post_download_cleanups"] >= 1
-    assert not job_dir.exists()
+    assert "post_download_cleanups" not in summary  # la acción ya no existe
+    assert job_dir.exists()  # NO se borró por haber descargado
+
+
+def test_touch_job_reinicia_el_ttl():
+    """Cada acción del auditor (subir, procesar, aprobar, descargar, reabrir)
+    reinicia el TTL por inactividad: un encargo a punto de expirar vuelve a
+    quedar vivo."""
+    user_id, project_id = _mk_admin_project()
+    db = SessionLocal()
+    try:
+        fresh_user = db.get(User, user_id)
+        job = service.create_job(
+            db, user=fresh_user, project_id=project_id,
+            cliente_name="C", period_label="2025",
+        )
+        now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        job.expires_at = now - datetime.timedelta(minutes=1)  # casi vencido
+        db.add(job)
+        db.commit()
+        job_id = job.id
+
+        service.touch_job(db, job_id)
+        reloaded = db.get(ToolJob, job_id)
+        assert reloaded.expires_at > now  # revivido
+    finally:
+        db.close()

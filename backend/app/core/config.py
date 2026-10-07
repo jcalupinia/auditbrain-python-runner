@@ -44,7 +44,13 @@ class Settings:
     AUD_OF_TMP_DIR: str = os.getenv(
         "AUD_OF_TMP_DIR", "/tmp/auditbrain/obligaciones_fiscales"
     )
-    AUD_OF_JOB_TTL_MINUTES: int = int(os.getenv("AUD_OF_JOB_TTL_MINUTES", "60"))
+    # TTL por INACTIVIDAD: el encargo de Obligaciones Fiscales se mantiene vivo
+    # mientras el auditor lo usa (subir, procesar, aprobar, descargar, reabrir)
+    # —cada acción reinicia este contador— y solo se limpia tras este rato sin
+    # tocarlo, o cuando le da «Encerar». Descargar NO borra los documentos.
+    AUD_OF_JOB_TTL_MINUTES: int = int(os.getenv("AUD_OF_JOB_TTL_MINUTES", "240"))
+    # Obsoleto desde 2026-10-07: descargar ya no programa el borrado. Se conserva
+    # por compatibilidad con despliegues que aún definan la env var; sin uso.
     AUD_OF_POST_DOWNLOAD_TTL_MINUTES: int = int(
         os.getenv("AUD_OF_POST_DOWNLOAD_TTL_MINUTES", "5")
     )

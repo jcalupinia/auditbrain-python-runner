@@ -1,9 +1,17 @@
 """Cleanup periódico de jobs expirados y /tmp huérfanos.
 
 Se ejecuta en background al arrancar la app (ver app.py startup hook).
+
+Retención por INACTIVIDAD (decisión del dueño, 2026-10-07): descargar NO borra
+nada. El TTL (`expires_at`) se reinicia en cada acción del auditor (subir,
+procesar, aprobar, descargar, reabrir), así que un encargo solo se limpia tras
+un buen rato sin tocarlo, o cuando el auditor le da «Encerar». Esto permite
+descargar → revisar → corregir un dato mal cargado → volver a descargar sin
+perder los documentos.
+
 Borra:
-- Jobs con expires_at < ahora → marca status='expired', borra /tmp.
-- Jobs descargados hace > N min → borra /tmp (DB se mantiene para historial).
+- Jobs con expires_at < ahora (sin actividad en todo el TTL) → marca
+  status='expired', borra /tmp.
 - Directorios /tmp huérfanos (sin job en DB pero con mtime > TTL).
 """
 
@@ -28,11 +36,13 @@ def cleanup_once() -> dict:
     from backend.app.ict import service as ict_service
 
     now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
-    summary = {"expired_jobs": 0, "post_download_cleanups": 0, "orphan_dirs": 0, "zombie_jobs": 0, "ict_files_deleted": 0}
+    summary = {"expired_jobs": 0, "orphan_dirs": 0, "zombie_jobs": 0, "ict_files_deleted": 0}
 
     db = SessionLocal()
     try:
-        # 1. Jobs expirados por TTL
+        # 1. Jobs expirados por INACTIVIDAD (el TTL se reinicia en cada acción;
+        #    si expires_at ya pasó, el encargo lleva todo el TTL sin tocarse).
+        #    Descargar NO expira el encargo: no se borra por haber descargado.
         expired = db.execute(
             select(ToolJob).where(
                 ToolJob.expires_at < now,
@@ -47,22 +57,7 @@ def cleanup_once() -> dict:
             db.add(j)
             summary["expired_jobs"] += 1
 
-        # 2. Jobs descargados hace > N min
-        post_dl_threshold = now - datetime.timedelta(
-            minutes=settings.AUD_OF_POST_DOWNLOAD_TTL_MINUTES
-        )
-        downloaded_old = db.execute(
-            select(ToolJob).where(
-                ToolJob.downloaded_at.is_not(None),
-                ToolJob.downloaded_at < post_dl_threshold,
-                ToolJob.status == "done",
-            )
-        ).scalars().all()
-        for j in downloaded_old:
-            file_storage.delete_job_dir(j.id)
-            summary["post_download_cleanups"] += 1
-
-        # 4. Zombie jobs: status 'processing' por > 30 min → error
+        # 2. Zombie jobs: status 'processing' por > 30 min → error
         zombie_threshold = now - datetime.timedelta(minutes=30)
         zombies = db.execute(
             select(ToolJob).where(

@@ -61,6 +61,18 @@ def test_reabierto_se_puede_volver_a_procesar(client):
     assert estado["status"] == "revision"
 
 
+def test_descargar_y_luego_reabrir_conserva_los_documentos(client):
+    """Escenario del dueño: se descarga el Excel, se detecta un dato mal
+    cargado y se reabre para corregir. Descargar NO borra los documentos, así
+    que reabrir funciona (no da 410)."""
+    tok, jid = _done(client)
+    r = client.get(f"{BASE}/jobs/{jid}/download", headers=_h(tok))
+    assert r.status_code == 200, r.text
+    r = client.post(f"{BASE}/jobs/{jid}/reabrir", headers=_h(tok))
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "revision"
+
+
 def test_no_se_puede_reabrir_un_job_que_no_esta_done(client):
     """Un encargo en 'revision' (o borrador) ya es editable: reabrir da 409."""
     tok, jid = _procesado(client)  # queda en 'revision'

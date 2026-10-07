@@ -163,6 +163,7 @@ async def upload_slot_endpoint(
         job.mayor_especifico_categoria = categoria
         db.add(job)
         db.commit()
+    service.touch_job(db, job_id)  # actividad: mantiene vivo el encargo
     return _estado_slots(job_id)
 
 
@@ -225,6 +226,7 @@ def procesar_endpoint(
         raise HTTPException(400, detail="Sube el Mayor General de Impuestos antes de procesar.")
 
     # Estado inmediato para el frontend; el trabajo pesado corre en background.
+    service.touch_job(db, job_id)  # actividad: mantiene vivo el encargo
     service.mark_running(db, job_id)
     background.add_task(jobs.clasificar_mayor_job, job_id)
     db.expire_all()
@@ -364,6 +366,7 @@ def aprobar_endpoint(
         user_id=current.id,
     )
 
+    service.touch_job(db, job_id)  # actividad: mantiene vivo el encargo
     service.mark_running(db, job_id)
     background.add_task(jobs.process_job, job_id)
     db.expire_all()
