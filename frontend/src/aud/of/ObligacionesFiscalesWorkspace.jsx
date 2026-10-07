@@ -4,6 +4,7 @@ import { STRINGS } from "../strings.js";
 import "./ofWorkspace.css";
 import SlotChip from "./SlotChip.jsx";
 import EditarDatosModal from "./EditarDatosModal.jsx";
+import MayorEspecificoUploader from "./MayorEspecificoUploader.jsx";
 import RevisionClasificacion from "./RevisionClasificacion.jsx";
 import { contarSubidos, estadoTile, etiquetaEstadoTile, encontrarJobActivo } from "./ofLogic.js";
 
@@ -16,7 +17,7 @@ const SLOTS = [
   // El ATS llega en XML o en PDF (el "Talón Resumen" del SRI), según lo que
   // el cliente entregue. El backend acepta ambos; la UI no debe restringirlo.
   { key: "ats", label: STRINGS.of_chip_ats, descripcion: STRINGS.of_slot_ats, accept: ".xml,application/xml,text/xml,application/pdf", multiple: true },
-  { key: "mayor_general", label: STRINGS.of_chip_mayor_general, descripcion: STRINGS.of_slot_mayor_general, accept: ".xlsx,.xls,.csv", multiple: false, required: true },
+  { key: "mayor_general", label: STRINGS.of_chip_mayor_general, descripcion: STRINGS.of_slot_mayor_general, accept: ".xlsx,.xls,.csv", multiple: false },
   { key: "mayor_especifico", label: STRINGS.of_chip_mayor_especifico, descripcion: STRINGS.of_slot_mayor_especifico, accept: ".xlsx,.xls,.csv", multiple: false },
   { key: "f101", label: STRINGS.of_chip_f101, descripcion: STRINGS.of_slot_f101, accept: "application/pdf", multiple: false },
 ];
@@ -195,11 +196,15 @@ export default function ObligacionesFiscalesWorkspace({ projectId }) {
   // ---- Estado derivado para la cabecera ----
   const subidos = contarSubidos(slotsEstado, SLOT_KEYS);
   const tieneMayorGeneral = (slotsEstado.mayor_general?.n_archivos || 0) > 0;
+  const tieneMayorEspecifico = (slotsEstado.mayor_especifico?.n_archivos || 0) > 0;
+  // El Mayor General ya no es indispensable: basta con el general O al menos un
+  // Mayor específico mapeado.
+  const tieneAlgunMayor = tieneMayorGeneral || tieneMayorEspecifico;
   const jobEditable = job && (job.status === "borrador" || job.status === "revision");
-  const puedeProcesar = jobEditable && tieneMayorGeneral && !procesando;
+  const puedeProcesar = jobEditable && tieneAlgunMayor && !procesando;
   let procesarTitle;
   if (!jobEditable) procesarTitle = STRINGS.of_ws_procesar_disabled_no_borrador;
-  else if (!tieneMayorGeneral) procesarTitle = STRINGS.of_ws_procesar_disabled_sin_mayor;
+  else if (!tieneAlgunMayor) procesarTitle = STRINGS.of_ws_procesar_disabled_sin_mayor;
 
   const puedeDescargar = job && job.status === "done" && !descargando;
 
@@ -336,7 +341,7 @@ export default function ObligacionesFiscalesWorkspace({ projectId }) {
                 <span className="pc-scenarios-l" style={{ color: "var(--accent)" }}>
                   {STRINGS.of_ws_subir_documentos}
                 </span>
-                {SLOTS.map((s) => (
+                {SLOTS.filter((s) => s.key !== "mayor_especifico").map((s) => (
                   <SlotChip
                     key={s.key}
                     slot={s}
@@ -347,6 +352,14 @@ export default function ObligacionesFiscalesWorkspace({ projectId }) {
                   />
                 ))}
               </div>
+
+              {/* Mayores específicos: varios, cada uno con su categoría */}
+              <MayorEspecificoUploader
+                jobId={job.id}
+                estado={slotsEstado.mayor_especifico}
+                disabled={!jobEditable}
+                onChanged={() => cargarSlots(job.id)}
+              />
 
               {/* Barra de progreso */}
               <div style={{

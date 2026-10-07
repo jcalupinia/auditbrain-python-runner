@@ -1271,10 +1271,13 @@ export async function subirSlotOF(jobId, slot, archivos, categoria) {
   );
 }
 
-// Borra los archivos de un slot. Devuelve el estado de slots actualizado.
-export async function quitarSlotOF(jobId, slot) {
+// Borra los archivos de un slot (todos), o UN archivo si se pasa `nombre`
+// (p. ej. quitar un solo Mayor específico de la lista). Devuelve el estado de
+// slots actualizado.
+export async function quitarSlotOF(jobId, slot, nombre) {
+  const qs = nombre ? `?nombre=${encodeURIComponent(nombre)}` : "";
   return parse(
-    await apiFetch(`${OF_BASE}/jobs/${jobId}/slots/${slot}`, {
+    await apiFetch(`${OF_BASE}/jobs/${jobId}/slots/${slot}${qs}`, {
       method: "DELETE",
       headers: authHeaders(),
     })

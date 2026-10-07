@@ -14,16 +14,60 @@ from backend.app.db.session import SessionLocal
 log = logging.getLogger(__name__)
 
 
+def leer_mayores_del_job(job_id: int):
+    """Lee el Mayor General (completo) y los Mayores específicos de un job.
+
+    El Mayor General ya no es indispensable: basta con él o con al menos un
+    Mayor específico. Cada Mayor específico trae su categoría declarada (un
+    archivo = una categoría; puede incluir varias cuentas, todas de esa
+    categoría), que se devuelve en ``declaradas`` {codigo: categoria} para que
+    la clasificación la respete.
+
+    Devuelve: (movimientos, declaradas, hojas, errores, ilegibles), donde
+    ``ilegibles`` lista (nombre, columnas_faltantes) de los archivos cuyo
+    encabezado no se reconoció.
+    """
+    from backend.app.aud.obligaciones_fiscales.mayor.reader import leer_mayor
+
+    job_dir = file_storage.job_dir(job_id)
+    movimientos: list = []
+    declaradas: dict[str, str] = {}
+    hojas: list[str] = []
+    errores: list[str] = []
+    ilegibles: list[tuple[str, list[str]]] = []
+
+    def _acumular(ruta, categoria: str | None = None) -> None:
+        lectura = leer_mayor(ruta.read_bytes())
+        if not lectura.mapeo_suficiente:
+            ilegibles.append((ruta.name, list(lectura.columnas_faltantes)))
+            return
+        movimientos.extend(lectura.movimientos)
+        hojas.extend(lectura.hojas_leidas)
+        errores.extend(lectura.errores)
+        if categoria:
+            for m in lectura.movimientos:
+                if m.codigo:
+                    declaradas[m.codigo] = categoria
+
+    for ruta in file_storage.list_inputs(job_dir, "mayor_general"):
+        _acumular(ruta)
+
+    mapeo = file_storage.read_mayor_especifico_mapeo(job_dir)
+    for ruta in file_storage.list_inputs(job_dir, "mayor_especifico"):
+        _acumular(ruta, categoria=mapeo.get(ruta.name) or None)
+
+    return movimientos, declaradas, hojas, errores, ilegibles
+
+
 def clasificar_mayor_job(job_id: int) -> None:
-    """FASE 1: lee el Mayor General, clasifica sus cuentas y deja el job en
-    'revision' para que el auditor apruebe."""
+    """FASE 1: lee los mayores (general y/o específicos), clasifica sus cuentas
+    y deja el job en 'revision' para que el auditor apruebe."""
     from backend.app.aud.obligaciones_fiscales.mayor import (
         clasificacion_service,
         homologaciones,
     )
     from backend.app.aud.obligaciones_fiscales.mayor.clasificador import clasificar
     from backend.app.aud.obligaciones_fiscales.mayor.cuentas import perfilar
-    from backend.app.aud.obligaciones_fiscales.mayor.reader import leer_mayor
     from backend.app.context.models import Project
 
     db = SessionLocal()
@@ -34,33 +78,31 @@ def clasificar_mayor_job(job_id: int) -> None:
             log.error("clasificar_mayor_job: ToolJob %s not found", job_id)
             return
 
-        rutas = file_storage.list_inputs(file_storage.job_dir(job_id), "mayor_general")
-        if not rutas:
-            service.mark_failed(db, job_id, "No hay Mayor General cargado.")
-            return
+        movimientos, declaradas, hojas, errores, ilegibles = leer_mayores_del_job(job_id)
 
-        movimientos = []
-        errores: list[str] = []
-        hojas: list[str] = []
-        for ruta in rutas:
-            lectura = leer_mayor(ruta.read_bytes())
-            if not lectura.mapeo_suficiente:
+        if not movimientos:
+            if ilegibles:
+                nombre, faltan = ilegibles[0]
                 service.mark_failed(
                     db, job_id,
-                    f"{ruta.name}: no se reconocieron las columnas mínimas "
-                    f"(faltan {', '.join(lectura.columnas_faltantes)}). "
-                    f"Errores: {'; '.join(lectura.errores) or 'ninguno'}",
+                    f"{nombre}: no se reconocieron las columnas mínimas "
+                    f"(faltan {', '.join(faltan)}).",
                 )
-                return
-            movimientos.extend(lectura.movimientos)
-            errores.extend(lectura.errores)
-            hojas.extend(lectura.hojas_leidas)
+            else:
+                service.mark_failed(
+                    db, job_id,
+                    "No hay un Mayor General ni Mayores específicos legibles cargados.",
+                )
+            return
+        # Archivos que no se pudieron leer, pero había otros que sí: se avisa.
+        for nombre, faltan in ilegibles:
+            errores.append(f"{nombre}: no se reconocieron las columnas (faltan {', '.join(faltan)}).")
 
         proyecto = db.get(Project, job.project_id)
         historial = homologaciones.historial_de_cliente(db, client_id=proyecto.client_id)
 
         perfiles = perfilar(movimientos)
-        resultados = clasificar(perfiles, historial=historial)
+        resultados = clasificar(perfiles, historial=historial, declaradas=declaradas)
         clasificacion_service.guardar_clasificacion(
             db, job_id=job_id, resultados=resultados, perfiles=perfiles
         )
@@ -98,7 +140,6 @@ def process_job(job_id: int) -> None:
         leer_declaraciones,
     )
     from backend.app.aud.obligaciones_fiscales.mayor import clasificacion_service
-    from backend.app.aud.obligaciones_fiscales.mayor.reader import leer_mayor
 
     db = SessionLocal()
     try:
@@ -118,9 +159,9 @@ def process_job(job_id: int) -> None:
             "f101": file_storage.list_inputs(job_dir, "f101"),
         }
 
-        movimientos = []
-        for ruta in file_storage.list_inputs(job_dir, "mayor_general"):
-            movimientos.extend(leer_mayor(ruta.read_bytes()).movimientos)
+        # Movimientos del Mayor General y de los Mayores específicos (ambos
+        # entran a los cruces; el general ya no es indispensable).
+        movimientos, _declaradas, _hojas, _errores, _ilegibles = leer_mayores_del_job(job_id)
         f104_monthly, f103_monthly = leer_declaraciones(job_dir)
 
         excel_bytes = armar_libro(
