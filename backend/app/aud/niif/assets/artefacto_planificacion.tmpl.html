@@ -2323,31 +2323,16 @@ var NOTES_ESF_MAP=[
   {ref:'8',  t:'Activos por impuestos corrientes', codes:['1110']},
   {ref:'8',  t:'Activos por impuestos diferidos', codes:['1206']},
   {ref:'—',  t:'Otros activos no corrientes', codes:['1208']},
-  {ref:'10', t:'Obligaciones bancarias — corto plazo', codes:['2101'], pas:true},
+  {ref:'10', t:'Obligaciones bancarias y financieras — corto plazo', codes:['2101'], pas:true},
   {ref:'12', t:'Cuentas y documentos por pagar', codes:['2102','2201'], pas:true},
   {ref:'8',  t:'Pasivos por impuestos corrientes', codes:['2103'], pas:true},
   {ref:'9',  t:'Obligaciones por beneficios definidos', codes:['2104','2206'], pas:true},
+  {ref:'9b', t:'Obligaciones acumuladas (sueldos, beneficios y participación)', codes:[], pas:true},
   {ref:'11', t:'Obligaciones bancarias — largo plazo', codes:['2202'], pas:true}
 ];
-function groupSum(codes,key){ var s=0; codes.forEach(function(c){ s+=groupVal(state.result.accts,c,key)||0; }); return s; }
-// Desglose de subcuentas del balance bajo los códigos de una nota (para comparar ambos períodos)
-function noteBreakdown(codes){
-  var a=state.result.accts, cs=a.map(function(x){return x.code;});
-  function isLeaf(x){ return !cs.some(function(o){return o!==x.code&&o.length>x.code.length&&o.indexOf(x.code)===0;}); }
-  function underAny(x){ return codes.some(function(cd){ return x.code!==cd && x.code.indexOf(cd)===0 && x.code.length>cd.length; }); }
-  var desc=a.filter(underAny);
-  var leaves=desc.filter(isLeaf).filter(function(x){ return !(Math.abs(x.prior||0)<0.005 && Math.abs(x.current||0)<0.005); });
-  var rows;
-  if(leaves.length && leaves.length<=28){ rows=leaves; }
-  else {
-    // colapsar al primer nivel de subcuenta bajo cada código
-    rows=desc.filter(function(x){ return codes.some(function(cd){ var node=a.filter(function(y){return y.code===cd;})[0]; var bl=node?node.level:0; return x.level===bl+1 && x.code.indexOf(cd)===0; }); })
-             .filter(function(x){ return !(Math.abs(x.prior||0)<0.005 && Math.abs(x.current||0)<0.005); });
-    if(!rows.length) rows=leaves;
-  }
-  return rows;
-}
-/* --- Reasignación de cuentas a notas (desplegable por cuenta) --- */
+/* --- Reasignación de cuentas a notas (desplegable por cuenta Y por subcuenta) --- */
+// Los códigos se comparan SOLO por sus dígitos (quitando puntos), para que funcione con «1.1.03» o «1103».
+function digitsOf(code){ return String(code).replace(/\D/g,''); }
 function noteOptionsHtml(sel){
   var o='<option value="__none__"'+(String(sel)==='__none__'?' selected':'')+'>— Sin nota —</option>';
   NOTES_ESF_MAP.forEach(function(m,i){
@@ -2355,45 +2340,84 @@ function noteOptionsHtml(sel){
   });
   return o;
 }
-// Nota por defecto de una cuenta: el prefijo MÁS LARGO de NOTES_ESF_MAP que la contiene (plan estándar del SRI).
-// Se comparan los códigos SOLO por sus dígitos (quitando puntos), para que funcione con «1.1.03» o «1103».
-function digitsOf(code){ return String(code).replace(/\D/g,''); }
-function defaultNoteIdx(code){
-  var nc=digitsOf(code), best=null, bl=-1;
-  NOTES_ESF_MAP.forEach(function(m,i){ m.codes.forEach(function(cd){
-    var ncd=digitsOf(cd);
-    if(ncd && nc.indexOf(ncd)===0 && ncd.length>bl){ best=i; bl=ncd.length; }
-  }); });
+// Nota asignada EXPLÍCITAMENTE a un código: el override del auditor, o —si no hay— el código que es cabecera
+// exacta del mapa estándar del SRI. Devuelve el índice de NOTES_ESF_MAP, '__none__', o undefined (no asignado).
+function explicitNoteIdx(code){
+  if(state.noteOverride[code]!==undefined) return state.noteOverride[code];
+  var nc=digitsOf(code);
+  for(var i=0;i<NOTES_ESF_MAP.length;i++){ if(NOTES_ESF_MAP[i].codes.some(function(cd){return digitsOf(cd)===nc;})) return i; }
+  return undefined;
+}
+// Nota EFECTIVA de una cuenta: la de su ancestro-o-sí-mismo asignado MÁS CERCANO (por prefijo de dígitos). Así, si el
+// rubro va a la Nota 12 pero una subcuenta se reasigna a la Nota 10, la subcuenta manda y el resto hereda el rubro.
+function effectiveNoteIdx(code){
+  if(!state.result) return '__none__';
+  var nc=digitsOf(code), best='__none__', bl=-1;
+  state.result.accts.forEach(function(a){
+    var na=digitsOf(a.code);
+    if(na.length<=nc.length && nc.indexOf(na)===0){
+      var e=explicitNoteIdx(a.code);
+      if(e!==undefined && na.length>bl){ best=e; bl=na.length; }
+    }
+  });
   return best;
 }
-function noteIdxOf(code){
-  if(state.noteOverride[code]!==undefined) return state.noteOverride[code];
-  var d=defaultNoteIdx(code); return d===null?'__none__':d;
+// Hojas de Activo/Pasivo: cuentas CON saldo que no tienen ninguna subcuenta CON saldo por debajo. Son la base del
+// total de cada nota (disjuntas → sin doble conteo). Mirar solo las cuentas con saldo evita que una subcuenta en
+// cero (p. ej. una hija 0,00 de «Tarjetas de crédito») haga desaparecer el saldo del padre.
+function noteLeaves(){
+  if(!state.result) return [];
+  var con=state.result.accts.filter(function(x){
+    return (x.section==='ACTIVO'||x.section==='PASIVO') && !(Math.abs(x.prior||0)<0.005 && Math.abs(x.current||0)<0.005);
+  });
+  var ds=con.map(function(x){return digitsOf(x.code);});
+  return con.filter(function(x){ var dx=digitsOf(x.code);
+    return !ds.some(function(o){ return o!==dx && o.indexOf(dx)===0 && o.length>dx.length; });
+  });
 }
-// Cuentas asignables: rubros del balance (Activo/Pasivo a nivel de cuenta = 4 dígitos, con saldo en algún período).
+// Hojas cuya nota efectiva es i (objetos de cuenta: para el total y el desglose de la nota).
+function noteHeadsFor(i){
+  return noteLeaves().filter(function(l){ return String(effectiveNoteIdx(l.code))===String(i); });
+}
+// Cuentas asignables en el editor: todo nodo de cuenta de Activo/Pasivo con saldo (rubro de 4 dígitos, sub-rubro u
+// hoja). Así se asigna a cualquier nivel: un grupo entero (p. ej. «Por sueldos…») o una subcuenta suelta (p. ej.
+// «Tarjetas de crédito»). Las hojas heredan la nota de su ancestro asignado más cercano, sin doble conteo.
 function noteAssignables(){
   if(!state.result) return [];
   return state.result.accts.filter(function(a){
-    return (a.section==='ACTIVO'||a.section==='PASIVO') && digitsOf(a.code).length===4 &&
-           !(Math.abs(a.prior||0)<0.005 && Math.abs(a.current||0)<0.005);
+    if(a.section!=='ACTIVO'&&a.section!=='PASIVO') return false;
+    if(Math.abs(a.prior||0)<0.005 && Math.abs(a.current||0)<0.005) return false;
+    return digitsOf(a.code).length>=4;
   });
-}
-// Códigos (rubros) asignados a la nota i, respetando los overrides del auditor.
-function noteHeadsFor(i){
-  return noteAssignables().filter(function(a){ return String(noteIdxOf(a.code))===String(i); }).map(function(a){return a.code;});
 }
 function saveNoteOverride(){ try{ localStorage.setItem('auditia_noteOverride', JSON.stringify(state.noteOverride)); }catch(e){} }
 function loadNoteOverride(){ try{ var s=localStorage.getItem('auditia_noteOverride'); if(s) state.noteOverride=JSON.parse(s)||{}; }catch(e){} }
 
+// Nombre de un código (para el desglose por grupo).
+function nameOfCode(code){ var a=state.result.accts.filter(function(x){return x.code===code;})[0]; return a?a.name:code; }
+// Para el DESGLOSE: agrupa las hojas de la nota por su ancestro a nivel de grupo (6 dígitos), para que se vea
+// «Tarjetas de crédito» en una fila (no sus tarjetas internas), conservando el total por hojas (sin doble conteo).
+function noteRowsFor(i){
+  var leaves=noteHeadsFor(i), g={}, orden=[];
+  leaves.forEach(function(l){
+    var d=digitsOf(l.code), code=l.code;
+    if(d.length>6){ var p6=d.slice(0,6);
+      var anc=state.result.accts.filter(function(x){return digitsOf(x.code)===p6;})[0];
+      if(anc) code=anc.code;
+    }
+    if(!g[code]){ g[code]={name:nameOfCode(code), prior:0, current:0}; orden.push(code); }
+    g[code].prior+=(l.prior||0); g[code].current+=(l.current||0);
+  });
+  return orden.map(function(c){return g[c];});
+}
 function renderNoteCards(){
   var cur=state.result.currentLabel||'Agosto 2026', pri=state.result.priorLabel||'Diciembre 2025';
   var html='<div class="notas-nav">'+NOTES_ESF_MAP.map(function(m,i){return '<a href="#ncmp-'+i+'" class="notas-chip">N'+m.ref+'</a>';}).join('')+'</div>';
   NOTES_ESF_MAP.forEach(function(m,i){
-    var codes=noteHeadsFor(i);
-    var rows=codes.length?noteBreakdown(codes):[];
-    var tp=groupSum(codes,'prior'), tc=groupSum(codes,'current');
+    var rows=noteRowsFor(i);   // desglose por grupo de las hojas cuya nota efectiva es i
+    var tp=rows.reduce(function(s,x){return s+(x.prior||0);},0), tc=rows.reduce(function(s,x){return s+(x.current||0);},0);
     html+='<div class="nota-card" id="ncmp-'+i+'"><div class="nota-h"><span class="nota-num">Nota '+escapeHtml(m.ref)+'</span>'+escapeHtml(m.t)+'</div>';
-    if(!codes.length){ html+='<p class="small-note" style="padding:6px 10px;">Sin cuentas asignadas. Usa «Reasignar cuentas a notas» para asignarlas.</p></div>'; return; }
+    if(!rows.length){ html+='<p class="small-note" style="padding:6px 10px;">Sin cuentas asignadas. Usa «Reasignar cuentas a notas» para asignarlas.</p></div>'; return; }
     html+='<div class="table-scroll"><table class="report-table nota-table"><thead><tr><th>Cuenta</th><th class="num-cell">'+escapeHtml(pri)+'</th><th class="num-cell">'+escapeHtml(cur)+'</th><th class="num-cell">Variación $</th><th class="num-cell">Variación %</th></tr></thead><tbody>';
     rows.forEach(function(x){
       html+='<tr><td><span class="acct-name">'+escapeHtml(x.name)+'</span></td>'+
@@ -2412,9 +2436,18 @@ function noteEditorHtml(){
   if(!asg.length) return '';
   var cambiadas=Object.keys(state.noteOverride).length;
   return '<details class="nota-details"'+(cambiadas?' open':'')+'><summary><span class="nota-num">⚙</span>Reasignar cuentas a notas'+(cambiadas?' · '+cambiadas+' ajustadas':'')+'</summary>'+
-    '<p class="small-note" style="margin:6px 0;">Elige a qué nota pertenece cada rubro del balance. Por defecto usa el plan estándar del SRI; si no coincide con tus notas reales (p. ej. tu 1.1.03 es Inventarios, no Cuentas por cobrar), reasígnalo aquí y el total y el desglose de la nota se recalculan. Se guarda en este navegador.</p>'+
-    '<div class="table-scroll" style="max-height:360px;"><table class="report-table"><thead><tr><th>Código</th><th>Cuenta</th><th class="num-cell">Saldo al corte</th><th>Nota</th></tr></thead><tbody>'+
-    asg.map(function(a){ return '<tr><td class="code-cell">'+escapeHtml(a.code)+'</td><td>'+escapeHtml(a.name)+'</td><td class="num-cell">'+fmtMoney(a.current)+'</td><td><select class="nota-assign" data-code="'+escapeHtml(a.code)+'">'+noteOptionsHtml(noteIdxOf(a.code))+'</select></td></tr>'; }).join('')+
+    '<p class="small-note" style="margin:6px 0;">Elige a qué nota pertenece cada <b>rubro</b> (código de 4 dígitos) o cada <b>subcuenta</b> del balance. Por defecto usa el plan estándar del SRI. Puedes DIVIDIR un rubro: déjalo en su nota y manda subcuentas sueltas a otra (p. ej. «Tarjetas de crédito» a Obligaciones financieras, «Impuesto a la renta» a Pasivos por impuestos, «Sueldos y participación» a Obligaciones acumuladas). El total y el desglose se recalculan; se guarda en este navegador.</p>'+
+    '<div class="table-scroll" style="max-height:420px;"><table class="report-table"><thead><tr><th>Código</th><th>Cuenta</th><th class="num-cell">Saldo al corte</th><th>Nota</th></tr></thead><tbody>'+
+    asg.map(function(a){
+      var ind=Math.max(0,(digitsOf(a.code).length-4)/2)*16;
+      var esRubro=digitsOf(a.code).length===4;
+      // Muestra el override propio si existe; si no, la nota efectiva heredada (dónde cae hoy la cuenta).
+      var sel=(state.noteOverride[a.code]!==undefined)?state.noteOverride[a.code]:effectiveNoteIdx(a.code);
+      return '<tr><td class="code-cell">'+escapeHtml(a.code)+'</td>'+
+        '<td><span style="padding-left:'+ind+'px'+(esRubro?';font-weight:600':'')+'">'+escapeHtml(a.name)+'</span></td>'+
+        '<td class="num-cell">'+fmtMoney(a.current)+'</td>'+
+        '<td><select class="nota-assign" data-code="'+escapeHtml(a.code)+'">'+noteOptionsHtml(sel)+'</select></td></tr>';
+    }).join('')+
     '</tbody></table></div></details>';
 }
 
@@ -2922,14 +2955,14 @@ function exportExcel(){
     title(ws,'NOTAS A LOS ESTADOS FINANCIEROS — COMPARATIVO '+pri+' → '+cur,5);
     var r=2;
     NOTES_ESF_MAP.forEach(function(m,i){
-      var codes=noteHeadsFor(i);   // respeta la reasignación manual de cuentas a notas
+      var rows=noteRowsFor(i);   // desglose por grupo de las hojas asignadas (respeta la reasignación manual)
       subhead(ws,r,'Nota '+m.ref+' — '+m.t,5); r++;
       header(ws,r,['Cuenta',pri,cur,'Variación $','Var %']); r++;
-      (codes.length?noteBreakdown(codes):[]).forEach(function(x){
+      rows.forEach(function(x){
         ws.getRow(r).values=[x.name, x.prior, x.current, {formula:'C'+r+'-B'+r}, {formula:'IF(B'+r+'=0,"",(C'+r+'-B'+r+')/ABS(B'+r+'))'}];
         money(ws.getCell(r,2)); money(ws.getCell(r,3)); money(ws.getCell(r,4)); ws.getCell(r,5).numFmt='0.0%'; r++;
       });
-      var tp=groupSum(codes,'prior'), tc=groupSum(codes,'current');
+      var tp=rows.reduce(function(s,x){return s+(x.prior||0);},0), tc=rows.reduce(function(s,x){return s+(x.current||0);},0);
       var rr=ws.getRow(r); rr.values=['Total '+m.t, tp, tc, {formula:'C'+r+'-B'+r}, {formula:'IF(B'+r+'=0,"",(C'+r+'-B'+r+')/ABS(B'+r+'))'}];
       money(ws.getCell(r,2)); money(ws.getCell(r,3)); money(ws.getCell(r,4)); ws.getCell(r,5).numFmt='0.0%';
       rr.eachCell(function(c){ c.font={bold:true,color:{argb:WHITE}}; fill(c,TEAL); }); r+=2;
