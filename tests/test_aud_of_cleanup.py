@@ -47,7 +47,7 @@ def _mk_admin_project():
         db.close()
 
 
-def test_cleanup_marks_expired_jobs_and_deletes_dir():
+def _job_expirado_con_dir():
     user_id, project_id = _mk_admin_project()
     db = SessionLocal()
     try:
@@ -56,17 +56,41 @@ def test_cleanup_marks_expired_jobs_and_deletes_dir():
             db, user=fresh_user, project_id=project_id,
             cliente_name="C", period_label="2025",
         )
-        # Forzar expires_at en el pasado
         job.expires_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) - datetime.timedelta(hours=2)
         db.add(job)
         db.commit()
         job_id = job.id
     finally:
         db.close()
-
     job_dir = file_storage.create_job_dir(job_id)
     file_storage.save_input(job_dir, "f104", "x.pdf", b"x")
     assert job_dir.exists()
+    return job_id, job_dir
+
+
+def test_retencion_manual_por_defecto_no_borra_aunque_este_expirado(monkeypatch):
+    """Decisión del dueño (2026-10-07): BORRADO MANUAL. Sin activar la
+    retención, un encargo no se autoelimina por tiempo aunque expire; se
+    mantiene hasta que el auditor le da «borrar»/«Encerar»."""
+    monkeypatch.setattr(cleanup.settings, "AUD_OF_RETENCION_ENABLED", False)
+    job_id, job_dir = _job_expirado_con_dir()
+
+    summary = cleanup.cleanup_once()
+    assert summary["expired_jobs"] == 0
+    assert job_dir.exists()  # NO se borró
+
+    db = SessionLocal()
+    try:
+        assert db.get(ToolJob, job_id).status != "expired"
+    finally:
+        db.close()
+
+
+def test_con_retencion_activada_borra_expirados(monkeypatch):
+    """Con AUD_OF_RETENCION_ENABLED=true (red de seguridad opcional) sí se
+    limpia lo que lleva todo el TTL sin tocarse."""
+    monkeypatch.setattr(cleanup.settings, "AUD_OF_RETENCION_ENABLED", True)
+    job_id, job_dir = _job_expirado_con_dir()
 
     summary = cleanup.cleanup_once()
     assert summary["expired_jobs"] >= 1
@@ -74,8 +98,7 @@ def test_cleanup_marks_expired_jobs_and_deletes_dir():
 
     db = SessionLocal()
     try:
-        reloaded = db.get(ToolJob, job_id)
-        assert reloaded.status == "expired"
+        assert db.get(ToolJob, job_id).status == "expired"
     finally:
         db.close()
 

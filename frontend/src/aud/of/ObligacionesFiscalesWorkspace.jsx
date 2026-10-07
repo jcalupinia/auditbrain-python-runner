@@ -57,6 +57,7 @@ export default function ObligacionesFiscalesWorkspace({ projectId }) {
   const [descargando, setDescargando] = useState(false);
   const [encerando, setEncerando] = useState(false);
   const [reabriendo, setReabriendo] = useState(0); // id del encargo que se está reabriendo
+  const [borrando, setBorrando] = useState(0); // id del encargo que se está borrando
   const [modal, setModal] = useState({ open: false, mode: "crear" });
 
   const cargarSlots = useCallback(async (jobId) => {
@@ -161,6 +162,24 @@ export default function ObligacionesFiscalesWorkspace({ projectId }) {
     }
   }
 
+  async function handleBorrarReciente(jobId) {
+    if (!window.confirm(STRINGS.of_recent_borrar_confirm)) return;
+    setBorrando(jobId);
+    setError("");
+    try {
+      await api.eliminarJobOF(jobId);
+      if (job && job.id === jobId) {
+        setJob(null);
+        setSlotsEstado({});
+      }
+      await cargarTodo();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBorrando(0);
+    }
+  }
+
   function handleAprobado(jobActualizado) {
     setJob(jobActualizado);
     cargarTodo();
@@ -235,6 +254,13 @@ export default function ObligacionesFiscalesWorkspace({ projectId }) {
                         title={STRINGS.of_recent_editar_title}
                         onClick={() => handleReabrir(j.id)}
                       > · {reabriendo === j.id ? STRINGS.of_recent_editando : STRINGS.of_recent_editar}</button>
+                      <button
+                        type="button"
+                        className="link danger"
+                        disabled={borrando === j.id}
+                        title={STRINGS.of_recent_borrar_title}
+                        onClick={() => handleBorrarReciente(j.id)}
+                      > · {borrando === j.id ? STRINGS.of_recent_borrando : STRINGS.of_recent_borrar}</button>
                     </li>
                   ))}
                 </ul>
@@ -398,6 +424,13 @@ export default function ObligacionesFiscalesWorkspace({ projectId }) {
                       title={STRINGS.of_recent_editar_title}
                       onClick={() => handleReabrir(j.id)}
                     > · {reabriendo === j.id ? STRINGS.of_recent_editando : STRINGS.of_recent_editar}</button>
+                    <button
+                      type="button"
+                      className="link danger"
+                      disabled={borrando === j.id}
+                      title={STRINGS.of_recent_borrar_title}
+                      onClick={() => handleBorrarReciente(j.id)}
+                    > · {borrando === j.id ? STRINGS.of_recent_borrando : STRINGS.of_recent_borrar}</button>
                   </li>
                 ))}
               </ul>
