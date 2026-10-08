@@ -71,6 +71,13 @@ class PerfilCuenta:
     por_mes: dict[str, float] = field(default_factory=dict)
     por_mes_debe: dict[str, float] = field(default_factory=dict)
     por_mes_haber: dict[str, float] = field(default_factory=dict)
+    # Parte de por_mes_debe / por_mes_haber que corresponde al ASIENTO DE
+    # APERTURA (saldo inicial del ejercicio). Es el saldo del cierre anterior,
+    # no un movimiento del período, así que el "según libros" mensual de las
+    # cédulas (DM4..DM7) lo EXCLUYE; sólo la columna de saldo inicial de la
+    # sumaria (DM2) lo usa.
+    por_mes_debe_apertura: dict[str, float] = field(default_factory=dict)
+    por_mes_haber_apertura: dict[str, float] = field(default_factory=dict)
     prefijos_asiento: dict[str, int] = field(default_factory=dict)
     contrapartidas: list[tuple[str, int]] = field(default_factory=list)
     descripciones: list[str] = field(default_factory=list)

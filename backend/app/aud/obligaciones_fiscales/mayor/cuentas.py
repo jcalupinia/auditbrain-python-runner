@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 
 from backend.app.aud.obligaciones_fiscales.mayor.catalogo import CATEGORIAS
@@ -10,6 +11,14 @@ from backend.app.aud.obligaciones_fiscales.mayor.tipos import Movimiento, Perfil
 # Naturalezas que aumentan por el débito. Las demás (pasivo, ingreso,
 # patrimonio) aumentan por el crédito.
 _NATURALEZAS_DEUDORAS = frozenset({"activo", "gasto"})
+
+# Asiento de apertura: el saldo que viene del cierre del ejercicio anterior
+# (mismo criterio que la cédula sumaria DM2). No es un movimiento del período,
+# así que el "según libros" mensual de las cédulas lo excluye.
+_RE_APERTURA = re.compile(
+    r"SALDOS?\s*INIC|SALDO\s*ANTERIOR|APERTURA|ASIENTO\s*DE\s*APERTURA",
+    re.IGNORECASE,
+)
 
 MAX_DESCRIPCIONES = 20
 MAX_CONTRAPARTIDAS = 5
@@ -64,6 +73,13 @@ def perfilar(movimientos: list[Movimiento]) -> dict[str, PerfilCuenta]:
             p.por_mes[m.mes] = round(p.por_mes.get(m.mes, 0.0) + m.neto, 2)
             p.por_mes_debe[m.mes] = round(p.por_mes_debe.get(m.mes, 0.0) + m.debe, 2)
             p.por_mes_haber[m.mes] = round(p.por_mes_haber.get(m.mes, 0.0) + m.haber, 2)
+            if _RE_APERTURA.search(m.descripcion or ""):
+                p.por_mes_debe_apertura[m.mes] = round(
+                    p.por_mes_debe_apertura.get(m.mes, 0.0) + m.debe, 2
+                )
+                p.por_mes_haber_apertura[m.mes] = round(
+                    p.por_mes_haber_apertura.get(m.mes, 0.0) + m.haber, 2
+                )
         pref = _prefijo(m.asiento)
         if pref:
             prefijos[m.codigo][pref] += 1
@@ -116,8 +132,18 @@ def ambos_lados(perfil: PerfilCuenta) -> dict[str, dict[str, float]]:
     se vuelve a elegir del lado correcto al armar el libro, sin recomputar nada
     ni releer el mayor. Antes se guardaba un solo lado (el de la categoría
     SUGERIDA) y reclasificar dejaba el signo equivocado.
+
+    Se guarda además la parte de apertura (saldo inicial) de cada lado, para
+    que ``lado_para_categoria`` pueda excluirla del "según libros" mensual sin
+    releer el mayor. Los jobs viejos no la tienen; ese caso se trata como cero
+    (el comportamiento de antes).
     """
-    return {"debe": dict(perfil.por_mes_debe), "haber": dict(perfil.por_mes_haber)}
+    return {
+        "debe": dict(perfil.por_mes_debe),
+        "haber": dict(perfil.por_mes_haber),
+        "debe_apertura": dict(perfil.por_mes_debe_apertura),
+        "haber_apertura": dict(perfil.por_mes_haber_apertura),
+    }
 
 
 # Categorías que se miden por el NETO (haber − débito), no por el lado bruto:
@@ -137,15 +163,24 @@ def lado_para_categoria(
     - Activo/gasto: débito bruto. Pasivo/ingreso/patrimonio: crédito bruto
       (excluye los asientos de liquidación del mes). Sin categoría: débito.
 
+    En todos los casos se EXCLUYE la parte de apertura (saldo inicial del
+    ejercicio): es el saldo del cierre anterior, no un movimiento del período,
+    y si se contara inflaría el "según libros" de enero (caso real de las
+    retenciones por pagar: la cuenta 2.3.2.01 arrastraba 32.508,66 de saldo
+    inicial en enero cuando el papel de trabajo del auditor muestra 0). La
+    apertura sigue disponible para la columna de saldo inicial de la sumaria
+    (DM2), que la calcula aparte desde los movimientos.
+
     Compatibilidad hacia atrás: los jobs viejos guardaron ``por_mes_json`` como
     un dict plano ``{mes: valor}`` (un solo lado ya elegido); ese caso se
-    devuelve tal cual, porque no hay forma de recuperar el otro lado.
+    devuelve tal cual, porque no hay forma de recuperar el otro lado. Los jobs
+    sin las claves de apertura la tratan como cero (el comportamiento de antes).
     """
     if not por_mes_json:
         return {}
     if "debe" in por_mes_json or "haber" in por_mes_json:
-        debe = por_mes_json.get("debe") or {}
-        haber = por_mes_json.get("haber") or {}
+        debe = _sin_apertura(por_mes_json.get("debe"), por_mes_json.get("debe_apertura"))
+        haber = _sin_apertura(por_mes_json.get("haber"), por_mes_json.get("haber_apertura"))
         if categoria in _CATEGORIAS_NETAS:
             meses = set(debe) | set(haber)
             return {m: round(haber.get(m, 0.0) - debe.get(m, 0.0), 2) for m in meses}
@@ -153,3 +188,23 @@ def lado_para_categoria(
         usa_debe = cat is None or cat.naturaleza_esperada in _NATURALEZAS_DEUDORAS
         return dict(debe if usa_debe else haber)
     return dict(por_mes_json)  # forma plana antigua
+
+
+def _sin_apertura(
+    lado: dict[str, float] | None, apertura: dict[str, float] | None
+) -> dict[str, float]:
+    """``lado`` bruto por mes menos su parte de apertura (saldo inicial).
+
+    Sólo deja meses con monto distinto de cero, para no arrastrar ceros
+    espurios (en enero el bruto puede igualar exactamente a la apertura).
+    """
+    lado = lado or {}
+    apertura = apertura or {}
+    if not apertura:
+        return dict(lado)
+    salida: dict[str, float] = {}
+    for mes in set(lado) | set(apertura):
+        valor = round(lado.get(mes, 0.0) - apertura.get(mes, 0.0), 2)
+        if valor:
+            salida[mes] = valor
+    return salida

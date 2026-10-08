@@ -140,9 +140,12 @@ def test_reclasificar_entre_naturalezas_corrige_el_lado_en_el_libro():
         )
         guardar_clasificacion(db, job_id=9006, resultados=[res],
                               perfiles={"2.3.2.13": perfil})
-        # Se persisten los DOS lados.
+        # Se persisten los DOS lados (y la parte de apertura, aquí vacía).
         fila = clasificacion_de_job(db, job_id=9006)[0]
-        assert fila.por_mes_json == {"debe": {"01": 5.0}, "haber": {"01": 1000.0}}
+        assert fila.por_mes_json == {
+            "debe": {"01": 5.0}, "haber": {"01": 1000.0},
+            "debe_apertura": {}, "haber_apertura": {},
+        }
 
         # El auditor la reclasifica a RET_IVA (pasivo).
         aplicar_correcciones(
