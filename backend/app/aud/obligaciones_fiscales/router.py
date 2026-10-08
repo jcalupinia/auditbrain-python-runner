@@ -445,15 +445,17 @@ def reabrir_endpoint(
                 f"'{job.status}'."
             ),
         )
-    # Los documentos deben seguir en disco: el cleanup los borra al expirar o
-    # poco después de la descarga. Sin el Mayor General no hay nada que
-    # re-procesar, así que se avisa en vez de reabrir un encargo vacío.
-    if not file_storage.list_inputs(file_storage.job_dir(job_id), "mayor_general"):
+    # Solo se avisa si NO queda NINGÚN documento en disco (el contenedor se
+    # recreó y el disco persistente no los tenía, p. ej.). Mientras quede algo
+    # —el Mayor General o los Mayores específicos— se reabre para corregir y
+    # re-procesar. (Antes se exigía el Mayor General, así que un encargo hecho
+    # solo con Mayores específicos daba 410 aunque sus archivos estuvieran ahí.)
+    if not file_storage.list_inputs(file_storage.job_dir(job_id)):
         raise HTTPException(
             410,
             detail=(
-                "Los documentos de este encargo ya no están disponibles "
-                "(expiró o se limpió tras la descarga). Crea un encargo nuevo."
+                "Los documentos de este encargo ya no están disponibles. "
+                "Crea un encargo nuevo."
             ),
         )
     job = service.reabrir_job(db, current, job_id)

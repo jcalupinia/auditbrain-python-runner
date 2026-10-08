@@ -1,6 +1,8 @@
 """Tests de cleanup periódico."""
 
 import datetime
+import os
+import time
 import uuid
 
 import pytest
@@ -142,6 +144,64 @@ def test_descargar_no_borra_los_documentos():
     summary = cleanup.cleanup_once()
     assert "post_download_cleanups" not in summary  # la acción ya no existe
     assert job_dir.exists()  # NO se borró por haber descargado
+
+
+def _envejecer(path, segundos):
+    """Mueve la mtime de un directorio al pasado para simular inactividad."""
+    viejo = time.time() - segundos
+    os.utime(path, (viejo, viejo))
+
+
+def test_un_encargo_vigente_sin_tocar_no_se_borra_como_huerfano():
+    """Regresión del #69: la limpieza de «huérfanos» borraba cualquier carpeta
+    con mtime > TTL SIN mirar la base. Un encargo vivo (con fila en DB) que
+    llevaba horas sin tocarse perdía sus documentos y «editar» daba 410. Ahora
+    solo se borran carpetas SIN fila en la base."""
+    job_id, job_dir = _job_expirado_con_dir()  # tiene fila en DB
+    _envejecer(job_dir, 10 * 60 * 60)  # 10 h sin tocar (> TTL de 4 h)
+
+    summary = cleanup.cleanup_once()
+    assert summary["orphan_dirs"] == 0
+    assert job_dir.exists()  # el encargo vigente conserva sus documentos
+
+
+def test_una_carpeta_sin_job_en_la_base_si_se_borra_como_huerfano():
+    """La contraparte: una carpeta en disco cuyo job ya no existe en la base
+    (p. ej. se borró la fila pero quedó la carpeta) sí es huérfana y se limpia
+    cuando supera el TTL."""
+    huerfano = file_storage.job_dir(999_999)
+    huerfano.mkdir(parents=True, exist_ok=True)
+    _envejecer(huerfano, 10 * 60 * 60)
+
+    summary = cleanup.cleanup_once()
+    assert summary["orphan_dirs"] >= 1
+    assert not huerfano.exists()
+
+
+def test_borrar_un_encargo_elimina_tambien_la_carpeta_del_disco():
+    """«Borrar» se lleva la fila Y los documentos del disco, sin dejar
+    huérfanos ocupando espacio."""
+    user_id, project_id = _mk_admin_project()
+    db = SessionLocal()
+    try:
+        fresh_user = db.get(User, user_id)
+        job = service.create_job(
+            db, user=fresh_user, project_id=project_id,
+            cliente_name="C", period_label="2025",
+        )
+        job_id = job.id
+    finally:
+        db.close()
+    job_dir = file_storage.create_job_dir(job_id)
+    file_storage.save_input(job_dir, "f104", "x.pdf", b"x")
+    assert job_dir.exists()
+
+    db = SessionLocal()
+    try:
+        service.delete_job(db, db.get(User, user_id), job_id)
+    finally:
+        db.close()
+    assert not job_dir.exists()
 
 
 def test_touch_job_reinicia_el_ttl():
