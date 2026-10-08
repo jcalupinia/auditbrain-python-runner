@@ -156,13 +156,30 @@ def _buscar_ruc(texto: str) -> str | None:
 
 
 def _buscar_periodo(texto: str) -> str | None:
+    """Período del ATS como "YYYY-MM".
+
+    El Talón Resumen del SRI trae el período de dos formas según la versión del
+    DIMM / generador: numérica ("Periodo: 01-2026", la más común hoy) o con el
+    mes escrito en español ("Periodo: ENERO 2026"). Se aceptan ambas. Si no se
+    detecta, el resumen se queda sin período y NO se ubica en su mes: por eso
+    antes el ATS numérico salía con DATOS ATS en cero y el año caído al
+    fallback. También se acepta el orden "2026-01" por robustez.
+    """
+    # Numérico: MM-YYYY / MM/YYYY (p. ej. "Periodo: 01-2026").
+    m = re.search(r"Periodo:\s*(\d{1,2})\s*[-/]\s*(\d{4})", texto, re.IGNORECASE)
+    if m:
+        return f"{m.group(2)}-{int(m.group(1)):02d}"
+    # Numérico invertido: YYYY-MM / YYYY/MM.
+    m = re.search(r"Periodo:\s*(\d{4})\s*[-/]\s*(\d{1,2})", texto, re.IGNORECASE)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}"
+    # Mes en español: "ENERO 2026".
     m = re.search(r"Periodo:\s*([A-ZÁÉÍÓÚÑ]+)\s+(\d{4})", texto, re.IGNORECASE)
-    if not m:
-        return None
-    mes = _MES_ES_TO_NUM.get(m.group(1).upper())
-    if not mes:
-        return None
-    return f"{m.group(2)}-{mes}"
+    if m:
+        mes = _MES_ES_TO_NUM.get(m.group(1).upper())
+        if mes:
+            return f"{m.group(2)}-{mes}"
+    return None
 
 
 def _buscar_estado(texto: str) -> str | None:
@@ -332,6 +349,12 @@ def _parse_retenciones_iva(lines: list[str]) -> list[RetencionIVA]:
         if len(tokens) < 3 or not _is_amount(tokens[-1]):
             continue
         operacion = tokens[0]
+        # Solo filas reales de retención de IVA (empiezan por COMPRA/VENTA). Así
+        # no se cuela el pie de página "TALÓN RESUMEN ATS Page 2 of 2", que al
+        # caer dentro del corte de la sección se parseaba como una retención
+        # con valor 2.0.
+        if operacion.upper() not in ("COMPRA", "VENTA"):
+            continue
         concepto = " ".join(tokens[1:-1])
         valor = _parse_amount_sri(tokens[-1]) or 0.0
         filas.append(

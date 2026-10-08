@@ -7,6 +7,7 @@ para referenciarlas POR FÓRMULA.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from openpyxl.styles import Font
@@ -23,6 +24,8 @@ from backend.app.ict.fillers.source_data_sheets import (
     build_f103_sheet,
     build_f104_sheet,
 )
+
+_log = logging.getLogger(__name__)
 
 SHEET_ATS = "DATOS ATS"
 
@@ -81,7 +84,9 @@ def _valor_campo_ats(resumen: ResumenATS | None, campo: str) -> float:
 
 
 def construir_hoja_ats(
-    wb: Workbook, resumenes: dict[str, ResumenATS]
+    wb: Workbook,
+    resumenes: dict[str, ResumenATS],
+    periodos: list[str] | None = None,
 ) -> dict[tuple[str, str], str]:
     """Crea 'DATOS ATS': valores literales por mes que DM8 referencia por
     fórmula. Devuelve {(campo, "01".."12") → addr}.
@@ -91,6 +96,12 @@ def construir_hoja_ats(
     abierto (varían por cliente): se listan los que aparezcan en cualquiera
     de los meses recibidos. Los porcentajes de retención de IVA son fijos
     (10/20/30/50/70/100/NC, catálogo del SRI).
+
+    Los meses (columnas) salen de los ATS recibidos; si no hay ninguno, se
+    usan los ``periodos`` del ejercicio (los mismos de F-104/F-103) para que la
+    matriz en cero coincida con el año auditado. Antes el fallback estaba
+    fijado a 2025, así que con otro ejercicio la hoja mostraba el año
+    equivocado.
     """
     if SHEET_ATS in wb.sheetnames:
         del wb[SHEET_ATS]
@@ -100,7 +111,12 @@ def construir_hoja_ats(
         name="Calibri", size=11, bold=True
     )
 
-    meses = sorted(resumenes.keys()) if resumenes else [f"2025-{m:02d}" for m in range(1, 13)]
+    if resumenes:
+        meses = sorted(resumenes.keys())
+    elif periodos:
+        meses = list(periodos)
+    else:
+        meses = []
 
     codigos_renta = sorted({
         f.codigo for r in resumenes.values() for f in r.retenciones_renta
@@ -211,5 +227,10 @@ def leer_ats(job_dir: Path) -> dict[str, ResumenATS]:
     from backend.app.aud.obligaciones_fiscales import file_storage
     from backend.app.aud.obligaciones_fiscales.libro.ats import parse_all_ats
 
-    por_periodo, _errores = parse_all_ats(file_storage.list_inputs(job_dir, "ats"))
+    por_periodo, errores = parse_all_ats(file_storage.list_inputs(job_dir, "ats"))
+    # Los errores de parseo (período no detectado, bloque no encontrado, XML
+    # pendiente) antes se descartaban en silencio y el ATS salía en cero sin
+    # explicación. Al menos quedan en el log del servidor para diagnosticar.
+    if errores:
+        _log.warning("ATS job_dir=%s: %s", job_dir, "; ".join(errores))
     return por_periodo

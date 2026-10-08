@@ -83,12 +83,14 @@ def armar_libro(
     )
     dir_f104 = hojas_datos["f104"]
     dir_f103 = hojas_datos["f103"]
-    # El ATS es opcional: si el cliente no lo entregó, la hoja se crea igual
-    # con la matriz en cero para que el auditor vea qué se esperaba.
-    dir_ats = construir_hoja_ats(wb, ats_resumenes or {})
 
     periodos = _periodos_del_ejercicio(f104_monthly, f103_monthly, periodo)
     nombres_cuenta = {f.codigo_cuenta: f.nombre_cuenta for f in clasificacion}
+
+    # El ATS es opcional: si el cliente no lo entregó, la hoja se crea igual
+    # con la matriz en cero sobre los períodos del ejercicio (no un año fijo),
+    # para que el auditor vea qué se esperaba.
+    dir_ats = construir_hoja_ats(wb, ats_resumenes or {}, periodos=periodos)
 
     kwargs_comunes = dict(cliente=cliente, periodo=periodo,
                           preparado_por=preparado_por, revisado_por=revisado_por)

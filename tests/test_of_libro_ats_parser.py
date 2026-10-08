@@ -187,3 +187,67 @@ def test_parse_ats_xml_no_inventa_estructura_devuelve_error_explicito():
     assert r.periodo is None
     assert r.errores
     assert any("XML" in e or "xml" in e for e in r.errores)
+
+
+# --------------------------------------------- período numérico y pie -----
+#
+# El Talón Resumen real (DIMM vigente) trae el período NUMÉRICO ("01-2026") y
+# un pie de página que, al partirse entre páginas, caía dentro del corte de la
+# sección de retenciones de IVA. Datos ficticios.
+
+TEXTO_ATS_NUMERICO = """\
+TALÓN RESUMEN ATS Page 1 of 2
+ANEXO TRANSACCIONAL
+EMPRESA DE PRUEBA CIA LTDA
+RUC: 1790000000001
+Periodo: 01-2026
+COMPRAS
+Cod. Transacción No. Registros BI tarifa 0% BI tarifa diferente 0% BI No Objeto IVA Valor IVA
+01 FACTURA 10 1000.00 2000.00 0.00 300.00
+TOTAL: 1000.00 2000.00 0.00 300.00
+VENTAS
+Cod. Transacción No. Registros BI tarifa 0% BI tarifa diferente 0% BI No Objeto IVA Valor IVA
+TOTAL: 0.00 0.00 0.00 0.00
+COMPROBANTES ANULADOS
+Total de Comprobantes Anulados en el período informado (no incluye los dados de baja) 3
+RETENCION EN LA FUENTE DE IVA
+Operación Concepto de Retención Valor Retenido
+COMPRA Retencion IVA 70% 70.00
+TALÓN RESUMEN ATS Page 2 of 2
+COMPRA Retencion IVA 100% 100.00
+TOTAL: 170.00
+"""
+
+
+def test_detecta_el_periodo_numerico_mm_guion_anio():
+    """Regresión: '01-2026' no se detectaba (solo el mes en letras), el ATS se
+    quedaba sin período y salía en cero con el año caído al fallback."""
+    r = parse_ats_texto(TEXTO_ATS_NUMERICO)
+    assert r.periodo == "2026-01"
+
+
+def test_el_pie_de_pagina_no_se_cuela_como_retencion_de_iva():
+    """'TALÓN RESUMEN ATS Page 2 of 2' NO debe parsearse como una fila de
+    retención (antes entraba con valor 2.0)."""
+    r = parse_ats_texto(TEXTO_ATS_NUMERICO)
+    operaciones = {f.operacion.upper() for f in r.retenciones_iva}
+    assert operaciones <= {"COMPRA", "VENTA"}
+    porcentajes = {f.porcentaje: f.valor_retenido for f in r.retenciones_iva}
+    assert porcentajes[70.0] == 70.00
+    assert porcentajes[100.0] == 100.00
+
+
+def test_el_ats_numerico_se_agrupa_en_su_periodo_real(tmp_path, monkeypatch):
+    """parse_all_ats debe ubicar el resumen en 2026-01 (no perderlo por falta
+    de período)."""
+    import backend.app.aud.obligaciones_fiscales.libro.ats as mod
+
+    monkeypatch.setattr(
+        mod, "parse_ats",
+        lambda contenido, nombre: parse_ats_texto(TEXTO_ATS_NUMERICO),
+    )
+    pdf = tmp_path / "anexo_enero.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    por_periodo, errores = mod.parse_all_ats([pdf])
+    assert "2026-01" in por_periodo
+    assert errores == []

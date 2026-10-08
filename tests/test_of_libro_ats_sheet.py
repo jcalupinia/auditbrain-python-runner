@@ -95,3 +95,15 @@ def test_sin_ningun_ats_igual_crea_la_hoja_con_la_matriz_vacia():
     lookup = construir_hoja_ats(wb, {})
     assert SHEET_ATS in wb.sheetnames
     assert lookup == {} or all(v for v in lookup.values())
+
+
+def test_sin_ats_usa_los_periodos_del_ejercicio_no_un_anio_fijo():
+    """Regresión: el fallback estaba fijado a 2025, así que con otro ejercicio
+    la hoja mostraba el año equivocado. Debe usar los períodos recibidos."""
+    wb = Workbook()
+    periodos = [f"2026-{m:02d}" for m in range(1, 13)]
+    construir_hoja_ats(wb, {}, periodos=periodos)
+    ws = wb[SHEET_ATS]
+    encabezado = [c.value for c in ws[3]]
+    assert "2026-01" in encabezado
+    assert not any(str(v).startswith("2025") for v in encabezado if v)
