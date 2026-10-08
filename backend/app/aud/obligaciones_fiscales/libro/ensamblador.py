@@ -16,12 +16,15 @@ from io import BytesIO
 
 from openpyxl import Workbook
 
+from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm2_sumaria import build_dm2
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm3_saldos import build_dm3
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm4_compras import build_dm4
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm5_ventas import build_dm5
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm6_iva import build_dm6
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm7_retenciones import build_dm7
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm8_ats import build_dm8
+from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm10_hallazgos import build_dm10
+from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm_programa import build_dm_programa
 from backend.app.aud.obligaciones_fiscales.libro.fuentes import (
     construir_hoja_ats,
     construir_hojas_de_casilleros,
@@ -30,9 +33,11 @@ from backend.app.aud.obligaciones_fiscales.libro.hoja_detalle import build_hoja_
 from backend.app.aud.obligaciones_fiscales.libro.hoja_mayores import build_hoja_mayores
 
 ORDEN_HOJAS = [
+    "DM  Programa de Auditoria",
     "Mayores homologados", "Detalle mayor",
+    "DM2 Cédula Sumaria",
     "DM3 Revisión de saldos", "DM4 Compras", "DM5 Ventas", "DM6 IVA",
-    "DM7 Retenciones x pagar", "DM8 ATS",
+    "DM7 Retenciones x pagar", "DM8 ATS", "DM10 Hoja de hallazgos",
     "DATOS F-104", "DATOS F-103", "DATOS ATS",
 ]
 
@@ -119,6 +124,12 @@ def armar_libro(
         wb, dir_ats=dir_ats, dir_f104=dir_f104, dir_f103=dir_f103,
         periodos=periodos, **kwargs_comunes,
     )
+
+    # Hojas estándar del papel de trabajo de la firma (no dependen de otras
+    # cédulas por fórmula): programa, sumaria y hoja de hallazgos.
+    build_dm_programa(wb, **kwargs_comunes)
+    build_dm2(wb, clasificacion=clasificacion, movimientos=movimientos, **kwargs_comunes)
+    build_dm10(wb, **kwargs_comunes)
 
     orden = [h for h in ORDEN_HOJAS if h in wb.sheetnames]
     orden += [h for h in wb.sheetnames if h not in orden]

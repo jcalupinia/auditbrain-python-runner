@@ -73,14 +73,17 @@ def test_sin_declaraciones_el_libro_igual_se_genera():
 
 
 HOJAS_EN_ORDEN = [
-    "Mayores homologados", "Detalle mayor", "DM3 Revisión de saldos",
+    "DM  Programa de Auditoria",
+    "Mayores homologados", "Detalle mayor",
+    "DM2 Cédula Sumaria",
+    "DM3 Revisión de saldos",
     "DM4 Compras", "DM5 Ventas", "DM6 IVA", "DM7 Retenciones x pagar",
-    "DM8 ATS",
+    "DM8 ATS", "DM10 Hoja de hallazgos",
     "DATOS F-104", "DATOS F-103", "DATOS ATS",
 ]
 
 
-def test_el_libro_trae_las_once_hojas():
+def test_el_libro_trae_todas_las_hojas():
     wb = _libro()
     assert set(HOJAS_EN_ORDEN) <= set(wb.sheetnames)
     assert len(wb.sheetnames) == len(HOJAS_EN_ORDEN)
