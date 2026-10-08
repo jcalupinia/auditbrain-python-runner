@@ -6,12 +6,12 @@ from openpyxl import Workbook
 
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm8_ats import (
     CASILLEROS_IMPORTACIONES,
+    CASILLEROS_IVA_VENTAS_DECLARADO,
+    CASILLEROS_VENTAS_0,
+    CASILLEROS_VENTAS_GRAVADAS,
     CASILLERO_COMPRAS_TOTAL,
     CASILLERO_IVA_COMPRAS,
     CASILLERO_IVA_RETENIDO_RECIBIDO,
-    CASILLERO_IVA_VENTAS,
-    CASILLERO_VENTAS_GRAVADAS,
-    CASILLEROS_VENTAS_0,
     SHEET_DM8,
     build_dm8,
 )
@@ -40,8 +40,9 @@ DIR_ATS = {
 
 _CAS_F104 = (
     CASILLEROS_VENTAS_0
-    + [CASILLERO_VENTAS_GRAVADAS, CASILLERO_IVA_VENTAS, CASILLERO_COMPRAS_TOTAL,
-       CASILLERO_IVA_COMPRAS, CASILLERO_IVA_RETENIDO_RECIBIDO]
+    + CASILLEROS_VENTAS_GRAVADAS
+    + CASILLEROS_IVA_VENTAS_DECLARADO
+    + [CASILLERO_COMPRAS_TOTAL, CASILLERO_IVA_COMPRAS, CASILLERO_IVA_RETENIDO_RECIBIDO]
     + CASILLEROS_IMPORTACIONES
     + ["721", "723", "725", "727", "729", "731", "799"]
 )
@@ -77,16 +78,33 @@ def test_ventas_0_segun_ats_es_formula_a_datos_ats():
     assert isinstance(valor, str) and valor.startswith("='DATOS ATS'!")
 
 
-def test_ventas_gravadas_se_compara_contra_casillero_411():
+def test_ventas_gravadas_cruza_contra_todos_los_casilleros_gravados_de_dm5():
+    """DM8 usa los MISMOS casilleros gravados que DM5 (411/412/420/435), no
+    solo 411: así el cruce abarca todas las tarifas ≠0%."""
     ws = _cedula()
     etiquetas = _etiquetas(ws)
-    assert any(e.startswith(f"Casillero {CASILLERO_VENTAS_GRAVADAS}") for e in etiquetas)
+    for cas in CASILLEROS_VENTAS_GRAVADAS:
+        assert any(e.startswith(f"Casillero {cas}") for e in etiquetas), cas
+    assert "411" in CASILLEROS_VENTAS_GRAVADAS
 
 
-def test_iva_en_ventas_se_compara_contra_casillero_421():
+def test_ventas_0_incluye_las_exportaciones_417_y_418():
+    """Antes DM8 cruzaba ventas 0% solo contra 413+415 y dejaba fuera las
+    exportaciones (417/418): un exportador quedaba con casi toda su venta sin
+    cruzar. Ahora usa el set completo de DM5 (413..418)."""
     ws = _cedula()
     etiquetas = _etiquetas(ws)
-    assert any(e.startswith(f"Casillero {CASILLERO_IVA_VENTAS}") for e in etiquetas)
+    for cas in ("417", "418"):
+        assert cas in CASILLEROS_VENTAS_0
+        assert any(e.startswith(f"Casillero {cas}") for e in etiquetas), cas
+
+
+def test_iva_en_ventas_cruza_contra_todos_los_casilleros_de_iva_ventas_de_dm5():
+    ws = _cedula()
+    etiquetas = _etiquetas(ws)
+    for cas in CASILLEROS_IVA_VENTAS_DECLARADO:
+        assert any(e.startswith(f"Casillero {cas}") for e in etiquetas), cas
+    assert "421" in CASILLEROS_IVA_VENTAS_DECLARADO
 
 
 def test_compras_gravadas_se_compara_contra_casillero_519():
