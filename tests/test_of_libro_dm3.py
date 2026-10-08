@@ -32,11 +32,18 @@ DIR_DM7 = {
     ("ret_renta_declarado", "12"): "'DM7 Retenciones x pagar'!O50",
 }
 
+# Saldo al corte publicado por la sumaria (DM2). 2.1.7.5.6 NO está: simula una
+# cuenta ausente del mayor, el caso que la nota debe cubrir.
+DIR_DM2 = {
+    ("saldo_corte", "1.1.5.1.2"): "'DM2 Cédula Sumaria'!F14",
+    ("saldo_corte", "2.1.7.4.2"): "'DM2 Cédula Sumaria'!F20",
+}
+
 
 def _cedula(**kw):
     wb = Workbook()
     datos = dict(dir_mayores=DIR_MAYORES, dir_f104=DIR_F104, dir_dm7=DIR_DM7,
-                 periodos=PERIODOS, cliente="C", periodo="2025")
+                 dir_dm2=DIR_DM2, periodos=PERIODOS, cliente="C", periodo="2025")
     datos.update(kw)
     build_dm3(wb, **datos)
     return wb[SHEET_DM3]
@@ -59,12 +66,14 @@ def test_el_bloque_de_credito_tributario_esta_presente():
     assert any("CREDITO TRIBUTARIO" in str(v).upper() for v in valores if v)
 
 
-def test_el_credito_tributario_segun_libros_es_formula_a_la_cuenta_total():
+def test_el_credito_tributario_segun_libros_cruza_contra_la_sumaria_dm2():
+    """El "según libros" de DM3 referencia el saldo al corte de la sumaria
+    (DM2), no un total del mayor: así ambas cédulas cruzan la misma cifra."""
     ws = _cedula()
     fila = next(r for r in range(1, ws.max_row + 1)
-                if ws.cell(r, 2).value == "Según libros" and
+                if str(ws.cell(r, 2).value or "").startswith("Según libros") and
                 str(ws.cell(r - 2, 1).value or "") == "1.1.5.1.2")
-    assert ws.cell(fila, 3).value == "='Mayores homologados'!P10"
+    assert ws.cell(fila, 3).value == "='DM2 Cédula Sumaria'!F14"
 
 
 def test_el_credito_tributario_segun_declaracion_suma_615_y_617_de_diciembre():
@@ -110,7 +119,7 @@ def test_cuenta_faltante_se_escribe_en_cero_con_una_nota():
     ws = _cedula()
     fila_libros_sri = next(
         r for r in range(1, ws.max_row + 1)
-        if ws.cell(r, 2).value == "Según libros" and
+        if str(ws.cell(r, 2).value or "").startswith("Según libros") and
         str(ws.cell(r - 2, 1).value or "") == "2.1.7.5.6"
     )
     assert ws.cell(fila_libros_sri, 3).value == 0
@@ -131,7 +140,7 @@ def test_las_cifras_de_dm3_no_llevan_columnas_de_meses():
     12 meses. La columna D (mes de febrero en las otras cedulas) debe
     quedar vacia en las filas de 'Según libros'."""
     ws = _cedula()
-    fila = next(r for r in range(1, ws.max_row + 1) if ws.cell(r, 2).value == "Según libros")
+    fila = next(r for r in range(1, ws.max_row + 1) if str(ws.cell(r, 2).value or "").startswith("Según libros"))
     assert ws.cell(fila, 4).value is None
 
 

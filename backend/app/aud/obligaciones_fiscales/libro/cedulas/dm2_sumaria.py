@@ -98,7 +98,8 @@ def build_dm2(
     preparado_por: str | None = None,
     revisado_por: str | None = None,
 ) -> dict:
-    """Construye DM2. No publica direcciones: nada la consume por fórmula."""
+    """Construye DM2. Devuelve {("saldo_corte", código) → dirección} para que
+    DM3 cruce el saldo al corte contra la misma cifra de la sumaria."""
     if SHEET_DM2 in wb.sheetnames:
         del wb[SHEET_DM2]
     ws = wb.create_sheet(SHEET_DM2)
@@ -124,6 +125,11 @@ def build_dm2(
     for f in clasificacion:
         por_categoria[f.categoria_final or "SIN_CLASIFICAR"].append(f)
 
+    # Direcciones del "Saldo al corte" por cuenta, para que DM3 cruce contra
+    # la MISMA cifra de la sumaria (ata las dos cédulas por fórmula).
+    salida: dict[tuple[str, str], str] = {}
+    col_corte = get_column_letter(COL_CORTE)
+
     tot_anterior = tot_corte = 0.0
     for categoria in sorted(por_categoria, key=lambda c: (_orden_categoria(c), c)):
         filas = sorted(por_categoria[categoria], key=lambda f: f.codigo_cuenta)
@@ -132,6 +138,7 @@ def build_dm2(
             anterior, corte = saldos.get(f.codigo_cuenta, (0.0, 0.0))
             _fila_valores(ws, fila, codigo=f.codigo_cuenta, nombre=f.nombre_cuenta,
                           anterior=anterior, corte=corte)
+            salida[("saldo_corte", f.codigo_cuenta)] = f"'{SHEET_DM2}'!{col_corte}{fila}"
             sub_anterior += anterior
             sub_corte += corte
             fila += 1
@@ -153,4 +160,4 @@ def build_dm2(
               COL_PCT: 10, COL_CORTE: 18, COL_MARCA: 6}
     for col, ancho in anchos.items():
         ws.column_dimensions[get_column_letter(col)].width = ancho
-    return {}
+    return salida

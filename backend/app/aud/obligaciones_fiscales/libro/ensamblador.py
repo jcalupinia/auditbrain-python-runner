@@ -116,19 +116,22 @@ def armar_libro(
         wb, dir_mayores=dir_mayores, dir_f104=dir_f104, dir_f103=dir_f103,
         periodos=periodos, nombres_cuenta=nombres_cuenta, **kwargs_comunes,
     )
+    # DM2 (sumaria) se construye ANTES que DM3: DM3 cruza el saldo al corte
+    # contra la MISMA cifra de la sumaria, referenciándola por fórmula.
+    dir_dm2 = build_dm2(
+        wb, clasificacion=clasificacion, movimientos=movimientos, **kwargs_comunes
+    )
     build_dm3(
         wb, dir_mayores=dir_mayores, dir_f104=dir_f104, dir_dm7=dir_dm7,
-        periodos=periodos, **kwargs_comunes,
+        dir_dm2=dir_dm2, periodos=periodos, **kwargs_comunes,
     )
     build_dm8(
         wb, dir_ats=dir_ats, dir_f104=dir_f104, dir_f103=dir_f103,
         periodos=periodos, **kwargs_comunes,
     )
 
-    # Hojas estándar del papel de trabajo de la firma (no dependen de otras
-    # cédulas por fórmula): programa, sumaria y hoja de hallazgos.
+    # Hojas estándar del papel de trabajo de la firma.
     build_dm_programa(wb, **kwargs_comunes)
-    build_dm2(wb, clasificacion=clasificacion, movimientos=movimientos, **kwargs_comunes)
     build_dm10(wb, **kwargs_comunes)
 
     orden = [h for h in ORDEN_HOJAS if h in wb.sheetnames]
