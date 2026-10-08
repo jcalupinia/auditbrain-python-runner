@@ -5,16 +5,17 @@
 # ==========================================================
 
 # ==========================================================
-# Preview Environments (MANUAL). Cada PR puede generar, BAJO PEDIDO, un entorno
+# Preview Environments (AUTOMÁTICO). Cada PR contra main genera un entorno
 # aislado con backend + frontends + DB propios para revisar el cambio antes de
-# mergear a main. 'manual' => el preview NO se crea con cada PR automáticamente;
-# se solicita explícitamente. 'expireAfterDays' => Render elimina el preview
-# tras N días (además de borrarlo al cerrar o mergear el PR). Punto de partida
-# 3 días; subir a 5 si las tareas suelen durar más.
-# Requiere workspace Professional/Pro o superior (verificar en Billing).
+# mergear. 'automatic' => el preview se crea con cada PR; para omitirlo en un
+# PR concreto, incluir "[skip preview]" en el TÍTULO del PR. 'expireAfterDays'
+# => Render elimina el preview tras N días sin actualizaciones (además de
+# borrarlo al cerrar o mergear el PR). Punto de partida 3 días; subir a 5 si
+# las tareas suelen durar más.
+# Requiere workspace Pro o superior (verificar en Billing).
 # ==========================================================
 previews:
-  generation: manual
+  generation: automatic
   expireAfterDays: 3
 
 databases:
@@ -261,8 +262,15 @@ services:
       - key: RESEND_FROM_EMAIL
         value: "no-reply@auditconsulting.ec"
 
+      # URL del portal de clientes para enlaces en correos y retornos de Stripe
+      # (backend/app/core/preview.py::client_portal_url). En PREVIEW el código
+      # ignora esta variable y deriva el portal del MISMO preview
+      # (auditbrain-clientes-pr-<n>) desde RENDER_EXTERNAL_HOSTNAME; el
+      # previewValue centinela (.invalid, no resuelve) garantiza que ningún
+      # otro lector de la variable apunte a producción desde un preview.
       - key: CLIENT_PORTAL_URL
         value: "https://auditbrain-clientes.onrender.com"
+        previewValue: "https://preview-portal-no-resuelto.invalid"
 
       - key: AUDITBRAIN_JWT_EXPIRE_MINUTES
         value: "60"

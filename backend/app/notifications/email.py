@@ -71,9 +71,11 @@ def send_email(
 
 
 def send_job_ready_email(*, job_id: int, to: str, tool_label: str) -> dict | None:
-    portal_base = os.getenv(
-        "CLIENT_PORTAL_URL", "https://auditbrain-clientes.onrender.com"
-    )
+    # En producción: CLIENT_PORTAL_URL (o su default). En un Preview Environment
+    # de Render: el portal del MISMO preview, nunca el de producción.
+    from backend.app.core.preview import client_portal_url
+
+    portal_base = client_portal_url()
     download_url = f"{portal_base}/jobs/{job_id}"
     html = render_job_ready(
         client_name="Cliente",
