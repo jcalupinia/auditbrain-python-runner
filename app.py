@@ -81,14 +81,27 @@ app = FastAPI(
 # Si CORS_ALLOW_ORIGINS está vacío, NO se añade middleware: el
 # comportamiento es idéntico al actual (sin impacto en GPTs server-to-server).
 # Ejemplo: CORS_ALLOW_ORIGINS="https://auditbrain-app.onrender.com,https://auditbrain-clientes.onrender.com"
+#
+# Preview Environments (APP_ENV=preview): además de la lista exacta de
+# producción, se permiten por regex los frontends del MISMO preview
+# (auditbrain-frontend-pr-<n> / auditbrain-clientes-pr-<n>). En producción
+# (APP_ENV != "preview") el regex es None => comportamiento BYTE-idéntico al
+# actual. El patrón de URL del preview debe CONFIRMARSE en el primer preview.
 # ==========================================================
 _cors_origins = [
     o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()
 ]
-if _cors_origins:
+_app_env = os.getenv("APP_ENV", "production").strip().lower()
+_cors_origin_regex = (
+    r"^https://auditbrain-(?:frontend|clientes)-pr-\d+\.onrender\.com$"
+    if _app_env == "preview"
+    else None
+)
+if _cors_origins or _cors_origin_regex:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins,
+        allow_origin_regex=_cors_origin_regex,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

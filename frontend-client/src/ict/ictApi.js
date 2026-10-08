@@ -1,8 +1,13 @@
 import * as api from "../api.js";
 
-const BASE = import.meta.env.VITE_API_BASE || "https://auditbrain-python-runner.onrender.com";
+const BASE = api.API_BASE;
 
 async function _request(path, opts = {}) {
+  if (api.API_UNRESOLVED) {
+    throw new Error(
+      "Entorno no reconocido: por seguridad no se contactará ningún backend (fail-closed)."
+    );
+  }
   const headers = { ...(opts.headers || {}) };
   const token = api.getToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;

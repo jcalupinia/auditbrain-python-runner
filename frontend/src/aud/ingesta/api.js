@@ -1,17 +1,14 @@
 // Cliente del Motor de Ingesta (API v1, Fase 7). Endpoints sin proyecto en la
 // ruta: /api/v1/ingesta/{tipos,clasificar,ingerir}. Acceso por JWT de operador
 // (admin/user), igual que el runner. Patrón calcado de vnr/api.js.
-import { getToken } from "../../api.js";
-
-const base =
-  (import.meta.env.VITE_API_BASE ?? "https://auditbrain-python-runner.onrender.com")
-    .replace(/\/$/, "") + "/api/v1/ingesta/";
+import { getToken, requireApiBase } from "../../api.js";
 
 // Mismo límite que el backend (_MAX_MB en api/ingesta.py). Se valida también
 // aquí para fallar rápido sin subir el archivo.
 export const MAX_MB = 25;
 
 async function call(path, options = {}) {
+  const base = requireApiBase() + "/api/v1/ingesta/";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120000);
   try {

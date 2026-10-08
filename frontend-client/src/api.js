@@ -1,4 +1,59 @@
-const BASE = import.meta.env.VITE_API_BASE || "https://auditbrain-python-runner.onrender.com";
+// Resolución de la URL base del backend (ver frontend/src/api.js). FALLA
+// CERRADO: ante un hostname no reconocido, NO asume producción (null).
+//  1) Preview de Render (auditbrain-{frontend,clientes}-pr-<n>): deriva el
+//     backend del MISMO preview.
+//  2) Host de PRODUCCIÓN/DEV conocido (lista blanca): VITE_API_BASE o prod.
+//  3) Otro host (p. ej. preview con patrón cambiado): null => se bloquean las
+//     llamadas y se avisa; NUNCA se cae a producción.
+const PROD_DEV_HOSTS = [
+  "consola.audit-ia.ec",
+  "clientes.audit-ia.ec",
+  "auditbrain-frontend.onrender.com",
+  "auditbrain-clientes.onrender.com",
+  "localhost",
+  "127.0.0.1",
+  "",
+];
+
+function resolveApiBase() {
+  const host =
+    typeof window !== "undefined" && window.location
+      ? window.location.hostname
+      : "";
+  const m = host.match(
+    /^auditbrain-(?:frontend|clientes)-pr-(\d+)\.onrender\.com$/
+  );
+  if (m) return `https://auditbrain-python-runner-pr-${m[1]}.onrender.com`;
+  if (PROD_DEV_HOSTS.includes(host)) {
+    return (
+      import.meta.env.VITE_API_BASE ||
+      "https://auditbrain-python-runner.onrender.com"
+    );
+  }
+  if (typeof console !== "undefined") {
+    console.error(
+      `AUDIT-IA: entorno no reconocido (host "${host}"). Por seguridad no se ` +
+        `contactará ningún backend. Verifique la URL del preview o VITE_API_BASE.`
+    );
+  }
+  return null;
+}
+
+const _resolved = resolveApiBase();
+export const API_UNRESOLVED = _resolved === null;
+// En fail-closed queda "" (mismo origen, sin backend), nunca producción.
+const BASE = _resolved || "";
+export const API_BASE = BASE;
+
+// Lanza un error claro en fail-closed (no contacta ningún backend).
+function _assertResolved() {
+  if (API_UNRESOLVED) {
+    throw new Error(
+      "Entorno no reconocido: por seguridad no se contactará ningún backend " +
+        "(fail-closed). Verifique la URL o VITE_API_BASE."
+    );
+  }
+}
 
 let _token = localStorage.getItem("ab_client_token") || null;
 
@@ -13,6 +68,7 @@ export function getToken() {
 }
 
 async function request(path, opts = {}) {
+  _assertResolved();
   const headers = { ...(opts.headers || {}) };
   if (_token) headers["Authorization"] = `Bearer ${_token}`;
   const resp = await fetch(`${BASE}/api/v1${path}`, {
@@ -40,6 +96,7 @@ export async function login(email, password) {
   // ``application/x-www-form-urlencoded`` y aplica decodificación URL
   // estricta: el ``+`` literal se decodifica como espacio, lo que rompe
   // el login para emails con alias y devuelve 401 "Credenciales incorrectas".
+  _assertResolved();
   const body = new URLSearchParams();
   body.append("username", email);
   body.append("password", password);

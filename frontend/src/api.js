@@ -1,8 +1,68 @@
 // Cliente de la API AuditBrain. Solo JWT: la API Key NUNCA vive aquí.
 
-const API_BASE = (
-  import.meta.env.VITE_API_BASE ?? "https://auditbrain-python-runner.onrender.com"
-).replace(/\/$/, "");
+// Resolución de la URL base del backend. FALLA CERRADO: ante un hostname que no
+// reconoce, NO asume producción (null). Casos:
+//  1) Preview de Render (auditbrain-{frontend,clientes}-pr-<n>.onrender.com):
+//     deriva el backend del MISMO preview (auditbrain-python-runner-pr-<n>).
+//     OJO: confirmar el patrón real de la URL en el primer preview.
+//  2) Host de PRODUCCIÓN/DEV conocido (lista blanca): usa VITE_API_BASE o la
+//     URL de producción (comportamiento idéntico al anterior).
+//  3) Cualquier otro host (p. ej. un preview cuyo patrón cambió): null => se
+//     bloquean las llamadas y se avisa; NUNCA se cae a producción.
+const PROD_DEV_HOSTS = [
+  "consola.audit-ia.ec",
+  "clientes.audit-ia.ec",
+  "auditbrain-frontend.onrender.com",
+  "auditbrain-clientes.onrender.com",
+  "localhost",
+  "127.0.0.1",
+  "", // entorno sin window (tests/SSR): se trata como dev conocido.
+];
+
+function resolveApiBase() {
+  const host =
+    typeof window !== "undefined" && window.location
+      ? window.location.hostname
+      : "";
+  const m = host.match(
+    /^auditbrain-(?:frontend|clientes)-pr-(\d+)\.onrender\.com$/
+  );
+  if (m) return `https://auditbrain-python-runner-pr-${m[1]}.onrender.com`;
+  if (PROD_DEV_HOSTS.includes(host)) {
+    return (
+      import.meta.env.VITE_API_BASE ??
+      "https://auditbrain-python-runner.onrender.com"
+    );
+  }
+  // Host no reconocido: fail-closed.
+  if (typeof console !== "undefined") {
+    console.error(
+      `AUDIT-IA: entorno no reconocido (host "${host}"). Por seguridad no se ` +
+        `contactará ningún backend. Verifique la URL del preview o VITE_API_BASE.`
+    );
+  }
+  return null;
+}
+
+const _resolved = resolveApiBase();
+// true cuando el entorno no se pudo resolver de forma segura.
+export const API_UNRESOLVED = _resolved === null;
+// En fail-closed queda "" => las interpolaciones `${API_BASE}/...` resuelven al
+// MISMO origen (host estático sin backend), nunca a producción.
+export const API_BASE = _resolved ? _resolved.replace(/\/$/, "") : "";
+
+// Devuelve la base o LANZA un error claro en fail-closed (no contacta backend).
+// La usan los wrappers de red para no pegarle a ningún servidor en un entorno
+// no reconocido.
+export function requireApiBase() {
+  if (API_UNRESOLVED) {
+    throw new Error(
+      "Entorno no reconocido: por seguridad no se contactará ningún backend " +
+        "(fail-closed). Verifique la URL o VITE_API_BASE."
+    );
+  }
+  return API_BASE;
+}
 
 const TOKEN_KEY = "ab_token";
 const ROLE_KEY = "ab_role";
@@ -39,6 +99,13 @@ function _backoffMs(attempt) {
 // NUNCA reintenta respuestas 4xx/5xx propias de la app (son respuestas válidas:
 // 401 sesión, 413 tamaño, 415 tipo, 500 lógica). Esas van directo a parse().
 async function apiFetch(url, opts = {}, { timeoutMs = 60000, retries = 4 } = {}) {
+  // Fail-closed: en un entorno no reconocido no se emite ninguna petición.
+  if (API_UNRESOLVED) {
+    throw new Error(
+      "Entorno no reconocido: por seguridad no se contactará ningún backend " +
+        "(fail-closed). Verifique la URL o VITE_API_BASE."
+    );
+  }
   for (let attempt = 0; attempt <= retries; attempt++) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
