@@ -249,3 +249,20 @@ def test_los_dos_bloques_de_ventas_ya_no_apuntan_a_la_misma_celda():
     mayores = wb["Mayores homologados"]
     assert mayores[gravada.split("!", 1)[1]].value == 800.0
     assert mayores[cero.split("!", 1)[1]].value == 350.0
+
+
+# ---------------------------------- casilleros sin duplicar (regresión) ---
+
+def test_los_casilleros_de_ventas_no_se_duplican_entre_bloques():
+    """412 y 444 estaban en los dos bloques e inflaban el 'Total ventas
+    declaradas'. Ningún casillero debe aparecer en ≠0% y en 0% a la vez."""
+    assert set(CASILLEROS_VENTAS).isdisjoint(CASILLEROS_VENTAS_0)
+
+
+def test_el_412_es_gravado_y_el_444_reembolso_no_entra():
+    # 412 = ventas de activos fijos gravadas ≠0% → bloque gravadas.
+    assert "412" in CASILLEROS_VENTAS
+    assert "412" not in CASILLEROS_VENTAS_0
+    # 444 = reembolsos (informativo) → fuera de ambos bloques de ventas.
+    assert "444" not in CASILLEROS_VENTAS
+    assert "444" not in CASILLEROS_VENTAS_0

@@ -5,14 +5,16 @@ sola cifra anual. El "según libros" es el movimiento ACUMULADO DEL AÑO de la
 cuenta (la columna Total del resumen "Mayores homologados"), no el saldo al
 cierre.
 
-Tres bloques, cada uno con su propia cuenta y su propio casillero:
+Tres bloques, cada uno con su propia cuenta y su propio casillero. El
+casillero declarado se toma del MES DE CORTE (el último período presente), no
+de diciembre: en un corte interino diciembre no existe y el declarado salía 0.
 
 | Bloque              | Cuenta (parametrizable)  | Casillero declarado          |
 |----------------------|--------------------------|-------------------------------|
-| Crédito tributario    | 1.1.5.1.2 (por defecto)  | 615 + 617 de diciembre        |
-| IVA Diferido           | 2.1.7.4.2 (por defecto)  | 485 de diciembre              |
-| SRI por Pagar           | 2.1.7.5.6 (por defecto)  | 859 de diciembre + retenciones
-                                                        de renta de diciembre (DM7)  |
+| Crédito tributario    | 1.1.5.1.2 (por defecto)  | 615 + 617 del mes de corte    |
+| IVA Diferido           | 2.1.7.4.2 (por defecto)  | 485 del mes de corte          |
+| SRI por Pagar           | 2.1.7.5.6 (por defecto)  | 859 del mes de corte + reten-
+                                                        ciones de renta del corte (DM7) |
 
 Si el cliente no tiene alguna de esas cuentas en su mayor, el bloque igual
 se escribe con 0: no se puede referenciar por fórmula una celda que no
@@ -33,18 +35,24 @@ SHEET_DM3 = "DM3 Revisión de saldos"
 
 COL_CODIGO, COL_ETIQUETA, COL_VALOR = 1, 2, 3
 
-DICIEMBRE = "12"
+
+def _mes_de_corte(periodos: list[str]) -> str | None:
+    """El mes del ÚLTIMO período presente (el corte).
+
+    Antes se comparaba siempre contra diciembre; en un corte interino (p. ej.
+    agosto) ese casillero no existía y el "declarado" salía 0. El corte es el
+    mes más alto de los períodos efectivamente cargados.
+    """
+    if not periodos:
+        return None
+    return max(periodos).split("-")[-1]
 
 
-def _periodo_de(periodos: list[str], mes: str) -> str | None:
-    for p in periodos:
-        if p.split("-")[-1] == mes:
-            return p
-    return None
-
-
-def _addr_casillero(dir_f104: dict, periodos: list[str], cas: str, mes: str = DICIEMBRE):
-    periodo = _periodo_de(periodos, mes)
+def _addr_casillero(dir_f104: dict, periodos: list[str], cas: str, mes: str | None = None):
+    mes = mes or _mes_de_corte(periodos)
+    if not mes:
+        return None
+    periodo = next((p for p in periodos if p.split("-")[-1] == mes), None)
     if not periodo:
         return None
     return dir_f104.get((periodo, cas))
@@ -150,7 +158,13 @@ def build_dm3(
 
     fila = 12
 
-    # --- Bloque 1: Crédito tributario = 615 + 617 de diciembre ---
+    # El saldo al corte se compara contra el casillero del MES DE CORTE (el
+    # último período presente), no contra diciembre: en un corte interino
+    # diciembre no existe y el declarado salía 0.
+    mes_corte = _mes_de_corte(periodos)
+    etq_mes = f"(mes de corte {mes_corte})" if mes_corte else "(mes de corte)"
+
+    # --- Bloque 1: Crédito tributario = 615 + 617 del mes de corte ---
     addr615 = _addr_casillero(dir_f104, periodos, "615")
     addr617 = _addr_casillero(dir_f104, periodos, "617")
     partes = [a for a in (addr615, addr617) if a]
@@ -159,31 +173,31 @@ def build_dm3(
         ws, fila=fila, titulo="CREDITO TRIBUTARIO",
         codigo_cuenta=cuenta_credito_tributario, nombre_cuenta=nombre_credito_tributario,
         dir_mayores=dir_mayores, formula_declarado=formula_credito,
-        etiqueta_declarado="Según F-104 casillero 615+617 (diciembre)",
+        etiqueta_declarado=f"Según F-104 casillero 615+617 {etq_mes}",
     )
 
-    # --- Bloque 2: IVA Diferido = 485 de diciembre ---
+    # --- Bloque 2: IVA Diferido = 485 del mes de corte ---
     addr485 = _addr_casillero(dir_f104, periodos, "485")
     formula_diferido = f"={addr485}" if addr485 else 0
     fila = _bloque_saldo(
         ws, fila=fila, titulo="IVA DIFERIDO",
         codigo_cuenta=cuenta_iva_diferido, nombre_cuenta=nombre_iva_diferido,
         dir_mayores=dir_mayores, formula_declarado=formula_diferido,
-        etiqueta_declarado="Según F-104 casillero 485 (diciembre)",
+        etiqueta_declarado=f"Según F-104 casillero 485 {etq_mes}",
     )
 
-    # --- Bloque 3: SRI por Pagar = 859 de diciembre + retenciones de renta
-    # de diciembre (DM7) ---
+    # --- Bloque 3: SRI por Pagar = 859 del mes de corte + retenciones de renta
+    # del mes de corte (DM7) ---
     addr859 = _addr_casillero(dir_f104, periodos, "859")
-    addr_ret_renta_dic = dir_dm7.get(("ret_renta_declarado", DICIEMBRE))
-    partes_sri = [a for a in (addr859, addr_ret_renta_dic) if a]
+    addr_ret_renta_corte = dir_dm7.get(("ret_renta_declarado", mes_corte)) if mes_corte else None
+    partes_sri = [a for a in (addr859, addr_ret_renta_corte) if a]
     formula_sri = ("=" + "+".join(partes_sri)) if partes_sri else 0
     fila = _bloque_saldo(
         ws, fila=fila, titulo="PASIVO: SRI POR PAGAR",
         codigo_cuenta=cuenta_sri_por_pagar, nombre_cuenta=nombre_sri_por_pagar,
         dir_mayores=dir_mayores, formula_declarado=formula_sri,
-        etiqueta_declarado="Según F-104 casillero 859 (diciembre) + retenciones "
-                            "de renta de diciembre (DM7)",
+        etiqueta_declarado=f"Según F-104 casillero 859 {etq_mes} + retenciones "
+                            f"de renta del mes de corte (DM7)",
     )
 
     escribir_leyenda_marcas(ws, fila=fila)

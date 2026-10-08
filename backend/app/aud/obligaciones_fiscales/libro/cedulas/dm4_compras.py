@@ -14,8 +14,16 @@ from backend.app.aud.obligaciones_fiscales.libro.estilos import (
 )
 
 SHEET_DM4 = "DM4 Compras"
-CASILLEROS_IVA = ["520", "521", "522", "523", "524", "525", "526", "555", "560"]
-CASILLEROS_BASE = ["510", "511", "512"]
+# IVA generado en compras (Impuesto Generado): locales, importaciones, ajuste
+# de notas de crédito (526), tarifa variable (534) y 5% (560). NO incluye el
+# 555 (reembolsos como intermediario, informativo) ni el 527 (ajuste en
+# negativo, infrecuente). Mismo conjunto del casillero 564 y del motor de
+# referencia. Antes incluía el 555 (informativo) y omitía el 534.
+CASILLEROS_IVA = ["520", "521", "522", "523", "524", "525", "526", "534", "560"]
+# Base imponible (Valor Neto) gravada ≠0% que genera ese IVA: espejo de los
+# casilleros de IVA (510↔520, 511↔521, 512↔522, 513↔523, 514↔524, 515↔525,
+# 533↔534, 550↔560). Antes solo traía 510/511/512.
+CASILLEROS_BASE = ["510", "511", "512", "513", "514", "515", "533", "550"]
 TARIFA_POR_DEFECTO = 0.15
 
 
