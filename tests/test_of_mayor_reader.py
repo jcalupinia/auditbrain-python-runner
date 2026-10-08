@@ -81,7 +81,9 @@ def test_acepta_sinonimos_de_otros_erp():
         ("178.259,63", 178259.63),   # europeo
         ("178,259.63", 178259.63),   # US
         ("183724.10", 183724.10),    # plano
-        ("-150,00", -150.0),         # negativo con coma decimal
+        # El lector guarda MAGNITUDES positivas (el signo lo da la naturaleza
+        # de la cuenta, no el archivo): '-150,00' se lee como 150,00.
+        ("-150,00", 150.0),          # negativo con coma decimal → magnitud
         ("0,00", 0.0),
     ],
 )
@@ -140,7 +142,7 @@ def test_encabezado_real_de_12_columnas_no_se_rompe_por_el_fix_del_defecto_6():
 @pytest.mark.parametrize(
     "texto,esperado",
     [
-        ("(150.00)", -150.0),        # negativo contable entre parentesis
+        ("(150.00)", 150.0),         # negativo contable entre paréntesis → magnitud
         ("$ 1,234.56", 1234.56),     # simbolo de moneda
         ("1.234,56 USD", 1234.56),   # sufijo de moneda, formato europeo
         ("-", 0.0),                  # guion como cero
@@ -366,3 +368,57 @@ def test_una_fila_de_total_sin_codigo_no_se_toma_como_cabecera_de_bloque():
     lectura = leer_mayor(mayor_xlsx(filas, encabezado=ENCABEZADO_SAP))
     assert len(lectura.movimientos) == 1
     assert lectura.movimientos[0].cuenta == "CAJA CHICA"
+
+
+# ----------- layout del ERP del cliente: 'código - nombre' fusionado --------
+#
+# El mayor real trae UNA columna CUENTA con 'código - nombre' y una columna
+# DETALLE con la glosa. El lector debe dejar Código limpio, Cuenta con el
+# NOMBRE (no la glosa) y leer el haber en negativo como magnitud positiva.
+
+from openpyxl import Workbook as _WB  # noqa: E402
+
+_ENCABEZADO_FUSIONADO = (
+    "CUENTA", "ASIENTO", "FECHA", "TD", "NUMERO", "No.COMP.",
+    "DETALLE/UGE./BENEFICIARIO", "DEBE", "HABER", "SALDO", "NETO AUDITORIA",
+    "AUDITORIA",
+)
+
+
+def _mayor_fusionado(filas):
+    wb = _WB()
+    ws = wb.active
+    for c, v in enumerate(_ENCABEZADO_FUSIONADO, start=1):
+        ws.cell(1, c, v)
+    for i, fila in enumerate(filas, start=2):
+        for c, v in enumerate(fila, start=1):
+            ws.cell(i, c, v)
+    bio = BytesIO()
+    wb.save(bio)
+    return bio.getvalue()
+
+
+def test_separa_codigo_y_nombre_cuando_vienen_fusionados_en_una_celda():
+    data = _mayor_fusionado([
+        ["1.4.3.23 - 15% IVA EN COMPRAS LOCALES SERVICIOS", "10002",
+         "2026-01-05", "AJ", "0000000001/2026", "30000002",
+         "REG. FACT.107987642/CLARO/CONSUMO", 7.65, 0, 7.65, 7.65, "Debe"],
+    ])
+    mov = leer_mayor(data).movimientos[0]
+    assert mov.codigo == "1.4.3.23"
+    assert mov.cuenta == "15% IVA EN COMPRAS LOCALES SERVICIOS"   # el NOMBRE
+    assert mov.descripcion.startswith("REG. FACT")                # la glosa, aparte
+    assert mov.debe == 7.65
+
+
+def test_el_haber_negativo_del_erp_se_lee_como_magnitud_y_el_neto_sale_credito():
+    data = _mayor_fusionado([
+        ["4.1.1.01 - CORRETAJES CON IVA 0%", "10193", "2026-01-31", "AJ",
+         "x", "30000188", "REG. PRODUCCION MES DE ENERO", 0, -102828.45,
+         -102828.45, -102828.45, "Haber"],
+    ])
+    mov = leer_mayor(data).movimientos[0]
+    assert mov.codigo == "4.1.1.01"
+    assert mov.cuenta == "CORRETAJES CON IVA 0%"
+    assert mov.haber == 102828.45      # magnitud positiva
+    assert mov.neto == -102828.45      # crédito → neto negativo
