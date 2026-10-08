@@ -66,6 +66,26 @@ _TOKENS_HABER = ("haber", "credito", "abono")
 # '11010102' y '1.1.5.1.1' cuentan, pero un '0' suelto o una fecha no.
 _RE_CODIGO_CUENTA = re.compile(r"^\d[\d.]{2,}$")
 
+# Celda de cuenta FUSIONADA 'código - nombre' en un solo campo, como la exporta
+# el ERP del cliente ('1.4.3.23 - 15% IVA EN COMPRAS LOCALES SERVICIOS'). El
+# separador va rodeado de espacios para no partir códigos con guiones internos
+# ('1-01-001'); el nombre debe tener al menos una letra.
+_RE_COD_NOMBRE_FUSIONADO = re.compile(r"^\s*(\d\S*)\s+[-–:]\s+(.+?)\s*$")
+
+
+def _split_codigo_nombre(raw: str) -> tuple[str, str]:
+    """Separa 'código - nombre' en (código, nombre).
+
+    Si la celda no trae el nombre fusionado (código puro, p. ej. '1.1.5.1.1'),
+    devuelve (código, ''): el nombre vendrá de una columna propia, de la
+    cabecera del bloque o de la glosa, según el layout.
+    """
+    s = (raw or "").strip()
+    m = _RE_COD_NOMBRE_FUSIONADO.match(s)
+    if m and any(c.isalpha() for c in m.group(2)):
+        return m.group(1), m.group(2).strip()
+    return s, ""
+
 # Secciones del balance/estado de resultados que encabezan un bloque en los
 # mayores tipo SAP; nunca son el nombre propio de una cuenta.
 _SECCIONES_MAYOR = frozenset({
@@ -315,25 +335,37 @@ def _leer_hoja(ws, mapeo: dict[str, int], fila_encabezado: int, lectura: Lectura
         ws.iter_rows(min_row=fila_encabezado + 1, values_only=True),
         start=fila_encabezado + 1,
     ):
-        codigo = _texto(celda(fila, "codigo"))
-        if not codigo:
+        codigo_raw = _texto(celda(fila, "codigo"))
+        if not codigo_raw:
             cabecera = _cabecera_de_bloque(fila, mapeo)
             if cabecera:
                 nombres_por_codigo[cabecera[0]] = cabecera[1]
             lectura.filas_descartadas += 1
             continue
-        if _norm(codigo) in SINONIMOS["codigo"]:
+        if _norm(codigo_raw) in SINONIMOS["codigo"]:
             # Encabezado repetido a mitad del listado (paginación del ERP).
             lectura.filas_descartadas += 1
             continue
 
+        # La celda de código puede traer el nombre fusionado ('1.4.3.23 - 15%
+        # IVA EN COMPRAS'); se separa para que Código quede limpio y Cuenta
+        # tenga el NOMBRE, nunca el concepto del asiento.
+        codigo, nombre_fusionado = _split_codigo_nombre(codigo_raw)
+
         fecha = _fecha(celda(fila, "fecha"))
         asiento = _texto(celda(fila, "asiento"))
-        cuenta = _texto(celda(fila, "cuenta"))
-        if not cuenta:
-            # Sin nombre propio en la fila: usar el de la cabecera del bloque.
-            cuenta = nombres_por_codigo.get(codigo, "")
-        descripcion = _texto(celda(fila, "descripcion"))
+        col_cuenta = _texto(celda(fila, "cuenta"))
+        col_desc = _texto(celda(fila, "descripcion"))
+        if nombre_fusionado:
+            # El nombre vino fusionado en el código: la columna de cuenta/
+            # descripción es en realidad la glosa del movimiento (concepto).
+            cuenta = nombre_fusionado
+            descripcion = col_desc or col_cuenta
+        else:
+            # Código puro: el nombre viene de su propia columna, de la cabecera
+            # del bloque (mayores tipo SAP) o queda vacío.
+            cuenta = col_cuenta or nombres_por_codigo.get(codigo, "")
+            descripcion = col_desc
 
         if not fecha and not asiento and _es_fila_acumulado(cuenta, descripcion):
             # Fila de TOTAL/SUBTOTAL/SALDO ANTERIOR/INICIAL: son los
@@ -352,8 +384,14 @@ def _leer_hoja(ws, mapeo: dict[str, int], fila_encabezado: int, lectura: Lectura
                 identificacion=_texto(celda(fila, "identificacion")),
                 persona=_texto(celda(fila, "persona")),
                 descripcion=descripcion,
-                debe=_importe(celda(fila, "debe"), lectura=lectura, fila_num=n, campo="debe"),
-                haber=_importe(celda(fila, "haber"), lectura=lectura, fila_num=n, campo="haber"),
+                # Débito y crédito como MAGNITUDES positivas: algunos ERP
+                # exportan el haber en negativo ('-102.828,45'), lo que
+                # invertiría el neto (debe − haber) y el signo de ventas,
+                # retenciones y la sumaria. Se normalizan a positivo (igual que
+                # el motor de referencia); la naturaleza (deudor/acreedor) la
+                # decide la categoría, no el signo del archivo.
+                debe=abs(_importe(celda(fila, "debe"), lectura=lectura, fila_num=n, campo="debe")),
+                haber=abs(_importe(celda(fila, "haber"), lectura=lectura, fila_num=n, campo="haber")),
                 saldo=_importe(celda(fila, "saldo"), lectura=lectura, fila_num=n, campo="saldo"),
                 fila=n,
             )
