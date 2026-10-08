@@ -66,11 +66,15 @@ def _bloque_saldo(
     titulo: str,
     codigo_cuenta: str,
     nombre_cuenta: str,
-    dir_mayores: dict,
+    addr_libros: str | None,
     formula_declarado: str,
     etiqueta_declarado: str,
 ) -> int:
-    """Escribe un bloque de una sola cifra anual. Devuelve la fila siguiente."""
+    """Escribe un bloque de una sola cifra anual. Devuelve la fila siguiente.
+
+    ``addr_libros`` es la dirección (de la cédula sumaria DM2) del saldo al
+    corte de la cuenta, para que DM3 cruce contra la MISMA cifra de la sumaria.
+    """
     ws.cell(fila, COL_CODIGO, titulo).font = FONT_TITULO_CEDULA
     fila += 1
 
@@ -78,15 +82,14 @@ def _bloque_saldo(
         estilo_encabezado_tabla(ws.cell(fila, COL_CODIGO + i, texto))
     fila += 1
 
-    fila_codigo = fila
     ws.cell(fila, COL_CODIGO, codigo_cuenta).font = FONT_DATA
     ws.cell(fila, COL_ETIQUETA, nombre_cuenta).font = FONT_DATA
     fila += 1
 
-    addr_total = dir_mayores.get((f"cuenta:{codigo_cuenta}", "TOTAL"))
-    if addr_total:
+    if addr_libros:
         ws.cell(fila, COL_ETIQUETA,
-               f"Nota: cuenta {codigo_cuenta} presente en el mayor").font = FONT_DATA
+               f"Nota: saldo al corte según la cédula sumaria (DM2) de la cuenta "
+               f"{codigo_cuenta}").font = FONT_DATA
     else:
         c = ws.cell(fila, COL_ETIQUETA,
                    f"⚠ Nota: la cuenta {codigo_cuenta} no aparece en el mayor del "
@@ -95,10 +98,10 @@ def _bloque_saldo(
     fila += 1
 
     fila_libros = fila
-    e = ws.cell(fila, COL_ETIQUETA, "Según libros")
+    e = ws.cell(fila, COL_ETIQUETA, "Según libros (sumaria DM2)")
     e.font = FONT_TOTAL
     e.fill = RELLENO_TOTAL
-    valor_libros = f"={addr_total}" if addr_total else 0
+    valor_libros = f"={addr_libros}" if addr_libros else 0
     v = ws.cell(fila, COL_VALOR, valor_libros)
     v.font = FONT_TOTAL
     v.fill = RELLENO_TOTAL
@@ -132,6 +135,7 @@ def build_dm3(
     dir_mayores: dict,
     dir_f104: dict,
     dir_dm7: dict,
+    dir_dm2: dict | None = None,
     periodos: list[str],
     cliente: str,
     periodo: str,
@@ -144,7 +148,12 @@ def build_dm3(
     preparado_por: str | None = None,
     revisado_por: str | None = None,
 ) -> dict[str, str]:
-    """Construye DM3. No publica direcciones: nada la consume por fórmula."""
+    """Construye DM3. No publica direcciones: nada la consume por fórmula.
+
+    El "según libros" de cada saldo se toma de la cédula sumaria (DM2) por
+    fórmula (``dir_dm2``), así DM3 cruza exactamente el mismo saldo al corte
+    que la sumaria; el casillero declarado sale del F-104 del mes de corte.
+    """
     if SHEET_DM3 in wb.sheetnames:
         del wb[SHEET_DM3]
     ws = wb.create_sheet(SHEET_DM3)
@@ -156,6 +165,7 @@ def build_dm3(
     )
 
     fila = 12
+    dir_dm2 = dir_dm2 or {}
 
     # El saldo al corte se compara contra el casillero del MES DE CORTE (el
     # último período presente), no contra diciembre: en un corte interino
@@ -171,7 +181,8 @@ def build_dm3(
     fila = _bloque_saldo(
         ws, fila=fila, titulo="CREDITO TRIBUTARIO",
         codigo_cuenta=cuenta_credito_tributario, nombre_cuenta=nombre_credito_tributario,
-        dir_mayores=dir_mayores, formula_declarado=formula_credito,
+        addr_libros=dir_dm2.get(("saldo_corte", cuenta_credito_tributario)),
+        formula_declarado=formula_credito,
         etiqueta_declarado=f"Según F-104 casillero 615+617 {etq_mes}",
     )
 
@@ -181,7 +192,8 @@ def build_dm3(
     fila = _bloque_saldo(
         ws, fila=fila, titulo="IVA DIFERIDO",
         codigo_cuenta=cuenta_iva_diferido, nombre_cuenta=nombre_iva_diferido,
-        dir_mayores=dir_mayores, formula_declarado=formula_diferido,
+        addr_libros=dir_dm2.get(("saldo_corte", cuenta_iva_diferido)),
+        formula_declarado=formula_diferido,
         etiqueta_declarado=f"Según F-104 casillero 485 {etq_mes}",
     )
 
@@ -194,7 +206,8 @@ def build_dm3(
     fila = _bloque_saldo(
         ws, fila=fila, titulo="PASIVO: SRI POR PAGAR",
         codigo_cuenta=cuenta_sri_por_pagar, nombre_cuenta=nombre_sri_por_pagar,
-        dir_mayores=dir_mayores, formula_declarado=formula_sri,
+        addr_libros=dir_dm2.get(("saldo_corte", cuenta_sri_por_pagar)),
+        formula_declarado=formula_sri,
         etiqueta_declarado=f"Según F-104 casillero 859 {etq_mes} + retenciones "
                             f"de renta del mes de corte (DM7)",
     )

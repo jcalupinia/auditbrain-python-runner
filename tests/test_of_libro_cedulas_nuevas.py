@@ -123,3 +123,19 @@ def test_dm10_tiene_columnas_de_observacion_y_recomendacion():
     textos = " ".join(str(v) for v in _celdas(ws).values())
     assert "Observación" in textos
     assert "Recomendación" in textos
+
+
+def test_dm2_publica_las_direcciones_del_saldo_al_corte():
+    """DM2 devuelve {("saldo_corte", código): dirección} para que DM3 cruce
+    contra la misma cifra de la sumaria."""
+    clasificacion = [_Fila("1.1.5.1.2", "Crédito Tributario", "IVA_COMPRAS")]
+    movs = [Movimiento(codigo="1.1.5.1.2", fecha=datetime.date(2026, 2, 1),
+                       descripcion="x", debe=100.0)]
+    wb = Workbook()
+    salida = build_dm2(wb, clasificacion=clasificacion, movimientos=movs, periodo="2026")
+    assert ("saldo_corte", "1.1.5.1.2") in salida
+    addr = salida[("saldo_corte", "1.1.5.1.2")]
+    assert addr.startswith("'DM2 Cédula Sumaria'!")
+    # La celda referida tiene el saldo al corte (100).
+    ws = wb[SHEET_DM2]
+    assert ws[addr.split("!", 1)[1]].value == 100.0
