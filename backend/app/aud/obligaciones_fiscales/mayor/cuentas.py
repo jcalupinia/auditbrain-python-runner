@@ -105,3 +105,37 @@ def monto_segun_libros(perfil: PerfilCuenta, categoria: str | None) -> dict[str,
     usa_debe = cat is None or cat.naturaleza_esperada in _NATURALEZAS_DEUDORAS
     lado = perfil.por_mes_debe if usa_debe else perfil.por_mes_haber
     return dict(lado)
+
+
+def ambos_lados(perfil: PerfilCuenta) -> dict[str, dict[str, float]]:
+    """Los dos lados brutos por mes, para persistir sin perder información.
+
+    Se guarda ``{"debe": {...}, "haber": {...}}`` (ambos ≥ 0) en vez de un
+    solo lado elegido por la categoría: así, cuando el auditor RECLASIFICA una
+    cuenta a una categoría de naturaleza contable distinta, el "según libros"
+    se vuelve a elegir del lado correcto al armar el libro, sin recomputar nada
+    ni releer el mayor. Antes se guardaba un solo lado (el de la categoría
+    SUGERIDA) y reclasificar dejaba el signo equivocado.
+    """
+    return {"debe": dict(perfil.por_mes_debe), "haber": dict(perfil.por_mes_haber)}
+
+
+def lado_para_categoria(
+    por_mes_json: dict | None, categoria: str | None
+) -> dict[str, float]:
+    """Elige, de ``ambos_lados``, el lado que AUMENTA la categoría dada.
+
+    Activo/gasto → débito; pasivo/ingreso/patrimonio → crédito. Si la
+    categoría no está en el catálogo (SIN_CLASIFICAR), usa el débito.
+
+    Compatibilidad hacia atrás: los jobs viejos guardaron ``por_mes_json`` como
+    un dict plano ``{mes: valor}`` (un solo lado ya elegido); ese caso se
+    devuelve tal cual, porque no hay forma de recuperar el otro lado.
+    """
+    if not por_mes_json:
+        return {}
+    if "debe" in por_mes_json or "haber" in por_mes_json:
+        cat = CATEGORIAS.get(categoria or "")
+        usa_debe = cat is None or cat.naturaleza_esperada in _NATURALEZAS_DEUDORAS
+        return dict(por_mes_json.get("debe" if usa_debe else "haber") or {})
+    return dict(por_mes_json)  # forma plana antigua

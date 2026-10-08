@@ -8,7 +8,7 @@ from dataclasses import asdict
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from backend.app.aud.obligaciones_fiscales.mayor.cuentas import monto_segun_libros
+from backend.app.aud.obligaciones_fiscales.mayor.cuentas import ambos_lados
 from backend.app.aud.obligaciones_fiscales.mayor.models import MayorClasificacionJob
 from backend.app.aud.obligaciones_fiscales.mayor.tipos import (
     PerfilCuenta,
@@ -25,17 +25,14 @@ def guardar_clasificacion(
 ) -> int:
     """Reemplaza la clasificación del job por la recién calculada.
 
-    ``por_mes_json`` se calcula con ``monto_segun_libros`` a partir de la
-    categoría SUGERIDA (``r.categoria``, igual a ``categoria_final`` en este
-    momento): usa el lado débito o crédito según la naturaleza contable de
-    la categoría. LIMITACIÓN CONOCIDA: si el auditor corrige la categoría
-    después con ``aplicar_correcciones`` (p.ej. de una categoría de activo a
-    una de pasivo), ``por_mes_json`` NO se recalcula —queda con el lado
-    elegido para la categoría original— porque esta función no persiste el
-    débito/crédito bruto por separado para recomputar más tarde. En la
-    práctica no se han observado correcciones que crucen de naturaleza
-    contable (activo↔pasivo), pero si ocurre, "Según libros" saldría con el
-    signo equivocado hasta que se regenere la clasificación completa.
+    ``por_mes_json`` guarda los DOS lados brutos por mes
+    (``{"debe": {...}, "haber": {...}}``, ver ``cuentas.ambos_lados``). El lado
+    que corresponde al "según libros" se elige por la ``categoria_final`` al
+    armar el libro (``hoja_mayores`` → ``lado_para_categoria``), no aquí. Así,
+    si el auditor reclasifica una cuenta a una categoría de naturaleza contable
+    distinta (p.ej. una SIN_CLASIFICAR → IVA_VENTAS, o activo ↔ pasivo), el
+    signo queda bien sin recomputar nada. Antes se persistía un solo lado (el
+    de la categoría sugerida) y reclasificar dejaba el signo equivocado.
     """
     db.execute(delete(MayorClasificacionJob).where(MayorClasificacionJob.job_id == job_id))
     for r in resultados:
@@ -48,7 +45,7 @@ def guardar_clasificacion(
                 n_movimientos=p.n_movimientos if p else 0,
                 debe=p.debe if p else 0.0,
                 haber=p.haber if p else 0.0,
-                por_mes_json=monto_segun_libros(p, r.categoria) if p else None,
+                por_mes_json=ambos_lados(p) if p else None,
                 categoria_sugerida=r.categoria,
                 categoria_final=r.categoria,
                 tarifa=r.tarifa,
