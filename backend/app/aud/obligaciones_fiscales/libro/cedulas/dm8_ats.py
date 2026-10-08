@@ -36,6 +36,9 @@ from backend.app.aud.obligaciones_fiscales.libro.cedulas.bloques import (
     COL_PRIMER_MES, MESES, escribir_encabezado_meses, fila_diferencia,
     fila_referencias, fila_suma_rango,
 )
+from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm5_ventas import (
+    CASILLEROS_IVA_VENTAS, CASILLEROS_VENTAS, CASILLEROS_VENTAS_0,
+)
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm7_retenciones import (
     CASILLERO_RET_IVA_CONTROL, CASILLERO_RET_RENTA, CASILLEROS_RET_IVA,
 )
@@ -45,9 +48,15 @@ from backend.app.aud.obligaciones_fiscales.libro.estilos import (
 
 SHEET_DM8 = "DM8 ATS"
 
-CASILLERO_VENTAS_GRAVADAS = "411"
-CASILLEROS_VENTAS_0 = ["413", "415"]
-CASILLERO_IVA_VENTAS = "421"
+# Ventas: se reutilizan los MISMOS sets de casilleros que DM5 (fuente única de
+# verdad), para que el cruce ATS vs. declarado abarque TODA la venta declarada
+# —gravadas 411/412/420/435 y 0% 413..418, exportaciones incluidas— y su suma
+# cuadre con el total de ventas (casillero 419 del papel de trabajo). Antes DM8
+# usaba listas propias más estrechas (411 y 413+415) que dejaban fuera las
+# exportaciones (417/418) y las demás tarifas gravadas, así que el cruce de
+# ventas ignoraba la mayor parte de la venta de un exportador.
+CASILLEROS_VENTAS_GRAVADAS = CASILLEROS_VENTAS
+CASILLEROS_IVA_VENTAS_DECLARADO = CASILLEROS_IVA_VENTAS
 CASILLERO_COMPRAS_TOTAL = "519"
 CASILLERO_IVA_COMPRAS = "520"
 CASILLERO_IVA_RETENIDO_RECIBIDO = "609"
@@ -137,20 +146,20 @@ def build_dm8(
         casilleros_declarado=CASILLEROS_VENTAS_0, dir_f104=dir_f104, periodos=periodos,
     )
 
-    # --- Ventas gravadas ---
+    # --- Ventas gravadas (todas las tarifas ≠0%: 411/412/420/435) ---
     fila = _bloque_simple(
         ws, fila=fila, titulo="VENTAS GRAVADAS SEGÚN ATS",
         etiqueta_ats="Ventas gravadas según ATS", campo_ats="ventas_bi_gravada", dir_ats=dir_ats,
-        etiqueta_declarado=f"Según declaración (casillero {CASILLERO_VENTAS_GRAVADAS})",
-        casilleros_declarado=[CASILLERO_VENTAS_GRAVADAS], dir_f104=dir_f104, periodos=periodos,
+        etiqueta_declarado="Según declaración (" + "+".join(CASILLEROS_VENTAS_GRAVADAS) + ")",
+        casilleros_declarado=CASILLEROS_VENTAS_GRAVADAS, dir_f104=dir_f104, periodos=periodos,
     )
 
-    # --- IVA en ventas ---
+    # --- IVA en ventas (todos los casilleros de IVA generado en ventas) ---
     fila = _bloque_simple(
         ws, fila=fila, titulo="IVA EN VENTAS SEGÚN ATS",
         etiqueta_ats="IVA ventas según ATS", campo_ats="ventas_iva", dir_ats=dir_ats,
-        etiqueta_declarado=f"Según declaración (casillero {CASILLERO_IVA_VENTAS})",
-        casilleros_declarado=[CASILLERO_IVA_VENTAS], dir_f104=dir_f104, periodos=periodos,
+        etiqueta_declarado="Según declaración (" + "+".join(CASILLEROS_IVA_VENTAS_DECLARADO) + ")",
+        casilleros_declarado=CASILLEROS_IVA_VENTAS_DECLARADO, dir_f104=dir_f104, periodos=periodos,
     )
 
     # --- Compras 0% = ATS vs (519 − importaciones) ---
