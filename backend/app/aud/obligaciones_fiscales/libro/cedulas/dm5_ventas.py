@@ -34,9 +34,17 @@ from backend.app.aud.obligaciones_fiscales.libro.estilos import (
 )
 
 SHEET_DM5 = "DM5 Ventas"
-CASILLEROS_VENTAS = ["411", "412", "444"]
-CASILLEROS_VENTAS_0 = ["412", "413", "414", "415", "417", "418", "444"]
+# Ventas gravadas tarifa ≠0% (Valor Neto): locales (411), activos fijos (412),
+# tarifa variable (420) y tarifa 5% (435). El 412 es ventas de activos fijos
+# GRAVADAS ≠0%, así que va aquí, no en el bloque 0%.
+CASILLEROS_VENTAS = ["411", "412", "420", "435"]
+# Ventas tarifa 0% (Valor Neto): locales y de activos fijos, con y sin derecho
+# a crédito (413..416), más exportaciones de bienes y servicios (417, 418).
+CASILLEROS_VENTAS_0 = ["413", "414", "415", "416", "417", "418"]
 CASILLEROS_IVA_VENTAS = ["421", "422", "423", "424", "454"]
+# El 444 (ingresos por reembolso como intermediario) es informativo: NO es una
+# venta gravada ni 0%, así que no entra en ninguno de los dos bloques. Antes
+# estaba duplicado en ambos e inflaba el "Total ventas declaradas".
 
 ETIQUETA_POR_ASIGNAR = "Por asignar (revisar asientos con tarifas mezcladas)"
 

@@ -89,6 +89,21 @@ def test_el_sri_por_pagar_segun_declaracion_suma_859_y_retencion_renta_de_diciem
     assert valor == "='DATOS F-104'!N103+'DM7 Retenciones x pagar'!O50"
 
 
+def test_corte_interino_compara_contra_el_mes_de_corte_no_diciembre():
+    """Con un corte interino (ej. agosto) se compara contra el casillero del
+    mes de corte, no contra diciembre (que no existe y daba declarado 0)."""
+    periodos = [f"2026-{m:02d}" for m in range(1, 9)]  # enero..agosto
+    dir_f104 = {
+        ("2026-08", "615"): "'DATOS F-104'!N200",
+        ("2026-08", "617"): "'DATOS F-104'!N201",
+    }
+    ws = _cedula(periodos=periodos, dir_f104=dir_f104, dir_dm7={})
+    fila = next(r for r in range(1, ws.max_row + 1)
+                if str(ws.cell(r, 2).value or "").startswith("Según F-104"))
+    assert ws.cell(fila, 3).value == "='DATOS F-104'!N200+'DATOS F-104'!N201"
+    assert "corte" in str(ws.cell(fila, 2).value).lower()
+
+
 def test_cuenta_faltante_se_escribe_en_cero_con_una_nota():
     """2.1.7.5.6 (SRI por pagar) no está en DIR_MAYORES: el bloque no debe
     reventar, debe quedar en 0 y dejar una nota visible para el auditor."""
