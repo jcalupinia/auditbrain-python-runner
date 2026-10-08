@@ -149,12 +149,18 @@ function _placeholderTablero() {
 </body></html>`;
 }
 function _errorTablero(mensaje) {
-  const texto = String(mensaje || "").replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+  const crudo = String(mensaje || "");
+  const texto = crudo.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+  // Sesión expirada (401): el token de acceso dura 60 min. El consejo correcto es volver a
+  // iniciar sesión, no «esperar a que el servidor se desocupe».
+  const sesion = /credencial|token|expir|sesi[oó]n|401|no autor/i.test(crudo);
+  const consejo = sesion
+    ? "Tu sesión expiró. Cerrá esta pestaña, cerrá sesión en AUDIT-IA (botón «Salir») y volvé a iniciar sesión; luego abrí el tablero otra vez."
+    : "El servidor pudo haber estado ocupado o reiniciándose. Cerrá esta pestaña y volvé a pulsar el botón del tablero en unos segundos.";
   return `<div style="${_ESTILO_TAB}">
-  <h2 style="color:#B4232A">No se pudo generar el tablero</h2>
+  <h2 style="color:#B4232A">${sesion ? "Tu sesión expiró" : "No se pudo generar el tablero"}</h2>
   <p>${texto}</p>
-  <p style="color:#6B7280;font-size:.9rem">El servidor pudo haber estado ocupado o reiniciándose. Cerrá esta pestaña y volvé
-  a pulsar el botón del tablero en unos segundos.</p>
+  <p style="color:#6B7280;font-size:.9rem">${consejo}</p>
   <button onclick="window.close()" style="margin-top:1rem;padding:.5rem 1rem;border:0;border-radius:.5rem;background:#0E2C50;color:#fff;cursor:pointer">Cerrar</button>
 </div>`;
 }
