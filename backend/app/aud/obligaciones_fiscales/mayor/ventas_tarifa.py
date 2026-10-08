@@ -37,7 +37,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from backend.app.aud.obligaciones_fiscales.mayor.catalogo import CATEGORIAS
 from backend.app.aud.obligaciones_fiscales.mayor.tipos import Movimiento
 
 BUCKETS = ("gravada", "cero", "por_asignar")
@@ -49,9 +48,6 @@ TOLERANCIA = 5  # centavos
 # tope el asiento se marca POR ASIGNAR sin buscar, para que un mayor con
 # asientos de cierre de cientos de líneas no cuelgue la generación del libro.
 MAX_LINEAS_BUSQUEDA = 24
-
-_NATURALEZAS_DEUDORAS = frozenset({"activo", "gasto"})
-
 
 def _cent(valor: float) -> int:
     return round(valor * 100)
@@ -107,12 +103,6 @@ def subconjunto_unico(valores: list[int], objetivo: int) -> set[int] | None:
     return None
 
 
-def _lado_que_aumenta(codigo_categoria: str | None):
-    cat = CATEGORIAS.get(codigo_categoria or "")
-    usa_debe = cat is None or cat.naturaleza_esperada in _NATURALEZAS_DEUDORAS
-    return (lambda m: m.debe) if usa_debe else (lambda m: m.haber)
-
-
 def separar_ventas_por_tarifa(
     movimientos: list[Movimiento], categorias: dict[str, str | None]
 ) -> dict[str, dict[str, dict[str, float]]]:
@@ -125,7 +115,11 @@ def separar_ventas_por_tarifa(
     """
     ventas = {c for c, k in categorias.items() if k == "VENTAS"}
     iva_ventas = {c for c, k in categorias.items() if k == "IVA_VENTAS"}
-    monto = _lado_que_aumenta("VENTAS")
+    # Las ventas se miden por el NETO (haber − débito): así las notas de
+    # crédito (débitos a la cuenta de venta) RESTAN dentro de su tramo, igual
+    # que en el papel de trabajo del auditor. El reparto sigue sumando el total
+    # neto que la hoja de mayores publica para VENTAS.
+    monto = lambda m: round(m.haber - m.debe, 2)  # noqa: E731
 
     por_asiento: dict[str, list[Movimiento]] = defaultdict(list)
     for m in movimientos:

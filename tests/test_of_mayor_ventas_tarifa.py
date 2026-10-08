@@ -106,15 +106,16 @@ def test_solo_se_desglosan_las_cuentas_de_ventas():
     assert set(desglose) == {"4.1.1.1", "4.1.1.2"}
 
 
-def test_una_venta_registrada_al_debe_no_infla_el_desglose():
-    """Una nota de crédito entra en la aritmética del asiento (|neto|), pero
-    el monto según libros de un ingreso es el HABER: aporta 0 a los buckets."""
+def test_una_nota_de_credito_al_debe_resta_de_las_ventas():
+    """Una nota de crédito es un DÉBITO a la cuenta de venta: debe RESTAR del
+    tramo (neto = haber − débito), como en el papel de trabajo del auditor.
+    Un asiento sin IVA es 0%, así que la NC resta del tramo 0%."""
     desglose = separar_ventas_por_tarifa(
         [Movimiento(codigo="4.1.1.1", asiento="NC 1", debe=200.0,
                     fecha=datetime.date(2025, 1, 10))],
         CATEGORIAS,
     )
-    assert desglose["4.1.1.1"]["cero"]["01"] == 0.0
+    assert desglose["4.1.1.1"]["cero"]["01"] == -200.0
 
 
 def test_un_asiento_de_muchas_lineas_no_cuelga_la_separacion():
