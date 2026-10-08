@@ -99,7 +99,7 @@ def construir_config(files: dict, engagement: dict, parametros: dict) -> dict:
     except (TypeError, ValueError):
         meses = defecto_meses
     meses = min(12, max(1, meses))
-    return {
+    cfg = {
         "company": str(e.get("client") or p.get("cliente") or ""),
         "ruc": str(e.get("ruc") or p.get("ruc") or ""),
         "mode": "preliminar" if prelim else "final",
@@ -108,6 +108,13 @@ def construir_config(files: dict, engagement: dict, parametros: dict) -> dict:
         "periods": per,
         "files": files,
     }
+    # Logo de la compañía auditada (subido en la ficha). Si viene, reemplaza al logo
+    # de ejemplo (LANSEY) que trae la plantilla; si no, el hero muestra el placeholder
+    # «Logo del cliente» (y solo el artefacto de demostración conserva el de LANSEY).
+    logo = str(e.get("logoCliente") or p.get("logoCliente") or "").strip()
+    if logo:
+        cfg["clientLogo"] = logo
+    return cfg
 
 
 # --- secciones CUALITATIVAS: datos reales del cliente en vez del ejemplo LANSEY ---

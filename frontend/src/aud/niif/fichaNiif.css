@@ -214,6 +214,13 @@
 .nf-ctx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin: 10px 0; }
 .nf-ctx-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .nf-ctx-check { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; }
+.nf-ctx-logo { display: flex; flex-direction: column; gap: 6px; }
+.nf-ctx-logo-preview { max-height: 56px; max-width: 100%; object-fit: contain; align-self: flex-start;
+  background: #fff; border: 1px solid #d7deea; border-radius: 6px; padding: 4px; }
+.nf-ctx-logo-vacio { font-size: 12px; color: #6b7280; }
+.nf-ctx-logo-acciones { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.nf-ctx-logo-quitar { font-size: 12px; padding: 2px 8px; border: 1px solid #b33a3a; border-radius: 6px;
+  background: #fff; color: #7a2020; cursor: pointer; }
 .btn.peligro { background: #7a2020; border-color: #b33a3a; color: #fff; }
 
 /* ---------- Consola de archivos ---------- */

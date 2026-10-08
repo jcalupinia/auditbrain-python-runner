@@ -186,6 +186,16 @@ body[data-solo] #cardResults > .step-head{display:none!important;}
 body[data-solo]:not([data-solo="dashboard"]) #checkBanner,
 body[data-solo]:not([data-solo="dashboard"]) #statGrid{display:none!important;}
 body[data-solo] #cardResults{border:none;box-shadow:none;margin:0;}
+/* Vista "tablero": el papel abierto desde la plataforma (ya procesado) entra
+   directo al resultado —hero con el logo del cliente + todas las pestañas del
+   tablero—, sin las tarjetas de carga/configuración/clasificación («para hacer
+   cambios»). A diferencia de data-solo, conserva el hero, el tabBar y TODAS las
+   secciones navegables; solo esconde lo de entrada de datos. */
+body[data-vista="tablero"] #cardConfig,
+body[data-vista="tablero"] #cardUpload,
+body[data-vista="tablero"] #cardClass,
+body[data-vista="tablero"] #depthRow,
+body[data-vista="tablero"] .footer-actions{display:none!important;}
 .solo-cerrar{margin-left:auto;background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.35);
   border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
 .solo-cerrar:hover{background:rgba(255,255,255,.22);}
@@ -3100,7 +3110,20 @@ function wireLogoControls(){
   if(rem) rem.addEventListener('click',function(){ state.clientLogo=null; applyClientLogo(); });
 }
 function boot(){
-  if(typeof LOGOS!=='undefined' && state.clientLogo===null) state.clientLogo=LOGOS.client||null;
+  // Vista «tablero» (abierto desde la plataforma con «#tablero»): entra directo al
+  // resultado ocultando las tarjetas de carga/configuración. Se fija ANTES de pintar
+  // para que no parpadee la pantalla de «hacer cambios».
+  if((location.hash||'').toLowerCase().indexOf('tablero')>=0){ document.body.setAttribute('data-vista','tablero'); }
+  // Logo de la compañía auditada: manda el inyectado en la ficha (AUDITIA.clientLogo).
+  // El de ejemplo (LOGOS.client = LANSEY) solo se usa en el artefacto de demostración
+  // —el que NO trae una ficha real, sin nombre de compañía (AUDITIA.company)—. En una
+  // corrida real sin logo cargado, el hero muestra el placeholder «Logo del cliente»,
+  // nunca LANSEY. Se resuelve aquí (no en la rama de abajo) para no depender de que
+  // loadLansey() llegue a ejecutarse.
+  if(state.clientLogo===null){
+    if(typeof AUDITIA!=='undefined' && AUDITIA && AUDITIA.clientLogo) state.clientLogo=AUDITIA.clientLogo;
+    else if(!(typeof AUDITIA!=='undefined' && AUDITIA && AUDITIA.company) && typeof LOGOS!=='undefined') state.clientLogo=LOGOS.client||null;
+  }
   setLogos(); wireLogoControls();
   var ok=loadLansey();
   if(!ok){

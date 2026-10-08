@@ -21,7 +21,26 @@ export const contextLabels = {
   currency: "Moneda (código de 3 letras)",
   reuseScope: "Reutilizar datos del encargo",
   deferredTax: "Aplica impuestos diferidos",
+  logoCliente: "Logo de la compañía auditada",
 };
+
+// Tamaño máximo del logo del cliente (binario). El backend lo valida en
+// ~1,2 MB de *data URI*; aquí se corta el archivo antes de leerlo.
+const MAX_LOGO_BYTES = 1_200_000;
+
+// Lee el logo elegido como *data URI* (PNG/JPG/SVG) y lo entrega por callback.
+// El logo viaja dentro de la ficha (datos.logoCliente) y reemplaza al de ejemplo
+// en el HTML del papel y en la portada del Excel/Word/PowerPoint.
+function leerLogoCliente(file, cb) {
+  if (!file) return;
+  if (file.size > MAX_LOGO_BYTES) {
+    alert("El logo debe ser una imagen PNG, JPG o SVG de menos de 1 MB.");
+    return;
+  }
+  const r = new FileReader();
+  r.onload = (e) => cb(String(e.target.result || ""));
+  r.readAsDataURL(file);
+}
 
 const choices = {
   firm: [["Audit Consulting", "Auditconsulting · Audit Consulting Group"], ["Partner", "Partner Auditing Cía. Ltda."]],
@@ -63,7 +82,30 @@ export function ContextFields({ value, onChange, keys = Object.keys(contextLabel
         return (
         <div className="nf-ctx-field" key={key}>
           <label htmlFor={"ctx-" + key}>{contextLabels[key]}</label>
-          {key === "deferredTax" ? (
+          {key === "logoCliente" ? (
+            <div className="nf-ctx-logo">
+              {value[key] ? (
+                <img src={value[key]} alt="Logo de la compañía auditada" className="nf-ctx-logo-preview" />
+              ) : (
+                <span className="nf-ctx-logo-vacio">
+                  Sin logo — el papel usará el nombre de la compañía (en el HTML queda el logo de ejemplo solo en la demostración)
+                </span>
+              )}
+              <div className="nf-ctx-logo-acciones">
+                <input
+                  id={"ctx-" + key}
+                  type="file"
+                  accept="image/png,image/jpeg,image/svg+xml"
+                  onChange={(e) => leerLogoCliente(e.target.files && e.target.files[0], (uri) => cambiar(key, uri))}
+                />
+                {value[key] ? (
+                  <button type="button" className="nf-ctx-logo-quitar" onClick={() => cambiar(key, "")}>
+                    Quitar
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : key === "deferredTax" ? (
             <label className="nf-ctx-check">
               <input
                 id={"ctx-" + key}

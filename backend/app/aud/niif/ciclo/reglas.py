@@ -324,4 +324,22 @@ def validar_ficha_encargo(f: dict, completa: bool = True) -> dict:
         "currency": (f.get("currency") or "").strip(), "visit": f.get("visit") or "",
         "edition": (f.get("edition") or "").strip(), "adoption": (f.get("adoption") or "").strip(),
         "reuseScope": f.get("reuseScope") or "one", "deferredTax": f.get("deferredTax") is True,
+        "logoCliente": _normalizar_logo_cliente(f.get("logoCliente")),
     }
+
+
+# Logo de la compañía auditada: lo sube el auditor en la ficha y viaja como
+# *data URI* (PNG/JPG/SVG en base64). Reemplaza el logo de ejemplo (LANSEY) en el
+# HTML del papel y, cuando es raster, en la portada del Excel/Word/PowerPoint.
+_LOGO_CLIENTE_RE = re.compile(r"^data:image/(png|jpe?g|svg\+xml);base64,[A-Za-z0-9+/=\s]+$")
+MAX_LOGO_CLIENTE_CHARS = 1_600_000  # ~1,2 MB binario; suficiente para un logotipo y no infla la ficha
+
+
+def _normalizar_logo_cliente(uri) -> str:
+    """Valida el *data URI* del logo del cliente. Vacío si no se cargó; lanza si es inválido."""
+    s = str(uri or "").strip()
+    if not s:
+        return ""
+    if len(s) > MAX_LOGO_CLIENTE_CHARS or not _LOGO_CLIENTE_RE.match(s):
+        raise ReglaIncumplida("El logo de la compañía debe ser una imagen PNG, JPG o SVG de menos de 1 MB.")
+    return s

@@ -66,6 +66,7 @@ export function procedimientosSinFuente(programa, fuentes) {
 export const CAMPOS_FICHA = [
   "client", "ruc", "activity", "year", "cutoff", "preparer", "reviewer", "firm",
   "framework", "edition", "adoption", "country", "currency", "visit", "reuseScope", "deferredTax",
+  "logoCliente",
 ];
 
 export const fichaInicial = (cliente) => ({

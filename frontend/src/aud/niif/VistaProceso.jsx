@@ -383,7 +383,10 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
       const bytes = await api.cicloBajarLibro(prueba.id, "html", seccion || null, false, { timeoutMs: 180000, retries: 1 });
       if (win.closed) return;  // el usuario cerró la pestaña mientras se generaba
       const url = URL.createObjectURL(new Blob([bytes], { type: "text/html;charset=utf-8" }));
-      win.location = url;
+      // Sin sección (el tablero completo): entra directo al resultado con «#tablero»
+      // (hero con el logo + pestañas), sin las tarjetas de carga/configuración. Con
+      // sección, el HTML ya viene en modo «solo esa sección» (data-solo del backend).
+      win.location = url + (seccion ? "" : "#tablero");
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
       // El usuario está mirando la pestaña NUEVA: el error se muestra AHÍ (no solo en la
@@ -731,14 +734,19 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
         {procesada && (
           <>
             <p className="nf-ef-aviso">
-              El mismo papel en cuatro formatos. El HTML funciona sin internet y recalcula al editar; el Excel trae
+              El mismo papel en varios formatos. El HTML funciona sin internet y recalcula al editar; el Excel trae
               fórmulas trazables y los gráficos; el PDF es el propio HTML impreso; el Word es ejecutivo con márgenes y cuadros.
             </p>
             <div className="nf-ef-descargas">
               <button type="button" className="nf-ef-dl" onClick={() => abrirTableroHTML(null)}>
                 <Icono name="dashboard" color="blue" />
-                <span className="nf-ef-dl-t">HTML sin conexión</span>
-                <span className="nf-ef-dl-s">Editable · recalcula sin internet</span>
+                <span className="nf-ef-dl-t">Abrir HTML</span>
+                <span className="nf-ef-dl-s">Ver el tablero · recalcula sin internet</span>
+              </button>
+              <button type="button" className="nf-ef-dl" onClick={() => bajarFormato("html", "text/html;charset=utf-8")}>
+                <Icono name="dashboard" color="blue" />
+                <span className="nf-ef-dl-t">Descargar HTML</span>
+                <span className="nf-ef-dl-s">Archivo autónomo · funciona sin internet</span>
               </button>
               <button type="button" className="nf-ef-dl" onClick={() => bajarFormato("xlsx", XLSX)}>
                 <Icono name="table" color="green" />
