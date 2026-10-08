@@ -114,3 +114,49 @@ def test_una_correccion_para_una_cuenta_inexistente_se_ignora():
         assert n == 0
     finally:
         db.close()
+
+
+def test_reclasificar_entre_naturalezas_corrige_el_lado_en_el_libro():
+    """Extremo a extremo del bug de signos: se guarda una cuenta con débito y
+    crédito, el motor la sugiere como activo (lee el débito); el auditor la
+    reclasifica a un pasivo y, al armar el libro, "según libros" pasa a leer el
+    CRÉDITO (el devengo), no el débito."""
+    from openpyxl import Workbook
+
+    from backend.app.aud.obligaciones_fiscales.libro.hoja_mayores import (
+        SHEET_MAYORES, build_hoja_mayores,
+    )
+
+    db = SessionLocal()
+    try:
+        perfil = PerfilCuenta(codigo="2.3.2.13", nombre="Retención IVA 100%",
+                              n_movimientos=2, debe=5.0, haber=1000.0,
+                              por_mes_debe={"01": 5.0}, por_mes_haber={"01": 1000.0})
+        res = ResultadoClasificacion(
+            codigo="2.3.2.13", nombre="Retención IVA 100%",
+            categoria="IVA_COMPRAS",  # el motor la cree activo (lado débito)
+            confianza="media", origen="reglas", tarifa=None,
+            puntajes={}, senales=[],
+        )
+        guardar_clasificacion(db, job_id=9006, resultados=[res],
+                              perfiles={"2.3.2.13": perfil})
+        # Se persisten los DOS lados.
+        fila = clasificacion_de_job(db, job_id=9006)[0]
+        assert fila.por_mes_json == {"debe": {"01": 5.0}, "haber": {"01": 1000.0}}
+
+        # El auditor la reclasifica a RET_IVA (pasivo).
+        aplicar_correcciones(
+            db, job_id=9006,
+            correcciones=[{"codigo_cuenta": "2.3.2.13", "categoria": "RET_IVA"}],
+            user_id=7,
+        )
+        filas = clasificacion_de_job(db, job_id=9006)
+
+        wb = Workbook()
+        lookup = build_hoja_mayores(wb, filas)
+        ws = wb[SHEET_MAYORES]
+        addr = lookup[("cuenta:2.3.2.13", "01")]
+        celda = ws[addr.split("!", 1)[1]]
+        assert celda.value == 1000.0  # el crédito (devengo), no el débito 5.0
+    finally:
+        db.close()

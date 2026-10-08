@@ -2,7 +2,12 @@
 
 import datetime
 
-from backend.app.aud.obligaciones_fiscales.mayor.cuentas import monto_segun_libros, perfilar
+from backend.app.aud.obligaciones_fiscales.mayor.cuentas import (
+    ambos_lados,
+    lado_para_categoria,
+    monto_segun_libros,
+    perfilar,
+)
 from backend.app.aud.obligaciones_fiscales.mayor.tipos import Movimiento
 
 
@@ -122,3 +127,20 @@ def test_monto_segun_libros_usa_el_haber_para_categorias_de_pasivo_e_ingreso():
 def test_monto_segun_libros_sin_categoria_usa_el_debe_por_defecto():
     perfiles = perfilar([_mov("9.9.9", "Cuenta puente", 1, debe=5.0, haber=1.0)])
     assert monto_segun_libros(perfiles["9.9.9"], None) == {"01": 5.0}
+
+
+def test_ambos_lados_guarda_debe_y_haber_por_separado():
+    perfiles = perfilar([_mov("x", "c", 1, debe=5.0, haber=1000.0)])
+    assert ambos_lados(perfiles["x"]) == {"debe": {"01": 5.0}, "haber": {"01": 1000.0}}
+
+
+def test_lado_para_categoria_elige_segun_la_naturaleza():
+    datos = {"debe": {"01": 5.0}, "haber": {"01": 1000.0}}
+    assert lado_para_categoria(datos, "IVA_COMPRAS") == {"01": 5.0}      # activo
+    assert lado_para_categoria(datos, "IVA_VENTAS") == {"01": 1000.0}    # pasivo
+    assert lado_para_categoria(datos, None) == {"01": 5.0}               # sin cat → debe
+
+
+def test_lado_para_categoria_respeta_la_forma_plana_antigua():
+    assert lado_para_categoria({"01": 42.0}, "IVA_VENTAS") == {"01": 42.0}
+    assert lado_para_categoria(None, "IVA_VENTAS") == {}

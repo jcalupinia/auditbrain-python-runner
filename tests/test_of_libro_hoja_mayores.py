@@ -199,3 +199,46 @@ def test_sin_movimientos_no_se_construye_el_bloque_de_desglose():
     wb = Workbook()
     lookup = build_hoja_mayores(wb, FILAS_VENTAS)
     assert ("cuenta:4.1.1.4:gravada", "01") not in lookup
+
+
+# ---------------------------------------------------- ley de signos -------
+#
+# por_mes_json ahora guarda los DOS lados ({"debe":..,"haber":..}); el lado
+# se elige por la categoría FINAL al construir la hoja. Esto arregla el bug:
+# al reclasificar una cuenta, "según libros" sale del lado correcto.
+
+def test_una_cuenta_de_pasivo_toma_el_haber_no_el_debe():
+    """Una cuenta reclasificada a IVA_VENTAS (pasivo) muestra el devengo del
+    HABER en positivo, no el débito de la liquidación."""
+    wb = Workbook()
+    fila = _Fila("2.1.7.4.1", "IVA en ventas", "IVA_VENTAS",
+                 {"debe": {"01": 5.0}, "haber": {"01": 1000.0}})
+    lookup = build_hoja_mayores(wb, [fila])
+    ws = wb[SHEET_MAYORES]
+    assert _celda(ws, lookup[("cuenta:2.1.7.4.1", "01")]).value == 1000.0
+
+
+def test_la_misma_cuenta_reclasificada_cambia_de_lado():
+    """Prueba directa del bug de reclasificación: los MISMOS datos de dos
+    lados, según la categoría final, eligen débito o crédito."""
+    datos = {"debe": {"01": 5.0}, "haber": {"01": 1000.0}}
+    wb = Workbook()
+    lookup = build_hoja_mayores(
+        wb, [_Fila("x", "Cuenta", "IVA_COMPRAS", dict(datos))])
+    ws = wb[SHEET_MAYORES]
+    assert _celda(ws, lookup[("cuenta:x", "01")]).value == 5.0      # activo→debe
+
+    wb2 = Workbook()
+    lookup2 = build_hoja_mayores(
+        wb2, [_Fila("x", "Cuenta", "RET_IVA", dict(datos))])
+    ws2 = wb2[SHEET_MAYORES]
+    assert _celda(ws2, lookup2[("cuenta:x", "01")]).value == 1000.0  # pasivo→haber
+
+
+def test_forma_plana_antigua_sigue_funcionando():
+    """Jobs viejos guardaron un solo lado (dict plano); debe leerse igual."""
+    wb = Workbook()
+    lookup = build_hoja_mayores(
+        wb, [_Fila("y", "Cuenta", "IVA_COMPRAS", {"01": 42.0})])
+    ws = wb[SHEET_MAYORES]
+    assert _celda(ws, lookup[("cuenta:y", "01")]).value == 42.0

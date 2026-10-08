@@ -12,6 +12,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.workbook import Workbook
 
 from backend.app.aud.obligaciones_fiscales.mayor.catalogo import CATEGORIAS
+from backend.app.aud.obligaciones_fiscales.mayor.cuentas import lado_para_categoria
 from backend.app.aud.obligaciones_fiscales.mayor.ventas_tarifa import (
     separar_ventas_por_tarifa,
 )
@@ -192,7 +193,10 @@ def build_hoja_mayores(wb: Workbook, filas, movimientos=None) -> dict[tuple[str,
             ws.cell(fila, COL_CATEGORIA, categoria).font = FONT_DATA
             ws.cell(fila, COL_CODIGO, f.codigo_cuenta).font = FONT_DATA
             ws.cell(fila, COL_NOMBRE, f.nombre_cuenta).font = FONT_DATA
-            por_mes = f.por_mes_json or {}
+            # El lado (débito/crédito) se elige aquí por la categoría FINAL, no
+            # por la sugerida: si el auditor reclasificó la cuenta, "según
+            # libros" sale del lado que aumenta la categoría nueva.
+            por_mes = lado_para_categoria(f.por_mes_json, f.categoria_final)
             for j, mes in enumerate(MESES):
                 c = ws.cell(fila, COL_PRIMER_MES + j, float(por_mes.get(mes, 0.0)))
                 c.font = FONT_DATA
