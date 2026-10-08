@@ -355,7 +355,10 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
       // listener de «message» más abajo).
       const bytes = await api.cicloBajarLibro(prueba.id, "html", seccion || null, false);
       const url = URL.createObjectURL(new Blob([bytes], { type: "text/html;charset=utf-8" }));
-      win.location = url;
+      // Sin sección (el tablero completo): entra directo al resultado con «#tablero»
+      // (hero con el logo + pestañas), sin las tarjetas de carga/configuración. Con
+      // sección, el HTML ya viene en modo «solo esa sección» (data-solo del backend).
+      win.location = url + (seccion ? "" : "#tablero");
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
       win.close();
