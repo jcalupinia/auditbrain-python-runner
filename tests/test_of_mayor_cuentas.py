@@ -144,3 +144,12 @@ def test_lado_para_categoria_elige_segun_la_naturaleza():
 def test_lado_para_categoria_respeta_la_forma_plana_antigua():
     assert lado_para_categoria({"01": 42.0}, "IVA_VENTAS") == {"01": 42.0}
     assert lado_para_categoria(None, "IVA_VENTAS") == {}
+
+
+def test_ventas_se_mide_por_el_neto_para_que_las_nc_resten():
+    """VENTAS usa el NETO (haber − débito): las ventas suman (haber) y las
+    notas de crédito restan (débito), como en el papel de trabajo."""
+    datos = {"debe": {"01": 155.0}, "haber": {"01": 1933.0}}   # ventas y NC en la cuenta
+    assert lado_para_categoria(datos, "VENTAS") == {"01": 1778.0}  # 1933 − 155
+    # Una categoría acreedora NO-ventas sigue usando el lado bruto (haber):
+    assert lado_para_categoria(datos, "IVA_VENTAS") == {"01": 1933.0}

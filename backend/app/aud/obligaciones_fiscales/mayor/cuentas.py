@@ -120,13 +120,22 @@ def ambos_lados(perfil: PerfilCuenta) -> dict[str, dict[str, float]]:
     return {"debe": dict(perfil.por_mes_debe), "haber": dict(perfil.por_mes_haber)}
 
 
+# Categorías que se miden por el NETO (haber − débito), no por el lado bruto:
+# las ventas, para que las NOTAS DE CRÉDITO (débitos a la cuenta de ingreso)
+# resten a las ventas, como en el papel de trabajo del auditor. El resto de
+# categorías acreedoras (IVA en ventas, retenciones) usan el lado bruto para
+# NO restar los asientos de liquidación/declaración del mes.
+_CATEGORIAS_NETAS = frozenset({"VENTAS"})
+
+
 def lado_para_categoria(
     por_mes_json: dict | None, categoria: str | None
 ) -> dict[str, float]:
-    """Elige, de ``ambos_lados``, el lado que AUMENTA la categoría dada.
+    """Elige, de ``ambos_lados``, el monto "según libros" de la categoría.
 
-    Activo/gasto → débito; pasivo/ingreso/patrimonio → crédito. Si la
-    categoría no está en el catálogo (SIN_CLASIFICAR), usa el débito.
+    - VENTAS: NETO (haber − débito), para que las notas de crédito resten.
+    - Activo/gasto: débito bruto. Pasivo/ingreso/patrimonio: crédito bruto
+      (excluye los asientos de liquidación del mes). Sin categoría: débito.
 
     Compatibilidad hacia atrás: los jobs viejos guardaron ``por_mes_json`` como
     un dict plano ``{mes: valor}`` (un solo lado ya elegido); ese caso se
@@ -135,7 +144,12 @@ def lado_para_categoria(
     if not por_mes_json:
         return {}
     if "debe" in por_mes_json or "haber" in por_mes_json:
+        debe = por_mes_json.get("debe") or {}
+        haber = por_mes_json.get("haber") or {}
+        if categoria in _CATEGORIAS_NETAS:
+            meses = set(debe) | set(haber)
+            return {m: round(haber.get(m, 0.0) - debe.get(m, 0.0), 2) for m in meses}
         cat = CATEGORIAS.get(categoria or "")
         usa_debe = cat is None or cat.naturaleza_esperada in _NATURALEZAS_DEUDORAS
-        return dict(por_mes_json.get("debe" if usa_debe else "haber") or {})
+        return dict(debe if usa_debe else haber)
     return dict(por_mes_json)  # forma plana antigua
