@@ -362,6 +362,13 @@ services:
     envVars:
       - key: VITE_API_BASE
         value: "https://auditbrain-python-runner.onrender.com"
+        # En PREVIEW el build NUNCA lleva la URL de producción. El resolver de
+        # frontend/src/api.js deriva el backend del propio hostname (…-pr-<n>)
+        # y solo lee VITE_API_BASE para hosts de la lista blanca; este
+        # centinela (.invalid, dominio reservado por RFC 6761, no resuelve) es
+        # la red de seguridad: si algún día el resolver cayera a VITE_API_BASE
+        # en un preview, la llamada fallaría en vez de ir a producción.
+        previewValue: "https://preview-backend-no-resuelto.invalid"
       # La pestaña "Estudio" (imagen/video) se activa según el backend
       # (GET /chat/media/status). Las variables del puente van en el BACKEND,
       # no aquí — así el frontend no expone la clave ni requiere Tailscale.
@@ -399,6 +406,9 @@ services:
     envVars:
       - key: VITE_API_BASE
         value: "https://auditbrain-python-runner.onrender.com"
+        # Mismo centinela que auditbrain-frontend: en preview el build no
+        # conoce la URL de producción (ver frontend-client/src/api.js).
+        previewValue: "https://preview-backend-no-resuelto.invalid"
     routes:
       - type: rewrite
         source: /*
