@@ -194,8 +194,12 @@ body[data-solo] #cardResults{border:none;box-shadow:none;margin:0;}
 body[data-vista="tablero"] #cardConfig,
 body[data-vista="tablero"] #cardUpload,
 body[data-vista="tablero"] #cardClass,
-body[data-vista="tablero"] #depthRow,
-body[data-vista="tablero"] .footer-actions{display:none!important;}
+body[data-vista="tablero"] #depthRow{display:none!important;}
+/* En el tablero el pie se conserva solo con «Descargar HTML»: el botón de Excel
+   del artefacto depende del runtime de Claude (fuera de él avisa «no disponible»),
+   así que se oculta; en la plataforma el Excel se baja desde la vista de proceso. */
+body[data-vista="tablero"] #btnExport,
+body[data-vista="tablero"] #exportNote{display:none!important;}
 .solo-cerrar{margin-left:auto;background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.35);
   border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
 .solo-cerrar:hover{background:rgba(255,255,255,.22);}
@@ -591,6 +595,7 @@ p.dupont{background:var(--accent-bg);border:1px solid var(--teal);border-radius:
       <div class="tab-panel" id="panel-programa" hidden></div>
 
       <div class="footer-actions">
+        <button class="btn-primary" id="btnExportHtml" type="button">Descargar HTML</button>
         <button class="btn-primary" id="btnExport" type="button">Descargar Excel (.xlsx)</button>
         <span class="small-note" id="exportNote">La variación y el % se exportan como fórmulas vivas de Excel.</span>
       </div>
@@ -974,7 +979,7 @@ var els={
   dropGrid:$('dropGrid'),uploadNote:$('uploadNote'),secMap:$('secMap'),acctsSummary:$('acctsSummary'),
   clsFilter:$('clsFilter'),clsCount:$('clsCount'),clsBody:$('clsBody'),btnGenerate:$('btnGenerate'),
   cardResults:$('cardResults'),resultsSub:$('resultsSub'),checkBanner:$('checkBanner'),statGrid:$('statGrid'),
-  tabBar:$('tabBar'),depthSel:$('depthSel'),btnExport:$('btnExport'),exportNote:$('exportNote')
+  tabBar:$('tabBar'),depthSel:$('depthSel'),btnExport:$('btnExport'),btnExportHtml:$('btnExportHtml'),exportNote:$('exportNote')
 };
 
 els.dismissSample.addEventListener('click',function(){els.sampleBanner.hidden=true;});
@@ -3027,6 +3032,28 @@ function exportExcel(){
     .finally(function(){ els.btnExport.disabled=false; els.btnExport.textContent=tlabel; });
 }
 els.btnExport.addEventListener('click',exportExcel);
+
+/* Descargar este MISMO papel como HTML autónomo (funciona sin internet). El artefacto
+   ya es self-contained (sin recursos externos), así que se baja tal cual se sirvió:
+   se pide con fetch a la propia URL (blob:/http(s): de la plataforma). Si fetch no
+   puede —p. ej. abierto como archivo local file://—, se serializa el documento actual. */
+function exportHtml(){
+  var b=els.btnExportHtml, note=els.exportNote;
+  var name=(((typeof AUDITIA!=='undefined'&&AUDITIA&&AUDITIA.company)||'Planificacion')+'')
+    .replace(/[^\w\-]+/g,'_').slice(0,60)+'.html';
+  if(b){ b.disabled=true; var t=b.textContent; b.textContent='Preparando…'; }
+  function entregar(blob){
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ try{URL.revokeObjectURL(a.href);}catch(e){} }, 60000);
+    if(note) note.textContent='Descargado: '+name;
+    if(b){ b.disabled=false; b.textContent=t; }
+  }
+  fetch(location.href).then(function(r){ if(!r.ok) throw 0; return r.blob(); })
+    .then(function(blob){ entregar(new Blob([blob],{type:'text/html;charset=utf-8'})); })
+    .catch(function(){ entregar(new Blob(['<!doctype html>\n'+document.documentElement.outerHTML],{type:'text/html;charset=utf-8'})); });
+}
+if(els.btnExportHtml) els.btnExportHtml.addEventListener('click',exportHtml);
 
 /* ============================ capabilities ============================ */
 var downloadsNs=null;
