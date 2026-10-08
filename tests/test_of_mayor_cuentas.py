@@ -11,10 +11,10 @@ from backend.app.aud.obligaciones_fiscales.mayor.cuentas import (
 from backend.app.aud.obligaciones_fiscales.mayor.tipos import Movimiento
 
 
-def _mov(codigo, cuenta, mes, debe=0.0, haber=0.0, asiento="COM 1"):
+def _mov(codigo, cuenta, mes, debe=0.0, haber=0.0, asiento="COM 1", descripcion=""):
     return Movimiento(
         codigo=codigo, cuenta=cuenta, fecha=datetime.date(2025, mes, 15),
-        asiento=asiento, debe=debe, haber=haber,
+        asiento=asiento, debe=debe, haber=haber, descripcion=descripcion,
     )
 
 
@@ -131,7 +131,43 @@ def test_monto_segun_libros_sin_categoria_usa_el_debe_por_defecto():
 
 def test_ambos_lados_guarda_debe_y_haber_por_separado():
     perfiles = perfilar([_mov("x", "c", 1, debe=5.0, haber=1000.0)])
-    assert ambos_lados(perfiles["x"]) == {"debe": {"01": 5.0}, "haber": {"01": 1000.0}}
+    assert ambos_lados(perfiles["x"]) == {
+        "debe": {"01": 5.0}, "haber": {"01": 1000.0},
+        "debe_apertura": {}, "haber_apertura": {},
+    }
+
+
+def test_ambos_lados_separa_la_parte_de_apertura_del_haber():
+    """El saldo inicial (asiento de apertura) se guarda aparte, para poder
+    excluirlo del "según libros" mensual sin releer el mayor."""
+    perfiles = perfilar([
+        _mov("2.3.2.01", "Retención", 1, haber=32508.66,
+             descripcion="REG. SALDOS INICIALES AL 01 DE ENERO DE 2026"),
+        _mov("2.3.2.01", "Retención", 2, haber=6012.53,
+             descripcion="REG. ROL DE PAGOS FEBRERO"),
+    ])
+    datos = ambos_lados(perfiles["2.3.2.01"])
+    assert datos["haber"] == {"01": 32508.66, "02": 6012.53}
+    assert datos["haber_apertura"] == {"01": 32508.66}
+
+
+def test_lado_para_categoria_excluye_el_saldo_inicial_de_apertura():
+    """Caso real THB (cuenta 2.3.2.01, retención en relación de dependencia):
+    el haber de enero es sólo el saldo inicial, así que el "según libros" de
+    enero debe ser 0 (no 32.508,66), como en el papel de trabajo del auditor.
+    Febrero (rol de pagos, sin apertura) queda en 6.012,53."""
+    datos = {
+        "debe": {}, "haber": {"01": 32508.66, "02": 6012.53},
+        "debe_apertura": {}, "haber_apertura": {"01": 32508.66},
+    }
+    assert lado_para_categoria(datos, "RET_RENTA") == {"02": 6012.53}
+
+
+def test_lado_para_categoria_sin_claves_de_apertura_se_comporta_como_antes():
+    """Job viejo: ``por_mes_json`` sin las claves de apertura. No se resta
+    nada (apertura = 0), igual que antes de agregar el rastreo."""
+    datos = {"debe": {"01": 5.0}, "haber": {"01": 1000.0}}
+    assert lado_para_categoria(datos, "RET_RENTA") == {"01": 1000.0}
 
 
 def test_lado_para_categoria_elige_segun_la_naturaleza():
