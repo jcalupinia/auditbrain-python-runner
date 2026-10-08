@@ -135,6 +135,30 @@ function Relacionados({ relacionados }) {
   );
 }
 
+// Pantallas que se escriben en la PESTAÑA NUEVA mientras el servidor arma el papel HTML.
+// Dan señal de progreso (y avisan del posible arranque en frío) y, si falla, muestran el
+// error ahí mismo con un botón para cerrar —en vez de un «Generando…» mudo e infinito—.
+const _ESTILO_TAB = "font-family:system-ui,sans-serif;max-width:40rem;margin:4rem auto;padding:0 1.5rem;color:#0A2342;line-height:1.5";
+function _placeholderTablero() {
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Generando…</title></head>
+<body style="${_ESTILO_TAB}">
+  <h2 style="color:#071B2F">Generando el tablero…</h2>
+  <p>Estamos armando el papel de trabajo. Esto suele tardar unos segundos.</p>
+  <p style="color:#6B7280;font-size:.9rem">Si el servidor estaba inactivo, el primer intento puede demorar hasta un minuto
+  mientras se reinicia. No cierres esta pestaña.</p>
+</body></html>`;
+}
+function _errorTablero(mensaje) {
+  const texto = String(mensaje || "").replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+  return `<div style="${_ESTILO_TAB}">
+  <h2 style="color:#B4232A">No se pudo generar el tablero</h2>
+  <p>${texto}</p>
+  <p style="color:#6B7280;font-size:.9rem">El servidor pudo haber estado ocupado o reiniciándose. Cerrá esta pestaña y volvé
+  a pulsar el botón del tablero en unos segundos.</p>
+  <button onclick="window.close()" style="margin-top:1rem;padding:.5rem 1rem;border:0;border-radius:.5rem;background:#0E2C50;color:#fff;cursor:pointer">Cerrar</button>
+</div>`;
+}
+
 // Matriz del reproceso de la conciliación del último mes (endpoint /reproceso).
 function MatrizReproceso({ datos, onDescargar }) {
   if (!datos) return null;
@@ -346,19 +370,25 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
       setError("El navegador bloqueó la ventana nueva. Habilitá las ventanas emergentes (pop-ups) para este sitio y volvé a intentar.");
       return;
     }
-    win.document.write("<!doctype html><title>Generando…</title><body style='font-family:sans-serif;padding:2rem'>Generando el tablero…</body>");
+    win.document.write(_placeholderTablero());
     try {
       // Cada botón trae su propio HTML autónomo con SOLO esa sección (Materialidad,
       // Riesgos, …). Sin sección (p. ej. el tablero), trae el papel completo.
       // Tablero LIVIANO (adjuntos=false): no incrusta Excel/Word/PowerPoint → abre rápido.
       // Sus botones de descarga le piden a esta vista que los genere al momento (ver el
       // listener de «message» más abajo).
-      const bytes = await api.cicloBajarLibro(prueba.id, "html", seccion || null, false);
+      // Timeout largo y sin reintentos que thrashean: si el servidor está ocupado (worker
+      // único de Render), un timeout corto abortaría y RE-lanzaría el build desde cero,
+      // saturando más al worker → la pestaña se quedaba en «Generando…» para siempre.
+      const bytes = await api.cicloBajarLibro(prueba.id, "html", seccion || null, false, { timeoutMs: 180000, retries: 1 });
+      if (win.closed) return;  // el usuario cerró la pestaña mientras se generaba
       const url = URL.createObjectURL(new Blob([bytes], { type: "text/html;charset=utf-8" }));
       win.location = url;
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
-      win.close();
+      // El usuario está mirando la pestaña NUEVA: el error se muestra AHÍ (no solo en la
+      // vista de origen, que quedó atrás), para que no parezca un cuelgue mudo.
+      if (!win.closed) win.document.body.innerHTML = _errorTablero(e.message || String(e));
       setError(e.message || String(e));
     }
   }
@@ -373,14 +403,15 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
       setError("El navegador bloqueó la ventana nueva. Habilitá las ventanas emergentes (pop-ups) para este sitio y volvé a intentar.");
       return;
     }
-    win.document.write("<!doctype html><title>Generando PDF…</title><body style='font-family:sans-serif;padding:2rem'>Preparando el PDF…</body>");
+    win.document.write(_placeholderTablero());
     try {
-      const bytes = await api.cicloBajarLibro(prueba.id, "html", seccion || null);
+      const bytes = await api.cicloBajarLibro(prueba.id, "html", seccion || null, true, { timeoutMs: 180000, retries: 1 });
+      if (win.closed) return;
       const url = URL.createObjectURL(new Blob([bytes], { type: "text/html;charset=utf-8" }));
       win.location = url + "#print";   // el boot del artefacto detecta #print y abre el diálogo de impresión
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
-      win.close();
+      if (!win.closed) win.document.body.innerHTML = _errorTablero(e.message || String(e));
       setError(e.message || String(e));
     }
   }
