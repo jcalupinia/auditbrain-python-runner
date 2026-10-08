@@ -7,10 +7,11 @@ esta función devuelve.
 
 from __future__ import annotations
 
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook import Workbook
 
+from backend.app.aud.obligaciones_fiscales.libro.estilos import estilo_encabezado_tabla
 from backend.app.aud.obligaciones_fiscales.mayor.catalogo import CATEGORIAS
 from backend.app.aud.obligaciones_fiscales.mayor.cuentas import lado_para_categoria
 from backend.app.aud.obligaciones_fiscales.mayor.ventas_tarifa import (
@@ -88,10 +89,7 @@ def _bloque_desglose_ventas(ws, *, fila: int, cuentas, desglose, nombres,
 
     encabezado = ["Tramo", "Código", "Cuenta"] + NOMBRES_MES + ["Total"]
     for i, texto in enumerate(encabezado, start=1):
-        c = ws.cell(fila, i, texto)
-        c.font = FONT_TOTAL
-        c.border = BORDE
-        c.alignment = Alignment(horizontal="center", wrap_text=True)
+        estilo_encabezado_tabla(ws.cell(fila, i, texto))
     fila += 1
 
     filas_subtotal: list[int] = []
@@ -174,10 +172,7 @@ def build_hoja_mayores(wb: Workbook, filas, movimientos=None) -> dict[tuple[str,
 
     encabezado = ["Categoría", "Código", "Cuenta"] + NOMBRES_MES + ["Total"]
     for i, texto in enumerate(encabezado, start=1):
-        c = ws.cell(3, i, texto)
-        c.font = FONT_TOTAL
-        c.border = BORDE
-        c.alignment = Alignment(horizontal="center", wrap_text=True)
+        estilo_encabezado_tabla(ws.cell(3, i, texto))
 
     por_categoria: dict[str, list] = {}
     for f in filas:

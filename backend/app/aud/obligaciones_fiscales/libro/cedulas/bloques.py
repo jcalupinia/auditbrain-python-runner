@@ -10,7 +10,8 @@ from __future__ import annotations
 from openpyxl.utils import get_column_letter
 
 from backend.app.aud.obligaciones_fiscales.libro.estilos import (
-    BORDE, FONT_DATA, FONT_ENCABEZADO_TABLA, FONT_TOTAL, FORMATO_NUM, RELLENO_TOTAL,
+    BORDE, FONT_DATA, FONT_TOTAL, FORMATO_NUM, RELLENO_TOTAL,
+    estilo_encabezado_tabla,
 )
 
 MESES = [f"{m:02d}" for m in range(1, 13)]
@@ -26,15 +27,11 @@ def _col(mes_idx: int) -> str:
 
 
 def escribir_encabezado_meses(ws, *, fila: int, titulo: str, etiqueta: str = "Cuenta") -> None:
-    ws.cell(fila, COL_TITULO, titulo).font = FONT_ENCABEZADO_TABLA
-    ws.cell(fila, COL_ETIQUETA, etiqueta).font = FONT_ENCABEZADO_TABLA
+    estilo_encabezado_tabla(ws.cell(fila, COL_TITULO, titulo), centro=False)
+    estilo_encabezado_tabla(ws.cell(fila, COL_ETIQUETA, etiqueta), centro=False)
     for j, nombre in enumerate(NOMBRES_MES):
-        c = ws.cell(fila, COL_PRIMER_MES + j, nombre)
-        c.font = FONT_ENCABEZADO_TABLA
-        c.border = BORDE
-    c = ws.cell(fila, COL_TOTAL, "Total")
-    c.font = FONT_ENCABEZADO_TABLA
-    c.border = BORDE
+        estilo_encabezado_tabla(ws.cell(fila, COL_PRIMER_MES + j, nombre))
+    estilo_encabezado_tabla(ws.cell(fila, COL_TOTAL, "Total"))
 
 
 def fila_referencias(ws, *, fila: int, etiqueta: str, direcciones: dict[str, str]) -> None:

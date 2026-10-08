@@ -12,8 +12,8 @@ from __future__ import annotations
 from openpyxl.utils import get_column_letter
 
 from backend.app.aud.obligaciones_fiscales.libro.estilos import (
-    BORDE, FONT_DATA, FONT_ENCABEZADO_TABLA, FONT_ETIQUETA, FONT_TITULO_CEDULA,
-    escribir_encabezado_cedula,
+    BORDE, FONT_DATA, FONT_ETIQUETA, FONT_TITULO_CEDULA,
+    escribir_encabezado_cedula, estilo_encabezado_tabla,
 )
 
 SHEET_DM_PROGRAMA = "DM  Programa de Auditoria"
@@ -91,9 +91,7 @@ def build_dm_programa(
     fila += 1
     encabezado = ("Nº", "Procedimiento", "Referencia")
     for j, texto in enumerate(encabezado):
-        c = ws.cell(fila, 1 + j, texto)
-        c.font = FONT_ENCABEZADO_TABLA
-        c.border = BORDE
+        estilo_encabezado_tabla(ws.cell(fila, 1 + j, texto))
     fila += 1
     for numero, proc, ref in PROCEDIMIENTOS:
         ws.cell(fila, 1, numero).font = FONT_DATA
