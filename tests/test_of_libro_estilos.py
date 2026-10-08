@@ -66,3 +66,24 @@ def test_la_leyenda_explica_cada_marca():
     textos = [str(ws.cell(f, 2).value or "").lower() for f in range(20, 24)]
     assert any("libros" in t for t in textos)
     assert any("diferencia" in t for t in textos)
+
+
+def test_el_encabezado_de_tabla_lleva_banda_de_fondo_navy():
+    """Formato ejecutivo: los encabezados de tabla van con fondo (banda), no
+    texto pelado; si no, el texto blanco quedaría invisible."""
+    from backend.app.aud.obligaciones_fiscales.libro.estilos import (
+        estilo_encabezado_tabla,
+    )
+    wb, ws = _hoja()
+    estilo_encabezado_tabla(ws.cell(1, 1, "Cuenta"))
+    c = ws.cell(1, 1)
+    assert c.fill.fgColor.rgb.endswith("0A2342")      # navy
+    assert c.font.color.rgb.endswith("FFFFFF")        # texto blanco
+
+
+def test_la_banda_de_titulo_pinta_la_fila_1():
+    wb, ws = _hoja()
+    escribir_encabezado_cedula(ws, titulo="IVA", referencia="DM6",
+                               cliente="C", periodo="2025")
+    assert ws["A1"].fill.fgColor.rgb.endswith("071B2F")   # deep blue
+    assert ws["A2"].value == "AuditConsulting Auditores Cía. Ltda."

@@ -27,8 +27,9 @@ from __future__ import annotations
 from openpyxl.utils import get_column_letter
 
 from backend.app.aud.obligaciones_fiscales.libro.estilos import (
-    BORDE, FONT_DATA, FONT_ENCABEZADO_TABLA, FONT_TITULO_CEDULA, FONT_TOTAL,
+    BORDE, FONT_DATA, FONT_TITULO_CEDULA, FONT_TOTAL,
     FORMATO_NUM, RELLENO_TOTAL, escribir_encabezado_cedula, escribir_leyenda_marcas,
+    estilo_encabezado_tabla,
 )
 
 SHEET_DM3 = "DM3 Revisión de saldos"
@@ -74,9 +75,7 @@ def _bloque_saldo(
     fila += 1
 
     for i, texto in enumerate(("Código", "Cuenta", "Valor US$")):
-        c = ws.cell(fila, COL_CODIGO + i, texto)
-        c.font = FONT_ENCABEZADO_TABLA
-        c.border = BORDE
+        estilo_encabezado_tabla(ws.cell(fila, COL_CODIGO + i, texto))
     fila += 1
 
     fila_codigo = fila

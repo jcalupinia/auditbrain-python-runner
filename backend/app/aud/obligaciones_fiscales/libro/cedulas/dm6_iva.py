@@ -22,7 +22,7 @@ from openpyxl.workbook import Workbook
 
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.bloques import MESES, NOMBRES_MES
 from backend.app.aud.obligaciones_fiscales.libro.estilos import (
-    BORDE, FONT_DATA, FONT_ENCABEZADO_TABLA, FORMATO_NUM, escribir_encabezado_cedula,
+    BORDE, FONT_DATA, FORMATO_NUM, escribir_encabezado_cedula, estilo_encabezado_tabla,
     escribir_leyenda_marcas,
 )
 
@@ -145,17 +145,15 @@ def build_dm6(
     )
 
     # --- encabezado de la tabla ---
-    ws.cell(FILA_ENCABEZADO_TABLA, COL_MES, "Mes").font = FONT_ENCABEZADO_TABLA
+    estilo_encabezado_tabla(ws.cell(FILA_ENCABEZADO_TABLA, COL_MES, "Mes"), centro=False)
     for n, etiqueta in _ETIQUETAS.items():
         col = letra_columna(n)
         c = ws[f"{col}{FILA_ENCABEZADO_TABLA}"]
         c.value = etiqueta
-        c.font = FONT_ENCABEZADO_TABLA
-        c.border = BORDE
+        estilo_encabezado_tabla(c)
     c = ws[f"{COL_AF}{FILA_ENCABEZADO_TABLA}"]
     c.value = _ETIQUETA_AF
-    c.font = FONT_ENCABEZADO_TABLA
-    c.border = BORDE
+    estilo_encabezado_tabla(c)
 
     b, c_, d, e, f, g, h, i_, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z, aa, ab, ac, ad = (
         letra_columna(idx) for idx in range(1, 30)

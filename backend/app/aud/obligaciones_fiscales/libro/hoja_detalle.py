@@ -7,9 +7,13 @@ originó sin saltar entre pestañas.
 
 from __future__ import annotations
 
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook import Workbook
+
+from backend.app.aud.obligaciones_fiscales.libro.estilos import (
+    FONT_TITULO_CEDULA, estilo_encabezado_tabla,
+)
 
 SHEET_DETALLE = "Detalle mayor"
 SIN_CLASIFICAR = "SIN_CLASIFICAR"
@@ -20,8 +24,6 @@ ENCABEZADO = [
 ]
 ANCHOS = [16, 14, 34, 12, 20, 24, 16, 32, 34, 14, 14, 14, 8]
 
-FONT_TITULO = Font(name="Calibri", size=11, bold=True)
-FONT_ENCABEZADO = Font(name="Calibri", size=10, bold=True)
 FONT_DATA = Font(name="Calibri", size=9)
 FORMATO_NUM = "#,##0.00"
 FILA_ENCABEZADO = 3
@@ -33,12 +35,10 @@ def build_hoja_detalle(wb: Workbook, movimientos, categorias: dict[str, str]) ->
         del wb[SHEET_DETALLE]
     ws = wb.create_sheet(SHEET_DETALLE)
 
-    ws.cell(1, 1, "DETALLE DEL MAYOR · movimientos clasificados").font = FONT_TITULO
+    ws.cell(1, 1, "DETALLE DEL MAYOR · movimientos clasificados").font = FONT_TITULO_CEDULA
 
     for i, texto in enumerate(ENCABEZADO, start=1):
-        c = ws.cell(FILA_ENCABEZADO, i, texto)
-        c.font = FONT_ENCABEZADO
-        c.alignment = Alignment(horizontal="center", wrap_text=True)
+        estilo_encabezado_tabla(ws.cell(FILA_ENCABEZADO, i, texto))
 
     fila = FILA_ENCABEZADO + 1
     for m in movimientos:

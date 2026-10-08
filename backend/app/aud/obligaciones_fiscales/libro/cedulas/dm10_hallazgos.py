@@ -13,7 +13,7 @@ from __future__ import annotations
 from openpyxl.utils import get_column_letter
 
 from backend.app.aud.obligaciones_fiscales.libro.estilos import (
-    BORDE, FONT_DATA, FONT_ENCABEZADO_TABLA, FONT_TITULO_CEDULA,
+    BORDE, FONT_DATA, FONT_TITULO_CEDULA, estilo_encabezado_tabla,
     escribir_encabezado_cedula,
 )
 
@@ -53,9 +53,7 @@ def build_dm10(
     fila = 12
     encabezado = ("Nº", "Referencia de PT", "Observación / Condición", "Recomendación")
     for j, texto in enumerate(encabezado):
-        c = ws.cell(fila, 1 + j, texto)
-        c.font = FONT_ENCABEZADO_TABLA
-        c.border = BORDE
+        estilo_encabezado_tabla(ws.cell(fila, 1 + j, texto))
     fila += 1
 
     for i, (ref, guia) in enumerate(CEDULAS_REVISABLES, start=1):

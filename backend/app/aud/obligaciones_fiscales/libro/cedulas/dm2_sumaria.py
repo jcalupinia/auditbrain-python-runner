@@ -22,8 +22,9 @@ from collections import defaultdict
 from openpyxl.utils import get_column_letter
 
 from backend.app.aud.obligaciones_fiscales.libro.estilos import (
-    BORDE, FONT_DATA, FONT_ENCABEZADO_TABLA, FONT_TOTAL, FORMATO_NUM,
+    BORDE, FONT_DATA, FONT_TOTAL, FORMATO_NUM,
     RELLENO_TOTAL, escribir_encabezado_cedula, escribir_leyenda_marcas,
+    estilo_encabezado_tabla,
 )
 from backend.app.aud.obligaciones_fiscales.mayor.catalogo import CATEGORIAS
 
@@ -114,9 +115,7 @@ def build_dm2(
     encabezado = ("Código", "Descripción", "Saldo cierre anterior", "Variación",
                   "%", "Saldo al corte", "")
     for j, texto in enumerate(encabezado):
-        c = ws.cell(fila, 1 + j, texto)
-        c.font = FONT_ENCABEZADO_TABLA
-        c.border = BORDE
+        estilo_encabezado_tabla(ws.cell(fila, 1 + j, texto))
     fila += 1
 
     # Agrupadas por categoría (mismo orden que "Mayores homologados"); dentro,

@@ -16,7 +16,7 @@ from openpyxl.workbook import Workbook
 
 from backend.app.aud.obligaciones_fiscales.libro.ats import ResumenATS
 from backend.app.aud.obligaciones_fiscales.libro.estilos import (
-    BORDE, FONT_DATA, FONT_ENCABEZADO_TABLA, FORMATO_NUM,
+    BORDE, FONT_DATA, FORMATO_NUM, estilo_encabezado_tabla,
 )
 from backend.app.ict.fillers.source_data_sheets import (
     SHEET_F103,
@@ -133,9 +133,7 @@ def construir_hoja_ats(
 
     encabezado = ["Campo"] + list(meses) + ["Total"]
     for i, texto in enumerate(encabezado, start=1):
-        c = ws.cell(3, i, texto)
-        c.font = FONT_ENCABEZADO_TABLA
-        c.border = BORDE
+        estilo_encabezado_tabla(ws.cell(3, i, texto))
 
     lookup: dict[tuple[str, str], str] = {}
     fila = 4
