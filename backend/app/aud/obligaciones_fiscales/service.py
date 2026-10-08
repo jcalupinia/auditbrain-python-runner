@@ -7,6 +7,7 @@ import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from backend.app.aud.obligaciones_fiscales import file_storage
 from backend.app.aud.obligaciones_fiscales.models import ToolJob
 from backend.app.context import service as ctx_service
 from backend.app.context.models import Project
@@ -177,6 +178,10 @@ def delete_job(db: Session, user, job_id: int) -> None:
     job = get_job(db, user, job_id)
     db.delete(job)
     db.commit()
+    # Al dar «borrar» el encargo se va por completo: fila + documentos del
+    # disco. Si solo se borrara la fila, la carpeta quedaría como huérfana
+    # ocupando espacio hasta que el cleanup la recoja.
+    file_storage.delete_job_dir(job_id)
 
 
 def update_job(db: Session, user, job_id: int, **fields) -> ToolJob:

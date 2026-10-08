@@ -77,15 +77,27 @@ def cleanup_once() -> dict:
             summary["zombie_jobs"] += 1
 
         db.commit()
+
+        # Ids de TODOS los jobs vivos en la base. Un directorio solo es
+        # «huérfano» si NO tiene fila en la DB (el job se borró pero su carpeta
+        # quedó). Un encargo vigente —aunque lleve horas sin tocarse— tiene su
+        # fila aquí y NO debe borrarse por antigüedad: hacerlo dejaba el encargo
+        # en la lista pero sin documentos, y «editar» daba 410. El borrado por
+        # inactividad es el bloque 1 (opt-in), que además marca la fila.
+        job_ids_vivos = set(
+            db.execute(select(ToolJob.id)).scalars().all()
+        )
     finally:
         db.close()
 
-    # 3. Directorios /tmp huérfanos
+    # 3. Directorios huérfanos REALES: carpeta en disco SIN job en la base.
     orphans = file_storage.list_orphan_job_dirs(
         max_age_seconds=settings.AUD_OF_JOB_TTL_MINUTES * 60
     )
     for d in orphans:
         try:
+            if int(d.name) in job_ids_vivos:
+                continue  # encargo vigente: su carpeta NO es huérfana
             file_storage.delete_job_dir(int(d.name))
             summary["orphan_dirs"] += 1
         except Exception:

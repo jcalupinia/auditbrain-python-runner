@@ -1,11 +1,16 @@
 """Reabrir un encargo ya generado para corregir lo cargado y re-ejecutar."""
 
+import io
+
 from backend.app.aud.obligaciones_fiscales import file_storage
 
+from tests._mayor_fixtures import mayor_xlsx
 from tests.test_aud_of_aprobacion import _procesado  # noqa: F401
 from tests.test_aud_of_router import _db, _h, _mk_admin_project  # noqa: F401
 
 BASE = "/api/v1/aud/obligaciones-fiscales"
+
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _done(client):
@@ -89,3 +94,36 @@ def test_reabrir_sin_documentos_en_disco_da_410(client):
     r = client.post(f"{BASE}/jobs/{jid}/reabrir", headers=_h(tok))
     assert r.status_code == 410, r.text
     assert "disponibles" in r.text.lower()
+
+
+def _done_solo_especifico(client):
+    """Encargo 'done' hecho SOLO con un Mayor específico (sin Mayor General),
+    como el #69 del dueño."""
+    tok, pid = _mk_admin_project(client)
+    jid = client.post(
+        f"{BASE}/jobs", headers=_h(tok),
+        data={"project_id": pid, "cliente_name": "C", "period_label": "2025"},
+    ).json()["id"]
+    fila = ["1.1.5.1.1", "IVA sobre Compras", "2025-01-05", "COM 1",
+            "", "", "", "", "", 10.0, 0, 10.0]
+    r = client.put(
+        f"{BASE}/jobs/{jid}/slots/mayor_especifico", headers=_h(tok),
+        files=[("archivos", ("compras.xlsx", io.BytesIO(mayor_xlsx([fila])), XLSX_MIME))],
+        data={"categoria": "IVA_COMPRAS"},
+    )
+    assert r.status_code == 200, r.text
+    assert client.post(f"{BASE}/jobs/{jid}/procesar", headers=_h(tok)).status_code == 200
+    assert client.post(f"{BASE}/jobs/{jid}/aprobar", headers=_h(tok)).status_code == 200
+    assert client.get(f"{BASE}/jobs/{jid}", headers=_h(tok)).json()["status"] == "done"
+    return tok, jid
+
+
+def test_reabrir_un_done_hecho_solo_con_mayor_especifico_no_da_410(client):
+    """Regresión del #69: el encargo se procesó SOLO con Mayores específicos
+    (sin Mayor General). Reabrir comprobaba únicamente el Mayor General, así que
+    daba 410 aunque los específicos siguieran en disco. Ahora el 410 solo salta
+    si NO queda NINGÚN documento."""
+    tok, jid = _done_solo_especifico(client)
+    r = client.post(f"{BASE}/jobs/{jid}/reabrir", headers=_h(tok))
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "revision"
