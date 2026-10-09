@@ -36,11 +36,17 @@ COL_PRIMER_MES = 4
 COL_TOTAL = COL_PRIMER_MES + 12
 
 CAT_VENTAS = "VENTAS"
-# Los tres tramos del desglose de ventas por tarifa, en el orden en que se
-# escriben, con el título de su sub-bloque.
+# Tramos del desglose de ventas por tarifa, en el orden en que se escriben, con
+# el título de su sub-bloque. La tarifa se lee de la cuenta (ver
+# ``mayor/ventas_tarifa.py``): gravadas ≠0%, exportación de servicios, 0% local,
+# reembolsos (casillero 444) y otros ingresos que no son operación de IVA en
+# ventas. "Por asignar" es el remanente de las cuentas sin tarifa en el nombre.
 TRAMOS_VENTAS = (
     ("gravada", "Ventas gravadas (≠ 0%)"),
-    ("cero", "Ventas 0%"),
+    ("exportacion", "Exportación de servicios"),
+    ("cero", "Ventas 0% local"),
+    ("reembolso", "Reembolsos (casillero 444)"),
+    ("otro_ingreso", "Otros ingresos (no IVA en ventas)"),
     ("por_asignar", "Por asignar (asientos con tarifas mezcladas)"),
 )
 
@@ -95,6 +101,14 @@ def _bloque_desglose_ventas(ws, *, fila: int, cuentas, desglose, nombres,
     filas_subtotal: list[int] = []
     for tramo, titulo in TRAMOS_VENTAS:
         primera = fila
+        # Cuentas con algún movimiento en este tramo: las que DM5 lista en el
+        # bloque del tramo (una cuenta de corretaje no aparece en "otros
+        # ingresos" y viceversa).
+        con_valor = [
+            c for c in cuentas
+            if any(round(v, 2) for v in desglose.get(c, {}).get(tramo, {}).values())
+        ]
+        lookup[(f"cuentas_tramo:{tramo}", "cuentas")] = con_valor
         for codigo in cuentas:
             por_mes = desglose.get(codigo, {}).get(tramo, {})
             ws.cell(fila, COL_CATEGORIA, titulo).font = FONT_DATA
@@ -151,7 +165,8 @@ def _bloque_desglose_ventas(ws, *, fila: int, cuentas, desglose, nombres,
     return fila + 2
 
 
-def build_hoja_mayores(wb: Workbook, filas, movimientos=None) -> dict[tuple[str, str], str]:
+def build_hoja_mayores(wb: Workbook, filas, movimientos=None,
+                       ventas_tarifa_overrides=None) -> dict[tuple[str, str], str]:
     """Crea la hoja resumen. Devuelve {(categoria, "01".."12"|"TOTAL") → addr}.
 
     Todas las direcciones devueltas van calificadas con el nombre de la hoja
@@ -235,6 +250,7 @@ def build_hoja_mayores(wb: Workbook, filas, movimientos=None) -> dict[tuple[str,
         desglose = separar_ventas_por_tarifa(
             movimientos,
             {f.codigo_cuenta: f.categoria_final for f in filas},
+            overrides=ventas_tarifa_overrides or {},
         )
         fila = _bloque_desglose_ventas(
             ws, fila=fila + 1, cuentas=cuentas_ventas, desglose=desglose,

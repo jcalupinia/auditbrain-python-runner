@@ -14,13 +14,20 @@ from backend.app.aud.obligaciones_fiscales.mayor.tipos import Movimiento
 
 PERIODOS = [f"2025-{m:02d}" for m in range(1, 13)]
 
+# 4.1.1.1.1 es gravada ≠0%; 4.1.1.1.2 es 0% local. hoja_mayores publica la
+# lista de cuentas con movimiento por tramo (`cuentas_tramo:<tramo>`) y la
+# dirección de cada cuenta en su tramo.
 DIR_MAYORES = {
     ("cuenta:4.1.1.1.1", "01"): "'Mayores homologados'!D4",
     ("cuenta:4.1.1.1.2", "01"): "'Mayores homologados'!D5",
     ("cuenta:4.1.1.1.1:gravada", "01"): "'Mayores homologados'!D40",
-    ("cuenta:4.1.1.1.2:gravada", "01"): "'Mayores homologados'!D41",
-    ("cuenta:4.1.1.1.1:cero", "01"): "'Mayores homologados'!D44",
-    ("cuenta:4.1.1.1.2:cero", "01"): "'Mayores homologados'!D45",
+    ("cuenta:4.1.1.1.2:cero", "01"): "'Mayores homologados'!D44",
+    ("cuentas_tramo:gravada", "cuentas"): ["4.1.1.1.1"],
+    ("cuentas_tramo:exportacion", "cuentas"): [],
+    ("cuentas_tramo:cero", "cuentas"): ["4.1.1.1.2"],
+    ("cuentas_tramo:reembolso", "cuentas"): [],
+    ("cuentas_tramo:otro_ingreso", "cuentas"): [],
+    ("cuentas_tramo:por_asignar", "cuentas"): [],
     ("VENTAS:por_asignar", "01"): "'Mayores homologados'!D52",
     ("orden:VENTAS", "cuentas"): ["4.1.1.1.1", "4.1.1.1.2"],
     ("cuenta:2.1.3.1.1", "01"): "'Mayores homologados'!D8",
@@ -53,11 +60,13 @@ def _etiquetas(ws):
     return [ws.cell(r, 2).value for r in range(1, ws.max_row + 1)]
 
 
-def test_las_cuentas_de_ventas_aparecen_en_los_dos_bloques_de_ventas():
+def test_cada_cuenta_aparece_solo_en_el_bloque_de_su_tramo():
+    """Con la tarifa leída de la cuenta, cada cuenta aparece una sola vez, en
+    el bloque de su tramo (la gravada en «gravadas», la 0% en «0% local»)."""
     ws = _cedula()
     etiquetas = _etiquetas(ws)
-    assert etiquetas.count("Ventas Tarifa 15%") == 2
-    assert etiquetas.count("Ventas Tarifa 0%") == 2
+    assert etiquetas.count("Ventas Tarifa 15%") == 1
+    assert etiquetas.count("Ventas Tarifa 0%") == 1
 
 
 def test_el_bloque_de_iva_en_ventas_lista_su_cuenta():
@@ -87,9 +96,11 @@ def test_estan_los_casilleros_de_los_tres_bloques():
         assert any(e.startswith(f"Casillero {cas}") for e in etiquetas), cas
 
 
-def test_hay_una_diferencia_por_cada_uno_de_los_tres_bloques():
+def test_hay_una_diferencia_por_cada_bloque_cruzado():
+    # Gravadas, exportación, 0% local, reembolsos e IVA en ventas cruzan contra
+    # casilleros (5 diferencias). "Otros ingresos" es informativo, sin cruce.
     ws = _cedula()
-    assert _etiquetas(ws).count("Diferencia") == 3
+    assert _etiquetas(ws).count("Diferencia") == 5
 
 
 def test_la_diferencia_resta_libros_menos_declarado_y_redondea():
@@ -178,30 +189,32 @@ def _fila_del_titulo(ws, titulo: str) -> int:
 
 def test_cada_bloque_de_ventas_lee_su_propio_tramo_del_desglose():
     ws = _cedula()
-    primera_no_cero = _fila_del_titulo(ws, "VENTAS ≠ 0%") + 1
-    primera_cero = _fila_del_titulo(ws, "VENTAS 0%") + 1
-    assert ws.cell(primera_no_cero, 3).value == "='Mayores homologados'!D40"
+    primera_grav = _fila_del_titulo(ws, "VENTAS GRAVADAS ≠ 0%") + 1
+    primera_cero = _fila_del_titulo(ws, "VENTAS 0% LOCAL") + 1
+    assert ws.cell(primera_grav, 3).value == "='Mayores homologados'!D40"
     assert ws.cell(primera_cero, 3).value == "='Mayores homologados'!D44"
 
 
-def test_hay_una_fila_visible_de_ventas_por_asignar():
+def test_no_hay_fila_por_asignar_cuando_todas_las_cuentas_tienen_tarifa():
+    """Con la tarifa leída de la cuenta ninguna queda 'por asignar': esa fila
+    informativa sólo aparece si el reparto por asiento no cuadró una cuenta."""
     ws = _cedula()
+    assert _etiquetas(ws).count(ETIQUETA_POR_ASIGNAR) == 0
+
+
+def test_la_fila_por_asignar_aparece_cuando_hay_cuentas_sin_tarifa():
+    ws = _cedula(dir_mayores={
+        **DIR_MAYORES,
+        ("cuentas_tramo:por_asignar", "cuentas"): ["4.1.1.1.1"],
+    })
     etiquetas = _etiquetas(ws)
     assert etiquetas.count(ETIQUETA_POR_ASIGNAR) == 1
     fila = etiquetas.index(ETIQUETA_POR_ASIGNAR) + 1
     assert ws.cell(fila, 3).value == "='Mayores homologados'!D52"
-
-
-def test_la_fila_por_asignar_no_entra_en_el_segun_libros():
-    """Lo que no se pudo clasificar se MUESTRA, no se suma a la base gravada:
-    el 'Según libros' del bloque tiene que seguir sumando sólo las cuentas."""
-    ws = _cedula()
-    etiquetas = _etiquetas(ws)
-    fila_por_asignar = etiquetas.index(ETIQUETA_POR_ASIGNAR) + 1
+    # Va DESPUÉS del "Según libros" del bloque gravadas (fuera de su suma).
     fila_libros = next(r for r in range(1, ws.max_row + 1)
                        if ws.cell(r, 2).value == "Según libros")
-    assert fila_libros < fila_por_asignar
-    assert ws.cell(fila_libros, 3).value == f"=SUM(C14:C{fila_libros - 1})"
+    assert fila_libros < fila
 
 
 # --------------------------------------- regresión: DM5!C14 vs DM5!C36 ---
@@ -241,8 +254,8 @@ def test_los_dos_bloques_de_ventas_ya_no_apuntan_a_la_misma_celda():
         f103_monthly={}, cliente="C", periodo="2025",
     )))
     ws = wb[SHEET_DM5]
-    fila_no_cero = _fila_del_titulo(ws, "VENTAS ≠ 0%") + 1
-    fila_cero = _fila_del_titulo(ws, "VENTAS 0%") + 1
+    fila_no_cero = _fila_del_titulo(ws, "VENTAS GRAVADAS ≠ 0%") + 1
+    fila_cero = _fila_del_titulo(ws, "VENTAS 0% LOCAL") + 1
     gravada = ws.cell(fila_no_cero, 3).value
     cero = ws.cell(fila_cero, 3).value
     assert gravada != cero, gravada

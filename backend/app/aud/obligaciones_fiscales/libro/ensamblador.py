@@ -70,8 +70,15 @@ def armar_libro(
     periodo: str = "",
     preparado_por: str | None = None,
     revisado_por: str | None = None,
+    ventas_tarifa_overrides: dict[str, str] | None = None,
 ) -> bytes:
-    """Devuelve los bytes del libro DM con sus hojas de datos y sus cédulas."""
+    """Devuelve los bytes del libro DM con sus hojas de datos y sus cédulas.
+
+    ``ventas_tarifa_overrides`` ({codigo: tramo}) es el ajuste manual del
+    auditor sobre la tarifa inferida de cada cuenta de ventas (gravada /
+    exportacion / cero / reembolso / otro_ingreso); si no se pasa, la tarifa
+    sale del nombre de la cuenta.
+    """
     wb = Workbook()
     if "Sheet" in wb.sheetnames:
         del wb["Sheet"]
@@ -79,7 +86,9 @@ def armar_libro(
     # Los movimientos también van a la hoja resumen: el desglose de ventas
     # por tarifa se calcula asiento por asiento, no se puede derivar de los
     # totales por cuenta y mes.
-    dir_mayores = build_hoja_mayores(wb, clasificacion, movimientos)
+    dir_mayores = build_hoja_mayores(
+        wb, clasificacion, movimientos, ventas_tarifa_overrides=ventas_tarifa_overrides
+    )
     build_hoja_detalle(
         wb, movimientos, {f.codigo_cuenta: f.categoria_final for f in clasificacion}
     )

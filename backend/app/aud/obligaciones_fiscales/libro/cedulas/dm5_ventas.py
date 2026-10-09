@@ -35,16 +35,18 @@ from backend.app.aud.obligaciones_fiscales.libro.estilos import (
 
 SHEET_DM5 = "DM5 Ventas"
 # Ventas gravadas tarifa ≠0% (Valor Neto): locales (411), activos fijos (412),
-# tarifa variable (420) y tarifa 5% (435). El 412 es ventas de activos fijos
-# GRAVADAS ≠0%, así que va aquí, no en el bloque 0%.
+# tarifa variable (420) y tarifa 5% (435).
 CASILLEROS_VENTAS = ["411", "412", "420", "435"]
-# Ventas tarifa 0% (Valor Neto): locales y de activos fijos, con y sin derecho
-# a crédito (413..416), más exportaciones de bienes y servicios (417, 418).
-CASILLEROS_VENTAS_0 = ["413", "414", "415", "416", "417", "418"]
+# Ventas tarifa 0% LOCAL (Valor Neto): locales y de activos fijos, con y sin
+# derecho a crédito (413..416). Las exportaciones van aparte (417/418): antes
+# estaban aquí y, como DM6 también lee 417/418 en «exportaciones», la misma
+# cifra se restaba dos veces en la diferencia de ventas.
+CASILLEROS_VENTAS_0 = ["413", "414", "415", "416"]
+# Exportaciones de bienes y servicios (Valor Neto).
+CASILLEROS_EXPORTACION = ["417", "418"]
+# Ingresos por reembolso como intermediario.
+CASILLERO_REEMBOLSO = "444"
 CASILLEROS_IVA_VENTAS = ["421", "422", "423", "424", "454"]
-# El 444 (ingresos por reembolso como intermediario) es informativo: NO es una
-# venta gravada ni 0%, así que no entra en ninguno de los dos bloques. Antes
-# estaba duplicado en ambos e inflaba el "Total ventas declaradas".
 
 ETIQUETA_POR_ASIGNAR = "Por asignar (revisar asientos con tarifas mezcladas)"
 
@@ -100,7 +102,13 @@ def _bloque_cuentas(ws, *, fila: int, titulo: str, cuentas: list[str],
         fila += 1
     ultima = fila - 1
     fila_libros = fila
-    fila_suma_rango(ws, fila=fila_libros, etiqueta="Según libros", desde=primera, hasta=ultima)
+    if cuentas:
+        fila_suma_rango(ws, fila=fila_libros, etiqueta="Según libros",
+                        desde=primera, hasta=ultima)
+    else:
+        # Sin cuentas en el tramo: el "Según libros" es 0 (no se puede sumar un
+        # rango vacío; un SUM invertido tomaría el encabezado y daría #basura).
+        fila_referencias(ws, fila=fila_libros, etiqueta="Según libros", direcciones={})
     fila += 1
     if extra:
         etiqueta, direcciones = extra
@@ -180,16 +188,33 @@ def build_dm5(
     cuentas_ventas = dir_mayores.get(("orden:VENTAS", "cuentas"), [])
     cuentas_iva_ventas = dir_mayores.get(("orden:IVA_VENTAS", "cuentas"), [])
 
+    def _cuentas_de(tramo, fallback=None):
+        """Cuentas con movimiento en el tramo (las que publica hoja_mayores).
+
+        Sin desglose (libro armado sin movimientos) no hay listas por tramo: se
+        cae a ``fallback`` para no dejar el bloque vacío en ese caso degenerado.
+        """
+        v = dir_mayores.get((f"cuentas_tramo:{tramo}", "cuentas"))
+        return v if v is not None else (fallback if fallback is not None else [])
+
     fila = 13
 
-    # --- Bloque 1: Ventas ≠ 0% ---
-    dirs_por_asignar = {
-        mes: dir_mayores[("VENTAS:por_asignar", mes)]
-        for mes in MESES
-        if ("VENTAS:por_asignar", mes) in dir_mayores
-    }
+    # --- Bloque 1: Ventas gravadas ≠ 0% ---
+    # La fila "por asignar" solo se muestra si alguna cuenta quedó sin tarifa
+    # (reparto por asiento que no cuadró); con la tarifa leída de la cuenta
+    # normalmente no hay ninguna.
+    dirs_por_asignar = (
+        {
+            mes: dir_mayores[("VENTAS:por_asignar", mes)]
+            for mes in MESES
+            if ("VENTAS:por_asignar", mes) in dir_mayores
+        }
+        if _cuentas_de("por_asignar")
+        else {}
+    )
     fila, fila_libros_1 = _bloque_cuentas(
-        ws, fila=fila, titulo="VENTAS ≠ 0%", cuentas=cuentas_ventas,
+        ws, fila=fila, titulo="VENTAS GRAVADAS ≠ 0%",
+        cuentas=_cuentas_de("gravada", fallback=cuentas_ventas),
         dir_mayores=dir_mayores, nombres_cuenta=nombres_cuenta, tramo="gravada",
         extra=(ETIQUETA_POR_ASIGNAR, dirs_por_asignar) if dirs_por_asignar else None,
     )
@@ -200,9 +225,22 @@ def build_dm5(
                     fila_libros=fila_libros_1, fila_declarado=fila_decl_1)
     fila += 3
 
-    # --- Bloque 2: Ventas 0% (mismas cuentas de libros, otros casilleros) ---
+    # --- Bloque 2: Exportación de servicios (417/418) ---
+    fila, fila_libros_exp = _bloque_cuentas(
+        ws, fila=fila, titulo="EXPORTACIÓN DE SERVICIOS",
+        cuentas=_cuentas_de("exportacion"),
+        dir_mayores=dir_mayores, nombres_cuenta=nombres_cuenta, tramo="exportacion",
+    )
+    fila, fila_decl_exp = _bloque_declarado(
+        ws, fila=fila, casilleros=CASILLEROS_EXPORTACION, dir_f104=dir_f104, periodos=periodos,
+    )
+    fila_diferencia(ws, fila=fila, etiqueta="Diferencia",
+                    fila_libros=fila_libros_exp, fila_declarado=fila_decl_exp)
+    fila += 3
+
+    # --- Bloque 3: Ventas 0% local (413..416) ---
     fila, fila_libros_2 = _bloque_cuentas(
-        ws, fila=fila, titulo="VENTAS 0%", cuentas=cuentas_ventas,
+        ws, fila=fila, titulo="VENTAS 0% LOCAL", cuentas=_cuentas_de("cero"),
         dir_mayores=dir_mayores, nombres_cuenta=nombres_cuenta, tramo="cero",
     )
     fila, fila_decl_2 = _bloque_declarado(
@@ -210,14 +248,38 @@ def build_dm5(
     )
     fila_diferencia(ws, fila=fila, etiqueta="Diferencia",
                     fila_libros=fila_libros_2, fila_declarado=fila_decl_2)
+    fila += 3
+
+    # --- Bloque 4: Reembolsos (casillero 444) ---
+    fila, fila_libros_reemb = _bloque_cuentas(
+        ws, fila=fila, titulo="REEMBOLSOS (CASILLERO 444)", cuentas=_cuentas_de("reembolso"),
+        dir_mayores=dir_mayores, nombres_cuenta=nombres_cuenta, tramo="reembolso",
+    )
+    fila, fila_decl_reemb = _bloque_declarado(
+        ws, fila=fila, casilleros=[CASILLERO_REEMBOLSO], dir_f104=dir_f104, periodos=periodos,
+    )
+    fila_diferencia(ws, fila=fila, etiqueta="Diferencia",
+                    fila_libros=fila_libros_reemb, fila_declarado=fila_decl_reemb)
     fila += 1
 
     fila_total_declarado = fila
     _fila_suma_de_filas(ws, fila=fila_total_declarado, etiqueta="Total ventas declaradas",
-                        filas=[fila_decl_1, fila_decl_2])
+                        filas=[fila_decl_1, fila_decl_exp, fila_decl_2, fila_decl_reemb])
     fila += 3
 
-    # --- Bloque 3: IVA en ventas ---
+    # --- Bloque 5: Otros ingresos (no son operación de IVA en ventas) ---
+    # Informativo: rendimientos, venta de activos, recuperación, diferencias.
+    # No se cruzan contra casilleros de ventas (decisión del dueño 2026-10-09).
+    cuentas_otros = _cuentas_de("otro_ingreso")
+    if cuentas_otros:
+        fila, _ = _bloque_cuentas(
+            ws, fila=fila, titulo="OTROS INGRESOS (no IVA en ventas · informativo)",
+            cuentas=cuentas_otros, dir_mayores=dir_mayores,
+            nombres_cuenta=nombres_cuenta, tramo="otro_ingreso",
+        )
+        fila += 2
+
+    # --- Bloque 6: IVA en ventas ---
     fila, fila_libros_3 = _bloque_cuentas(
         ws, fila=fila, titulo="IVA EN VENTAS", cuentas=cuentas_iva_ventas,
         dir_mayores=dir_mayores, nombres_cuenta=nombres_cuenta,
@@ -239,6 +301,7 @@ def build_dm5(
     salida: dict[tuple[str, str], str] = {}
     for clave, fila_origen in (
         ("ventas_libros", fila_libros_1),
+        ("export_libros", fila_libros_exp),
         ("ventas_0_libros", fila_libros_2),
         ("iva_ventas_libros", fila_libros_3),
         ("total_declarado", fila_total_declarado),

@@ -7,6 +7,7 @@ from backend.app.aud.obligaciones_fiscales.mayor.tipos import Movimiento
 from backend.app.aud.obligaciones_fiscales.mayor.ventas_tarifa import (
     BUCKETS,
     separar_ventas_por_tarifa,
+    tarifa_de_cuenta,
 )
 
 CATEGORIAS = {"4.1.1.1": "VENTAS", "4.1.1.2": "VENTAS", "2.1.7.4.1": "IVA_VENTAS"}
@@ -138,3 +139,51 @@ def test_un_asiento_ambiguo_de_22_lineas_se_resuelve_rapido():
     inicio = time.perf_counter()
     separar_ventas_por_tarifa(lineas + [_iva(3.33, "VTA 9")], CATEGORIAS)
     assert time.perf_counter() - inicio < 2.0
+
+
+# --------------------------------------------- tarifa leída de la cuenta ---
+
+def test_tarifa_de_cuenta_lee_el_tramo_del_nombre():
+    assert tarifa_de_cuenta("CORRETAJES CON IVA 0%") == "exportacion"
+    assert tarifa_de_cuenta("CORRETAJE CON IVA 12% Y 15%") == "gravada"
+    assert tarifa_de_cuenta("NOTAS DE CREDITO CON 12%") == "gravada"
+    assert tarifa_de_cuenta("NOTAS DE CREDITO TARIFA 0%") == "cero"
+    assert tarifa_de_cuenta("INGRESOS POR REEMBOLSO") == "reembolso"
+    assert tarifa_de_cuenta("RENDIMIENTOS INVERSIONES") == "otro_ingreso"
+    assert tarifa_de_cuenta("VENTA DE ACTIVOS FIJOS") == "otro_ingreso"
+    assert tarifa_de_cuenta("VENTAS LOCALES 0%") == "cero"
+    assert tarifa_de_cuenta("Ventas") is None  # sin pista → reparto por asiento
+
+
+def _mov(codigo, cuenta, debe=0.0, haber=0.0, mes=1):
+    return Movimiento(codigo=codigo, cuenta=cuenta, asiento="REG",
+                      fecha=datetime.date(2025, mes, 10), debe=debe, haber=haber)
+
+
+def test_cada_cuenta_va_entera_a_su_tramo_por_el_nombre_sin_por_asignar():
+    movs = [
+        _mov("4.1.1.01", "CORRETAJES CON IVA 0%", haber=100.0),
+        _mov("4.1.1.02", "CORRETAJE CON IVA 12% Y 15%", haber=50.0),
+        _mov("4.1.1.04", "NOTAS DE CREDITO TARIFA 0%", debe=20.0),  # NC export
+        _mov("4.2.8.01", "INGRESOS POR REEMBOLSO", haber=5.0),
+        _mov("4.2.1.01", "RENDIMIENTOS INVERSIONES", haber=7.0),
+    ]
+    cats = {c: "VENTAS" for c in ("4.1.1.01", "4.1.1.02", "4.1.1.04", "4.2.8.01", "4.2.1.01")}
+    des = separar_ventas_por_tarifa(movs, cats)
+    assert des["4.1.1.02"]["gravada"]["01"] == 50.0
+    # La NC 0% resta del tramo de exportación (hay exportación y no hay 0% local).
+    assert des["4.1.1.01"]["exportacion"]["01"] == 100.0
+    assert des["4.1.1.04"]["exportacion"]["01"] == -20.0
+    assert des["4.2.8.01"]["reembolso"]["01"] == 5.0
+    assert des["4.2.1.01"]["otro_ingreso"]["01"] == 7.0
+    # Ninguna cuenta quedó "por asignar".
+    assert all(not des[c]["por_asignar"] for c in des)
+
+
+def test_override_del_auditor_manda_sobre_el_nombre():
+    movs = [_mov("4.1.1.01", "CORRETAJES CON IVA 0%", haber=100.0)]
+    des = separar_ventas_por_tarifa(
+        movs, {"4.1.1.01": "VENTAS"}, overrides={"4.1.1.01": "cero"}
+    )
+    assert des["4.1.1.01"]["cero"]["01"] == 100.0
+    assert des["4.1.1.01"]["exportacion"].get("01", 0.0) == 0.0
