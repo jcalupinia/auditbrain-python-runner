@@ -100,6 +100,28 @@ def test_lee_los_comprobantes_anulados():
     assert r.comprobantes_anulados == 2
 
 
+def test_extrae_el_no_objeto_del_codigo_19():
+    """El código 19 (cuotas/aportes) es "no objeto de IVA": se suma como tal
+    aunque el ERP lo exporte en la columna de BI 0%. Se resta del casillero 519
+    en el cruce de compras de DM8."""
+    texto = (
+        "TALÓN RESUMEN\nANEXO TRANSACCIONAL\nRUC: 1790000000001\n"
+        "Periodo: 05-2026\n"
+        "COMPRAS\n"
+        "Cod. Transacción No. Registros BI tarifa 0% BI tarifa 12% BI No Objeto IVA Valor IVA\n"
+        "01 FACTURA 10 100.00 2000.00 0.00 300.00\n"
+        "COMPROBANTE DE PAGO DE\n"
+        "19 2 763.86 0.00 0.00 0.00\n"
+        "CUOTAS O APORTE\n"
+        "TOTAL: 863.86 2000.00 0.00 300.00\n"
+        "VENTAS\n"
+        "TOTAL: 0.00 0.00 0.00 0.00\n"
+    )
+    r = parse_ats_texto(texto)
+    assert r.compras_no_objeto == 763.86
+    assert r.compras.bi_0 == 863.86  # el TOTAL sí incluye el código 19
+
+
 def test_reconstruye_el_nombre_partido_en_varias_lineas():
     """303: el nombre viene partido antes (línea previa) y después (línea
     siguiente) de la fila código+números. Nunca se debe heredar el nombre

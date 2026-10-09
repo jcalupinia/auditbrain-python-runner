@@ -106,6 +106,10 @@ class ResumenATS:
     secuencial: str | None = None
     compras: BloqueBase = field(default_factory=BloqueBase)
     ventas: BloqueBase = field(default_factory=BloqueBase)
+    # Base de compras "no objeto de IVA" (código 19) y de importaciones
+    # (códigos 03/04) del talón: se restan del casillero 519 en el cruce de DM8.
+    compras_no_objeto: float = 0.0
+    compras_importacion: float = 0.0
     comprobantes_anulados: int | None = None
     retenciones_renta: list[RetencionRenta] = field(default_factory=list)
     retenciones_renta_base_total: float = 0.0
@@ -224,6 +228,44 @@ def _bloque_totales(lines: list[str], *, inicio: str, fin: str | None) -> Bloque
                     iva=_parse_amount_sri(iva) or 0.0,
                 )
     return None
+
+
+# Códigos de transacción del ATS que NO son objeto de IVA (se restan del
+# casillero 519 de compras en el cruce de DM8). 19 = "Comprobante de pago de
+# cuotas o aportes"; algunos ERP lo exportan en la columna de BI 0% en vez de
+# "BI No Objeto", así que se identifica por el código, no por la columna.
+CODIGOS_NO_OBJETO = frozenset({"19"})
+# Códigos de transacción del ATS de importaciones (no llevan retención en la
+# fuente de IVA local). Se restan junto con el "no objeto".
+CODIGOS_IMPORTACION = frozenset({"03", "04"})
+
+
+def _compras_por_codigo(lines: list[str]) -> dict[str, float]:
+    """{código de transacción → base total} del bloque COMPRAS del talón.
+
+    La base total de una fila es BI 0% + BI ≠0% + BI No Objeto (lo que el ERP
+    haya puesto en cada columna). El nombre del tipo de comprobante puede venir
+    partido en varias líneas; la fila con los importes es la que empieza por el
+    código seguido del número de registros y cuatro montos.
+    """
+    por_codigo: dict[str, float] = {}
+    for linea in _seccion(lines, "COMPRAS", "VENTAS"):
+        if linea.strip().upper().startswith("TOTAL:"):
+            continue
+        tokens = linea.split()
+        # Los códigos de transacción de COMPRAS son de 1 a 3 dígitos (01, 11,
+        # 19, 41…), más cortos que los códigos de retención de renta (303…), así
+        # que no se usa ``_CODE_RE`` (que exige 3-4 dígitos).
+        if len(tokens) < 6 or not re.match(r"^\d{1,3}[A-Z]?$", tokens[0]):
+            continue
+        # Los cuatro últimos tokens deben ser montos y el quinto desde el final
+        # (número de registros) un entero.
+        if not all(_is_amount(t) for t in tokens[-4:]) or not tokens[-5].isdigit():
+            continue
+        bi_0, bi_grav, bi_no_obj, _iva = (_parse_amount_sri(t) or 0.0 for t in tokens[-4:])
+        base = round(bi_0 + bi_grav + bi_no_obj, 2)
+        por_codigo[tokens[0]] = round(por_codigo.get(tokens[0], 0.0) + base, 2)
+    return por_codigo
 
 
 def _buscar_anulados(lines: list[str]) -> int | None:
@@ -419,6 +461,13 @@ def parse_ats_texto(texto: str) -> ResumenATS:
 
     compras = _bloque_totales(lines, inicio="COMPRAS", fin="VENTAS")
     ventas = _bloque_totales(lines, inicio="VENTAS", fin="COMPROBANTES ANULADOS")
+    compras_por_codigo = _compras_por_codigo(lines)
+    compras_no_objeto = round(
+        sum(v for c, v in compras_por_codigo.items() if c in CODIGOS_NO_OBJETO), 2
+    )
+    compras_importacion = round(
+        sum(v for c, v in compras_por_codigo.items() if c in CODIGOS_IMPORTACION), 2
+    )
     anulados = _buscar_anulados(
         _seccion(lines, "COMPROBANTES ANULADOS", "RESUMEN DE RETENCIONES - AGENTE DE RETENCION")
     )
@@ -459,6 +508,8 @@ def parse_ats_texto(texto: str) -> ResumenATS:
         secuencial=secuencial,
         compras=compras or BloqueBase(),
         ventas=ventas or BloqueBase(),
+        compras_no_objeto=compras_no_objeto,
+        compras_importacion=compras_importacion,
         comprobantes_anulados=anulados,
         retenciones_renta=retenciones_renta,
         retenciones_renta_base_total=renta_base_total,
