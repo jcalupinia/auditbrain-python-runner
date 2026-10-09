@@ -69,8 +69,12 @@ def _bloque_saldo(
     addr_libros: str | None,
     formula_declarado: str,
     etiqueta_declarado: str,
-) -> int:
-    """Escribe un bloque de una sola cifra anual. Devuelve la fila siguiente.
+) -> tuple[int, int, int]:
+    """Escribe un bloque de una sola cifra anual.
+
+    Devuelve ``(fila_siguiente, fila_libros, fila_declarado)``: las dos últimas
+    para que el cruce global de DM3 pueda sumar los "según libros" y los "según
+    declaraciones" de todos los bloques.
 
     ``addr_libros`` es la dirección (de la cédula sumaria DM2) del saldo al
     corte de la cuenta, para que DM3 cruce contra la MISMA cifra de la sumaria.
@@ -126,7 +130,7 @@ def _bloque_saldo(
     v.border = BORDE
     fila += 3
 
-    return fila
+    return fila, fila_libros, fila_declarado
 
 
 def build_dm3(
@@ -178,7 +182,7 @@ def build_dm3(
     addr617 = _addr_casillero(dir_f104, periodos, "617")
     partes = [a for a in (addr615, addr617) if a]
     formula_credito = ("=" + "+".join(partes)) if partes else 0
-    fila = _bloque_saldo(
+    fila, fl_1, fd_1 = _bloque_saldo(
         ws, fila=fila, titulo="CREDITO TRIBUTARIO",
         codigo_cuenta=cuenta_credito_tributario, nombre_cuenta=nombre_credito_tributario,
         addr_libros=dir_dm2.get(("saldo_corte", cuenta_credito_tributario)),
@@ -189,7 +193,7 @@ def build_dm3(
     # --- Bloque 2: IVA Diferido = 485 del mes de corte ---
     addr485 = _addr_casillero(dir_f104, periodos, "485")
     formula_diferido = f"={addr485}" if addr485 else 0
-    fila = _bloque_saldo(
+    fila, fl_2, fd_2 = _bloque_saldo(
         ws, fila=fila, titulo="IVA DIFERIDO",
         codigo_cuenta=cuenta_iva_diferido, nombre_cuenta=nombre_iva_diferido,
         addr_libros=dir_dm2.get(("saldo_corte", cuenta_iva_diferido)),
@@ -203,7 +207,7 @@ def build_dm3(
     addr_ret_renta_corte = dir_dm7.get(("ret_renta_declarado", mes_corte)) if mes_corte else None
     partes_sri = [a for a in (addr859, addr_ret_renta_corte) if a]
     formula_sri = ("=" + "+".join(partes_sri)) if partes_sri else 0
-    fila = _bloque_saldo(
+    fila, fl_3, fd_3 = _bloque_saldo(
         ws, fila=fila, titulo="PASIVO: SRI POR PAGAR",
         codigo_cuenta=cuenta_sri_por_pagar, nombre_cuenta=nombre_sri_por_pagar,
         addr_libros=dir_dm2.get(("saldo_corte", cuenta_sri_por_pagar)),
@@ -211,6 +215,42 @@ def build_dm3(
         etiqueta_declarado=f"Según F-104 casillero 859 {etq_mes} + retenciones "
                             f"de renta del mes de corte (DM7)",
     )
+
+    # --- Cruce global: el total de los saldos al corte de la sumaria (de las
+    # cuentas probadas) contra el total declarado. Se suman las celdas puntuales
+    # de cada bloque con SUM (celdas de la MISMA hoja), no con '+', para no
+    # chocar con la regla de direcciones calificadas.
+    ws.cell(fila, COL_CODIGO, "CRUCE GLOBAL").font = FONT_TITULO_CEDULA
+    fila += 1
+    filas_libros = (fl_1, fl_2, fl_3)
+    filas_declarado = (fd_1, fd_2, fd_3)
+    fila_glob_libros = fila
+    e = ws.cell(fila, COL_ETIQUETA, "Total saldos al corte según libros (sumaria DM2)")
+    e.font = FONT_TOTAL
+    e.fill = RELLENO_TOTAL
+    v = ws.cell(fila, COL_VALOR, "=SUM(" + ",".join(f"C{r}" for r in filas_libros) + ")")
+    v.font = FONT_TOTAL
+    v.fill = RELLENO_TOTAL
+    v.number_format = FORMATO_NUM
+    v.border = BORDE
+    fila += 1
+    fila_glob_declarado = fila
+    e = ws.cell(fila, COL_ETIQUETA, "Total según declaraciones")
+    e.font = FONT_TOTAL
+    e.fill = RELLENO_TOTAL
+    v = ws.cell(fila, COL_VALOR, "=SUM(" + ",".join(f"C{r}" for r in filas_declarado) + ")")
+    v.font = FONT_TOTAL
+    v.fill = RELLENO_TOTAL
+    v.number_format = FORMATO_NUM
+    v.border = BORDE
+    fila += 1
+    e = ws.cell(fila, COL_ETIQUETA, "Diferencia global")
+    e.font = FONT_TOTAL
+    v = ws.cell(fila, COL_VALOR, f"=ROUND(C{fila_glob_libros}-C{fila_glob_declarado},2)")
+    v.font = FONT_TOTAL
+    v.number_format = FORMATO_NUM
+    v.border = BORDE
+    fila += 3
 
     escribir_leyenda_marcas(ws, fila=fila)
 

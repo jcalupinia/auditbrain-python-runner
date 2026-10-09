@@ -34,7 +34,7 @@ from openpyxl.workbook import Workbook
 
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.bloques import (
     COL_PRIMER_MES, MESES, escribir_encabezado_meses, fila_diferencia,
-    fila_referencias, fila_suma_direcciones, fila_suma_rango,
+    fila_formula, fila_referencias, fila_suma_direcciones, fila_suma_rango,
 )
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm5_ventas import (
     CASILLEROS_IVA_VENTAS, CASILLEROS_VENTAS, CASILLEROS_VENTAS_0,
@@ -58,8 +58,15 @@ SHEET_DM8 = "DM8 ATS"
 CASILLEROS_VENTAS_GRAVADAS = CASILLEROS_VENTAS
 CASILLEROS_IVA_VENTAS_DECLARADO = CASILLEROS_IVA_VENTAS
 CASILLERO_COMPRAS_TOTAL = "519"
+# 509 = total de adquisiciones en VALOR BRUTO (antes de restar las notas de
+# crédito); 519 es el neto (bruto − notas de crédito). La base del F-104 que se
+# compara contra la base de retención del F-103 es la bruta (509).
+CASILLERO_COMPRAS_BRUTO = "509"
 CASILLERO_IVA_COMPRAS = "520"
 CASILLERO_IVA_RETENIDO_RECIBIDO = "609"
+# Base imponible de la retención de renta del F-103, según el papel de trabajo
+# del auditor: casilleros 349 − 302 + 429 + 421 (cada uno con su signo).
+CASILLEROS_F103_BASE = (("349", "+"), ("302", "-"), ("429", "+"), ("421", "+"))
 
 # Casilleros de importaciones "Valor Neto" del F-104 (compras). Ver nota (*)
 # en el docstring del módulo.
@@ -305,6 +312,58 @@ def build_dm8(
         etiqueta="Renta que le retuvieron según ATS (informativo, cruza con el anticipo de IR)",
         direcciones=_dirs_campo(dir_ats, "renta_le_retuvieron"),
     )
+    fila += 3
+
+    # --- Diferencia en las bases imponibles del F-103 y el F-104 ---
+    # La base de compras declarada en el F-104 (casillero 509, valor bruto),
+    # menos lo que no está sujeto a retención de renta (importaciones y
+    # dividendos), debe cuadrar con la base sobre la que se practicaron las
+    # retenciones de renta del F-103 (349 − 302 + 429 + 421).
+    escribir_encabezado_meses(ws, fila=fila, titulo="BASES IMPONIBLES F-103 vs F-104")
+    fila += 1
+    fila_f104_bruto = fila
+    fila_referencias(
+        ws, fila=fila, etiqueta=f"Formulario 104 (casillero {CASILLERO_COMPRAS_BRUTO} · bruto)",
+        direcciones=_dirs_casillero(dir_f104, periodos, CASILLERO_COMPRAS_BRUTO),
+    )
+    fila += 1
+    primer_resta_base = fila
+    for cas in CASILLEROS_IMPORTACIONES:
+        fila_referencias(ws, fila=fila, etiqueta=f"Casillero {cas} (importaciones)",
+                         direcciones=_dirs_casillero(dir_f104, periodos, cas))
+        fila += 1
+    # Dividendos: no hay casillero estándar de compras; el auditor lo ingresa si
+    # aplica (0 por defecto). Queda en el rango de restas para la base.
+    fila_referencias(ws, fila=fila, etiqueta="Dividendos (ingresar si aplica)", direcciones={})
+    fila += 1
+    fila_restas_base = fila
+    fila_suma_rango(ws, fila=fila_restas_base, etiqueta="(−) Importaciones + dividendos",
+                    desde=primer_resta_base, hasta=fila - 1)
+    fila += 1
+    fila_base_104 = fila
+    fila_diferencia(
+        ws, fila=fila,
+        etiqueta=f"Base F-104 ({CASILLERO_COMPRAS_BRUTO} − importaciones − dividendos)",
+        fila_libros=fila_f104_bruto, fila_declarado=fila_restas_base,
+    )
+    fila += 1
+    # Formulario 103: 349 − 302 + 429 + 421 (por mes, con el signo de cada uno).
+    fila_f103_base = fila
+    formulas_103: dict[str, str] = {}
+    for periodo in periodos:
+        mes = periodo.split("-")[-1]
+        partes = []
+        for cas, signo in CASILLEROS_F103_BASE:
+            addr = dir_f103.get((periodo, cas))
+            if addr:
+                partes.append(f"{signo}{addr}" if partes or signo == "-" else addr)
+        if partes:
+            formulas_103[mes] = "=" + "".join(partes)
+    fila_formula(ws, fila=fila, etiqueta="Formulario 103 (349 − 302 + 429 + 421)",
+                 formulas_por_mes=formulas_103)
+    fila += 1
+    fila_diferencia(ws, fila=fila, etiqueta="Diferencia bases (F-104 − F-103)",
+                    fila_libros=fila_base_104, fila_declarado=fila_f103_base)
     fila += 3
 
     escribir_leyenda_marcas(ws, fila=fila)

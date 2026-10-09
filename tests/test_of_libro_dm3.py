@@ -144,6 +144,23 @@ def test_las_cifras_de_dm3_no_llevan_columnas_de_meses():
     assert ws.cell(fila, 4).value is None
 
 
+def test_cruce_global_suma_los_tres_bloques_y_saca_una_diferencia_global():
+    """El cruce global suma los saldos al corte (sumaria) de las cuentas
+    probadas y los contrasta contra el total declarado, con una sola diferencia
+    global. Las sumas son de celdas de la MISMA hoja (SUM, no '+')."""
+    ws = _cedula()
+    etiquetas = [str(ws.cell(r, 2).value or "") for r in range(1, ws.max_row + 1)]
+    assert any(e.startswith("Total saldos al corte según libros") for e in etiquetas)
+    assert "Total según declaraciones" in etiquetas
+    fila_glob = next(r for r in range(1, ws.max_row + 1)
+                     if ws.cell(r, 2).value == "Diferencia global")
+    formula = ws.cell(fila_glob, 3).value
+    assert formula.startswith("=ROUND(")
+    fila_libros_glob = next(r for r in range(1, ws.max_row + 1)
+                            if str(ws.cell(r, 2).value or "").startswith("Total saldos al corte"))
+    assert ws.cell(fila_libros_glob, 3).value.startswith("=SUM(")
+
+
 def test_se_puede_configurar_otra_cuenta_para_cada_bloque():
     ws = _cedula(
         cuenta_credito_tributario="9.9.9.1",

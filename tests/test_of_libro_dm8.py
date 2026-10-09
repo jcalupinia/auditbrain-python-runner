@@ -43,12 +43,18 @@ _CAS_F104 = (
     CASILLEROS_VENTAS_0
     + CASILLEROS_VENTAS_GRAVADAS
     + CASILLEROS_IVA_VENTAS_DECLARADO
-    + [CASILLERO_COMPRAS_TOTAL, CASILLERO_IVA_COMPRAS, CASILLERO_IVA_RETENIDO_RECIBIDO]
+    + [CASILLERO_COMPRAS_TOTAL, "509", CASILLERO_IVA_COMPRAS, CASILLERO_IVA_RETENIDO_RECIBIDO]
     + CASILLEROS_IMPORTACIONES
     + ["721", "723", "725", "727", "729", "731", "799"]
 )
 DIR_F104 = {("2025-01", cas): f"'DATOS F-104'!C{i}" for i, cas in enumerate(_CAS_F104, start=20)}
-DIR_F103 = {("2025-01", "499"): "'DATOS F-103'!C40"}
+DIR_F103 = {
+    ("2025-01", "499"): "'DATOS F-103'!C40",
+    ("2025-01", "349"): "'DATOS F-103'!C41",
+    ("2025-01", "302"): "'DATOS F-103'!C42",
+    ("2025-01", "429"): "'DATOS F-103'!C43",
+    ("2025-01", "421"): "'DATOS F-103'!C44",
+}
 
 
 def _cedula(**kw):
@@ -144,6 +150,20 @@ def test_el_no_objeto_cruza_el_campo_del_ats():
                 if str(ws.cell(r, 2).value or "").startswith("No objeto de IVA"))
     valor = ws.cell(fila, 3).value
     assert isinstance(valor, str) and valor.startswith("='DATOS ATS'!")
+
+
+def test_el_bloque_de_bases_103_104_cruza_el_509_bruto_contra_la_base_del_103():
+    ws = _cedula()
+    etiquetas = _etiquetas(ws)
+    assert any(e.startswith("Formulario 104 (casillero 509") for e in etiquetas)
+    # La base del F-103 es la combinación 349 − 302 + 429 + 421 (con signos).
+    fila_103 = next(r for r in range(1, ws.max_row + 1)
+                    if str(ws.cell(r, 2).value or "").startswith("Formulario 103"))
+    formula = ws.cell(fila_103, 3).value
+    assert formula == ("='DATOS F-103'!C41-'DATOS F-103'!C42"
+                       "+'DATOS F-103'!C43+'DATOS F-103'!C44")
+    # Y hay una diferencia de bases (F-104 − F-103).
+    assert any(str(e or "").startswith("Diferencia bases") for e in etiquetas)
 
 
 def test_comprobantes_anulados_es_informativo_sin_casillero():
