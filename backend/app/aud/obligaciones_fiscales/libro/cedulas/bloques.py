@@ -87,6 +87,31 @@ def fila_suma_rango(ws, *, fila: int, etiqueta: str, desde: int, hasta: int) -> 
         c.border = BORDE
 
 
+def fila_formula(ws, *, fila: int, etiqueta: str, formulas_por_mes: dict[str, str],
+                 negrita: bool = False) -> None:
+    """Una fila cuyos meses son una fórmula arbitraria (p. ej. una combinación
+    de casilleros con signo: ``=A+B-C``). Un mes sin fórmula se escribe 0."""
+    font = FONT_TOTAL if negrita else FONT_DATA
+    e = ws.cell(fila, COL_ETIQUETA, etiqueta)
+    e.font = font
+    if negrita:
+        e.fill = RELLENO_TOTAL
+    for j, mes in enumerate(MESES):
+        formula = formulas_por_mes.get(mes)
+        c = ws.cell(fila, COL_PRIMER_MES + j, formula if formula else 0)
+        c.font = font
+        c.number_format = FORMATO_NUM
+        c.border = BORDE
+        if negrita:
+            c.fill = RELLENO_TOTAL
+    t = ws.cell(fila, COL_TOTAL, f"=SUM({_col(0)}{fila}:{_col(11)}{fila})")
+    t.font = font
+    t.number_format = FORMATO_NUM
+    t.border = BORDE
+    if negrita:
+        t.fill = RELLENO_TOTAL
+
+
 def fila_diferencia(ws, *, fila: int, etiqueta: str, fila_libros: int,
                     fila_declarado: int) -> None:
     """Libros menos declarado, redondeado a 2 decimales.
