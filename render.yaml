@@ -3,6 +3,21 @@
 # Backend FastAPI + Postgres administrado (F2: auth multiusuario JWT).
 # Secretos con sync:false => se definen en el dashboard, no se versionan.
 # ==========================================================
+
+# ==========================================================
+# Preview Environments (AUTOMÁTICO). Cada PR contra main genera un entorno
+# aislado con backend + frontends + DB propios para revisar el cambio antes de
+# mergear. 'automatic' => el preview se crea con cada PR; para omitirlo en un
+# PR concreto, incluir "[skip preview]" en el TÍTULO del PR. 'expireAfterDays'
+# => Render elimina el preview tras N días sin actualizaciones (además de
+# borrarlo al cerrar o mergear el PR). Punto de partida 3 días; subir a 5 si
+# las tareas suelen durar más.
+# Requiere workspace Pro o superior (verificar en Billing).
+# ==========================================================
+previews:
+  generation: automatic
+  expireAfterDays: 3
+
 databases:
   - name: auditbrain-db
     # La base en producción está en Basic-1gb (de pago). El Blueprint NO puede
@@ -41,6 +56,15 @@ services:
     plan: standard
     autoDeploy: true
 
+    # Preview Environments: en los PREVIEWS, usar una instancia más chica
+    # (starter, 512 MB) para abaratar la primera validación. OJO (hallazgo 10):
+    # el trabajo pesado (ICT/NIIF/OCR) causó OOM en starter en PRODUCCIÓN; si un
+    # preview muere por memoria con tareas pesadas, subir este plan a 'standard'.
+    # Producción NO cambia: sigue en 'standard' (plan: arriba); esto solo aplica
+    # a las instancias de preview.
+    previews:
+      plan: starter
+
     # Disco persistente: los archivos ICT (PDFs de origen + Excel generados:
     # ICT_SRI.xlsx, ICT_PAPEL_TRABAJO.xlsx) viven aquí para SOBREVIVIR a los
     # redeploys. Antes vivían en /tmp efímero y se perdían al reiniciar el
@@ -52,6 +76,15 @@ services:
       sizeGB: 1
 
     envVars:
+      # Indicador de entorno. En producción vale "production"; Render lo
+      # sobreescribe a "preview" en los Preview Environments (previewValue).
+      # El backend lo usa para habilitar SOLO en preview el CORS por patrón de
+      # las URLs de preview (app.py). En producción no cambia ningún
+      # comportamiento (el regex de CORS queda en None).
+      - key: APP_ENV
+        value: production
+        previewValue: preview
+
       # --- Instrumentación de recursos (diagnóstico OOM/CPU) ---
       # Cuando está en "true", cada request emite una línea REQUEST_METRICS
       # con método, ruta (sin query), status, duración y RSS antes/después.
@@ -229,8 +262,15 @@ services:
       - key: RESEND_FROM_EMAIL
         value: "no-reply@auditconsulting.ec"
 
+      # URL del portal de clientes para enlaces en correos y retornos de Stripe
+      # (backend/app/core/preview.py::client_portal_url). En PREVIEW el código
+      # ignora esta variable y deriva el portal del MISMO preview
+      # (auditbrain-clientes-pr-<n>) desde RENDER_EXTERNAL_HOSTNAME; el
+      # previewValue centinela (.invalid, no resuelve) garantiza que ningún
+      # otro lector de la variable apunte a producción desde un preview.
       - key: CLIENT_PORTAL_URL
         value: "https://auditbrain-clientes.onrender.com"
+        previewValue: "https://preview-portal-no-resuelto.invalid"
 
       - key: AUDITBRAIN_JWT_EXPIRE_MINUTES
         value: "60"
@@ -270,8 +310,12 @@ services:
       # bloquea con mensaje "pida al usuario que está usando que salga". La
       # sesión se libera con logout o tras CLIENT_PORTAL_SESSION_TIMEOUT_MINUTES
       # de inactividad (heartbeat del frontend cada 3 min la mantiene viva).
+      # Sesión única NEUTRALIZADA solo en preview (previewValue "false") para que
+      # varias personas puedan probar con la misma cuenta sin bloquearse.
+      # Producción mantiene "true" (el primero gana).
       - key: CLIENT_PORTAL_SESSION_CHECK_ENABLED
         value: "true"
+        previewValue: "false"
 
       - key: CLIENT_PORTAL_SESSION_TIMEOUT_MINUTES
         value: "10"
@@ -308,13 +352,12 @@ services:
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
-    # Previews por PR ACTIVADOS: cada pull request genera una URL de preview
-    # (auditbrain-frontend-pr-<n>.onrender.com) con la consola corriendo sobre
-    # esa rama, para revisar en vivo ANTES de mergear. No toca producción ni el
-    # dominio propio (consola.audit-ia.ec sigue sirviendo solo main). El preview
-    # apunta al backend de producción (VITE_API_BASE); para revisar cambios de
-    # backend, usar el preview de backend o el archivo que genera la herramienta.
-    pullRequestPreviewsEnabled: true
+    # Previews MANUALES (gobernados por el bloque raíz 'previews: generation:
+    # manual'). Se retira el flag deprecado 'pullRequestPreviewsEnabled'
+    # (reemplazado por 'previews.generation' según el esquema de Render). En un
+    # preview, la consola apunta al backend del MISMO preview porque el frontend
+    # deriva la URL del backend desde su propio hostname (…-pr-<n>), ver
+    # frontend/src/api.js. Producción (consola.audit-ia.ec / main) no cambia.
     autoDeploy: true
     # Dominio propio de la consola principal (Command Center). Para activarlo:
     #   1) En el DNS de audit-ia.ec, apuntar 'consola' con un CNAME a
@@ -327,6 +370,13 @@ services:
     envVars:
       - key: VITE_API_BASE
         value: "https://auditbrain-python-runner.onrender.com"
+        # En PREVIEW el build NUNCA lleva la URL de producción. El resolver de
+        # frontend/src/api.js deriva el backend del propio hostname (…-pr-<n>)
+        # y solo lee VITE_API_BASE para hosts de la lista blanca; este
+        # centinela (.invalid, dominio reservado por RFC 6761, no resuelve) es
+        # la red de seguridad: si algún día el resolver cayera a VITE_API_BASE
+        # en un preview, la llamada fallaría en vez de ir a producción.
+        previewValue: "https://preview-backend-no-resuelto.invalid"
       # La pestaña "Estudio" (imagen/video) se activa según el backend
       # (GET /chat/media/status). Las variables del puente van en el BACKEND,
       # no aquí — así el frontend no expone la clave ni requiere Tailscale.
@@ -347,7 +397,10 @@ services:
     rootDir: frontend-client
     buildCommand: cd ../frontend-shared && npm ci && cd ../frontend-client && npm ci && npm run build
     staticPublishPath: dist
-    pullRequestPreviewsEnabled: false
+    # Previews MANUALES (gobernados por el bloque raíz 'previews'). Se retira el
+    # flag deprecado 'pullRequestPreviewsEnabled: false': ahora el portal de
+    # clientes TAMBIÉN genera preview junto al resto (ver sección 2 del diseño).
+    # En preview deriva el backend del mismo preview (frontend-client/src/api.js).
     autoDeploy: true
     # Dominio propio del portal de clientes. Para que quede activo:
     #   1) En el DNS de audit-ia.ec, apuntar 'clientes' con un CNAME al
@@ -361,6 +414,9 @@ services:
     envVars:
       - key: VITE_API_BASE
         value: "https://auditbrain-python-runner.onrender.com"
+        # Mismo centinela que auditbrain-frontend: en preview el build no
+        # conoce la URL de producción (ver frontend-client/src/api.js).
+        previewValue: "https://preview-backend-no-resuelto.invalid"
     routes:
       - type: rewrite
         source: /*

@@ -47,7 +47,12 @@ def create_checkout_url(user, plan: str) -> str:
             status_code=503, detail=f"Precio del plan '{plan}' no configurado."
         )
     stripe = _require_stripe()
-    base = "https://auditbrain-clientes.onrender.com/forge"
+    # Retorno de Stripe al portal: en producción CLIENT_PORTAL_URL (su default es
+    # la misma URL que antes estaba fija aquí); en un Preview Environment, el
+    # portal del MISMO preview, nunca el de producción.
+    from backend.app.core.preview import client_portal_url
+
+    base = f"{client_portal_url()}/forge"
     session = stripe.checkout.Session.create(
         mode="subscription",
         line_items=[{"price": price, "quantity": 1}],

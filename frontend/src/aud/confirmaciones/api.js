@@ -1,6 +1,6 @@
-import {getToken} from '../../api.js';
-const base=(import.meta.env.VITE_API_BASE??'https://auditbrain-python-runner.onrender.com').replace(/\/$/,'')+'/api/v1/aud/confirmaciones-saldos/';
+import {getToken, requireApiBase} from '../../api.js';
 async function call(project,path,options={}){
+ const base=requireApiBase()+'/api/v1/aud/confirmaciones-saldos/';
  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),90000);
  try{const response=await fetch(base+encodeURIComponent(project)+'/'+path,{...options,signal:controller.signal,headers:{Authorization:'Bearer '+getToken(),...options.headers}});
  if(!response.ok){let body;try{body=await response.json()}catch{}throw Error(typeof body?.detail==='string'?body.detail:'No se pudo completar la operación ('+response.status+').');}return response;

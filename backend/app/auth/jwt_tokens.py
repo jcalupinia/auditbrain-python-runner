@@ -9,14 +9,51 @@ _ALGO = "HS256"
 _ACCESS_TTL_MIN = int(os.getenv("AUDITBRAIN_JWT_EXPIRE_MINUTES", "60"))
 
 
+# Secreto efímero de los Preview Environments de Render (ver _secret()).
+# Se genera UNA vez por proceso y se cachea aquí.
+_PREVIEW_SECRET: str | None = None
+
+
+def _preview_secret() -> str:
+    """Secreto aleatorio por proceso para un preview sin AUDITBRAIN_JWT_SECRET.
+
+    Las variables ``sync: false`` NO se copian a los Preview Environments del
+    Blueprint, así que el secreto de producción nunca llega a un preview (y no
+    debe llegar). Un preview tampoco puede usar el literal de desarrollo: sería
+    público y permitiría forjar tokens. Se genera un secreto de 384 bits con
+    ``secrets`` al primer uso y se reutiliza mientras viva el proceso: los
+    tokens valen solo en esa instancia del preview y caducan con cada
+    redeploy, lo que es aceptable para un entorno temporal. Si el equipo define
+    AUDITBRAIN_JWT_SECRET en el preview (grupo de variables de entorno), ese
+    valor tiene prioridad (ver _secret()).
+    """
+    global _PREVIEW_SECRET
+    if _PREVIEW_SECRET is None:
+        import logging
+        import secrets
+
+        _PREVIEW_SECRET = secrets.token_urlsafe(48)
+        logging.getLogger("auditbrain").warning(
+            "APP_ENV=preview sin AUDITBRAIN_JWT_SECRET: se generó un secreto "
+            "JWT aleatorio para este proceso (los tokens caducan al redesplegar)."
+        )
+    return _PREVIEW_SECRET
+
+
 def _secret() -> str:
     """Secreto de firma. OBLIGATORIO en producción.
 
-    Si no está definido se usa un valor de desarrollo y se avisa: NO es
-    seguro en producción (permitiría forjar tokens).
+    Si no está definido: en un Preview Environment (APP_ENV=preview) se usa un
+    secreto aleatorio por proceso, NUNCA el literal de desarrollo; fuera de
+    preview se usa el valor de desarrollo y se avisa: NO es seguro en
+    producción (permitiría forjar tokens).
     """
     secret = os.getenv("AUDITBRAIN_JWT_SECRET", "").strip()
     if not secret:
+        from backend.app.core.preview import is_preview
+
+        if is_preview():
+            return _preview_secret()
         import logging
 
         logging.getLogger("auditbrain").warning(
