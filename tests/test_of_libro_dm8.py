@@ -88,15 +88,13 @@ def test_ventas_gravadas_cruza_contra_todos_los_casilleros_gravados_de_dm5():
     assert "411" in CASILLEROS_VENTAS_GRAVADAS
 
 
-def test_ventas_0_incluye_las_exportaciones_417_y_418():
-    """Antes DM8 cruzaba ventas 0% solo contra 413+415 y dejaba fuera las
-    exportaciones (417/418): un exportador quedaba con casi toda su venta sin
-    cruzar. Ahora usa el set completo de DM5 (413..418)."""
-    ws = _cedula()
-    etiquetas = _etiquetas(ws)
+def test_ventas_0_local_no_incluye_las_exportaciones_417_y_418():
+    """Las exportaciones (417/418) van en su propio tramo en DM5, no en el 0%
+    local: así DM6 no las resta dos veces (una en 0% y otra en exportaciones)."""
     for cas in ("417", "418"):
+        assert cas not in CASILLEROS_VENTAS_0
+    for cas in ("413", "414", "415", "416"):
         assert cas in CASILLEROS_VENTAS_0
-        assert any(e.startswith(f"Casillero {cas}") for e in etiquetas), cas
 
 
 def test_iva_en_ventas_cruza_contra_todos_los_casilleros_de_iva_ventas_de_dm5():
