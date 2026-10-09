@@ -21,6 +21,7 @@ PERIODOS = [f"2025-{m:02d}" for m in range(1, 13)]
 CAMPOS_ATS_FIJOS = [
     "ventas_bi_0", "ventas_bi_gravada", "ventas_iva",
     "compras_bi_0", "compras_bi_gravada", "compras_iva",
+    "compras_no_objeto", "compras_importacion",
     "anulados", "iva_le_retuvieron", "renta_le_retuvieron",
     "ret_renta_total", "ret_iva_total",
 ]
@@ -105,10 +106,12 @@ def test_iva_en_ventas_cruza_contra_todos_los_casilleros_de_iva_ventas_de_dm5():
     assert "421" in CASILLEROS_IVA_VENTAS_DECLARADO
 
 
-def test_compras_gravadas_se_compara_contra_casillero_519():
+def test_compras_se_cruzan_en_un_solo_bloque_contra_casillero_519():
     ws = _cedula()
     etiquetas = _etiquetas(ws)
     assert any(e.startswith(f"Casillero {CASILLERO_COMPRAS_TOTAL}") for e in etiquetas)
+    # Un solo "Compras según ATS (0% + ≠0%)" (no dos bloques separados).
+    assert etiquetas.count("Compras según ATS (0% + ≠0%)") == 1
 
 
 def test_iva_en_compras_se_compara_contra_casillero_520():
@@ -117,14 +120,30 @@ def test_iva_en_compras_se_compara_contra_casillero_520():
     assert any(e.startswith(f"Casillero {CASILLERO_IVA_COMPRAS}") for e in etiquetas)
 
 
-def test_compras_0_resta_importaciones_del_casillero_519():
+def test_compras_una_sola_diferencia_resta_importaciones_y_no_objeto():
+    """ATS (0%+≠0%) vs (519 − importaciones − no objeto) = UNA sola diferencia
+    (antes se presentaban dos: compras 0% y compras gravadas)."""
     ws = _cedula()
     etiquetas = _etiquetas(ws)
     for cas in CASILLEROS_IMPORTACIONES:
         assert any(e.startswith(f"Casillero {cas}") for e in etiquetas), cas
-    fila_import_total = next(r for r in range(1, ws.max_row + 1)
-                              if ws.cell(r, 2).value == "Total importaciones")
-    assert ws.cell(fila_import_total, 3).value.startswith("=SUM(")
+    assert any("No objeto" in str(e) for e in etiquetas)
+    fila_restas = next(r for r in range(1, ws.max_row + 1)
+                       if str(ws.cell(r, 2).value or "").startswith("(−) Importaciones"))
+    assert ws.cell(fila_restas, 3).value.startswith("=SUM(")
+    # El "Compras según ATS" suma los dos campos del ATS (0% + ≠0%).
+    fila_ats = next(r for r in range(1, ws.max_row + 1)
+                    if ws.cell(r, 2).value == "Compras según ATS (0% + ≠0%)")
+    val = ws.cell(fila_ats, 3).value
+    assert isinstance(val, str) and val.startswith("='DATOS ATS'!") and "+" in val
+
+
+def test_el_no_objeto_cruza_el_campo_del_ats():
+    ws = _cedula()
+    fila = next(r for r in range(1, ws.max_row + 1)
+                if str(ws.cell(r, 2).value or "").startswith("No objeto de IVA"))
+    valor = ws.cell(fila, 3).value
+    assert isinstance(valor, str) and valor.startswith("='DATOS ATS'!")
 
 
 def test_comprobantes_anulados_es_informativo_sin_casillero():

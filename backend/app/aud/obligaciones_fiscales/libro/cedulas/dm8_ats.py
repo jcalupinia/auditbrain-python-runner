@@ -34,7 +34,7 @@ from openpyxl.workbook import Workbook
 
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.bloques import (
     COL_PRIMER_MES, MESES, escribir_encabezado_meses, fila_diferencia,
-    fila_referencias, fila_suma_rango,
+    fila_referencias, fila_suma_direcciones, fila_suma_rango,
 )
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm5_ventas import (
     CASILLEROS_IVA_VENTAS, CASILLEROS_VENTAS, CASILLEROS_VENTAS_0,
@@ -162,12 +162,21 @@ def build_dm8(
         casilleros_declarado=CASILLEROS_IVA_VENTAS_DECLARADO, dir_f104=dir_f104, periodos=periodos,
     )
 
-    # --- Compras 0% = ATS vs (519 − importaciones) ---
-    escribir_encabezado_meses(ws, fila=fila, titulo="COMPRAS 0% SEGÚN ATS")
+    # --- Compras: UNA sola diferencia (ATS 0%+≠0% vs 519 − importaciones −
+    # no objeto). El ATS no separa compras 0% de gravadas para este cruce: se
+    # suman y se comparan contra el total declarado del casillero 519, menos lo
+    # que no lleva crédito/retención local (importaciones y "no objeto" cód. 19).
+    escribir_encabezado_meses(ws, fila=fila, titulo="COMPRAS SEGÚN ATS")
     fila += 1
-    fila_ats_compras0 = fila
-    fila_referencias(ws, fila=fila, etiqueta="Compras 0% según ATS",
-                     direcciones=_dirs_campo(dir_ats, "compras_bi_0"))
+    fila_ats_compras = fila
+    fila_suma_direcciones(
+        ws, fila=fila, etiqueta="Compras según ATS (0% + ≠0%)",
+        direcciones_por_mes={
+            mes: [a for a in (dir_ats.get(("compras_bi_0", mes)),
+                              dir_ats.get(("compras_bi_gravada", mes))) if a]
+            for mes in MESES
+        },
+    )
     fila += 2
 
     fila_519 = fila
@@ -179,25 +188,24 @@ def build_dm8(
         fila_referencias(ws, fila=fila, etiqueta=f"Casillero {cas} (importaciones)",
                          direcciones=_dirs_casillero(dir_f104, periodos, cas))
         fila += 1
-    fila_import_total = fila
-    fila_suma_rango(ws, fila=fila_import_total, etiqueta="Total importaciones",
-                    desde=primer_import, hasta=fila - 1)
+    fila_referencias(ws, fila=fila, etiqueta="No objeto de IVA (cód. 19 ATS)",
+                     direcciones=_dirs_campo(dir_ats, "compras_no_objeto"))
     fila += 1
-    fila_declarado_compras0 = fila
-    fila_diferencia(ws, fila=fila, etiqueta=f"Según declaración ({CASILLERO_COMPRAS_TOTAL} − importaciones)",
-                    fila_libros=fila_519, fila_declarado=fila_import_total)
+    fila_restas_fin = fila - 1  # última fila de "restas" (importaciones + no objeto)
+    fila_total_restas = fila
+    fila_suma_rango(ws, fila=fila_total_restas, etiqueta="(−) Importaciones + no objeto",
+                    desde=primer_import, hasta=fila_restas_fin)
+    fila += 1
+    fila_declarado_compras = fila
+    fila_diferencia(
+        ws, fila=fila,
+        etiqueta=f"Según declaración ({CASILLERO_COMPRAS_TOTAL} − importaciones − no objeto)",
+        fila_libros=fila_519, fila_declarado=fila_total_restas,
+    )
     fila += 1
     fila_diferencia(ws, fila=fila, etiqueta="Diferencia",
-                    fila_libros=fila_ats_compras0, fila_declarado=fila_declarado_compras0)
+                    fila_libros=fila_ats_compras, fila_declarado=fila_declarado_compras)
     fila += 3
-
-    # --- Compras gravadas ---
-    fila = _bloque_simple(
-        ws, fila=fila, titulo="COMPRAS GRAVADAS SEGÚN ATS",
-        etiqueta_ats="Compras gravadas según ATS", campo_ats="compras_bi_gravada", dir_ats=dir_ats,
-        etiqueta_declarado=f"Según declaración (casillero {CASILLERO_COMPRAS_TOTAL})",
-        casilleros_declarado=[CASILLERO_COMPRAS_TOTAL], dir_f104=dir_f104, periodos=periodos,
-    )
 
     # --- IVA en compras ---
     fila = _bloque_simple(
