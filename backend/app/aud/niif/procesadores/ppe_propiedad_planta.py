@@ -104,15 +104,19 @@ _VARIACIONES = [
 ]
 # Libro mayor de PP&E: una fila por movimiento del período → cédula de movimiento y conciliación.
 _MAYOR = [
-    campo("cuenta", "Cuenta contable", alias=("cuenta", "codigo cuenta", "código cuenta"), ejemplo="12010206"),
-    campo("descripcion", "Descripción de la cuenta", requerido=False, alias=("detalle", "nombre de la cuenta"), ejemplo="Equipo de computación"),
-    campo("fecha", "Fecha del movimiento", requerido=False, alias=("fecha", "fecha asiento", "fecha comprobante"), ejemplo="2026-02-18"),
+    campo("cuenta", "Cuenta contable", alias=("cuenta", "codigo cuenta", "código cuenta", "numero de cuenta", "número de cuenta"), ejemplo="12010206"),
+    campo("descripcion", "Descripción de la cuenta", requerido=False, alias=("detalle", "nombre de la cuenta", "descripcion cuenta", "descripción cuenta"), ejemplo="Equipo de computación"),
+    campo("linea", "Descripción del movimiento", requerido=False, alias=("descripcion", "descripción", "concepto", "glosa", "descripcion del movimiento"), ejemplo="Compra de equipo"),
+    campo("referencia", "Referencia", requerido=False, alias=("referencia", "ref", "entrada de diario", "detalle del asiento"), ejemplo="REG VENTA VEHÍCULO"),
+    campo("fecha", "Fecha del movimiento", requerido=False, alias=("fecha", "fecha asiento", "fecha comprobante", "fecha trans", "fecha trans."), ejemplo="2026-02-18"),
     campo("comprobante", "N° de comprobante", requerido=False, alias=("comp", "comp.", "comprobante", "asiento"), ejemplo="120437"),
-    campo("documento", "N° de documento", requerido=False, alias=("dmcto", "dmcto.", "documento", "doc"), ejemplo="49342"),
+    campo("documento", "N° de documento", requerido=False, alias=("dmcto", "dmcto.", "documento", "doc", "documento origen"), ejemplo="49342"),
     campo("tipo", "Tipo de asiento", requerido=False, alias=("tp", "tipo", "tipo asiento"), ejemplo="VO"),
     campo("debe", "Debe", "number", requerido=False, alias=("debe", "debito", "débito", "cargo"), ejemplo="1500"),
     campo("haber", "Haber", "number", requerido=False, alias=("haber", "credito", "crédito", "abono"), ejemplo="0"),
-    campo("importe", "Importe (valor neto del movimiento)", "number", requerido=False, alias=("valor", "monto", "importe", "saldo"), ejemplo="1500"),
+    campo("importe", "Importe (valor neto del movimiento)", "number", requerido=False, alias=("valor", "monto", "importe", "saldo", "saldo auditado"), ejemplo="1500"),
+    campo("clasificacion", "Clasificación del movimiento (Adición/Ajuste/Venta/Depreciación)", requerido=False,
+          alias=("clasificacion", "clasificación", "auditoria", "auditoría", "tipo de movimiento", "movimiento"), ejemplo="Adición"),
 ]
 # Facturas (adiciones y salidas): se extraen por IA del PDF (EXTRACCION_DATASETS) y se cruzan con las
 # adiciones del detalle y las bajas del auxiliar en el vaucheo. Los dos datasets comparten estos campos.
@@ -655,26 +659,70 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
     costo_balance = sum(v["act"] for v in variaciones if v["tipo"] == "Costo")
     dep_balance = abs(sum(v["act"] for v in variaciones if v["tipo"] == "Depreciación"))
 
-    # Movimiento del período agregado por cuenta (débitos, créditos, neto y número de asientos).
+    # Movimiento del período: (a) detalle homologado línea por línea del libro mayor, (b) agregado por cuenta
+    # (débitos, créditos, neto, n° asientos) y (c) pivote por cuenta y tipo de movimiento.
+    import unicodedata as _udm
+    _nrm_mov = lambda s: "".join(c for c in _udm.normalize("NFD", str(s or "").strip().lower()) if _udm.category(c) != "Mn")
+    _TIPOS_MOV = ("Adición", "Ajuste", "Venta", "Depreciación")
+
+    def _clasif_mov(f, cta_desc, neto):
+        # 1) clasificación explícita del cliente (columna «Auditoría»/«Clasificación»), si la trae.
+        exp = _nrm_mov(f.get("clasificacion"))
+        if "adicion" in exp:
+            return "Adición"
+        if "ajuste" in exp:
+            return "Ajuste"
+        if "venta" in exp or "baja" in exp:
+            return "Venta"
+        if "deprecia" in exp:
+            return "Depreciación"
+        # 2) si no, se deriva del texto de la referencia/detalle, del tipo de cuenta y del signo del movimiento.
+        txt = _nrm_mov(f.get("referencia")) + " " + _nrm_mov(f.get("linea"))
+        if "ajuste" in txt or "reg aj" in txt:
+            return "Ajuste"
+        if "venta" in txt or "baja" in txt:
+            return "Venta"
+        if "deprecia" in _nrm_mov(cta_desc) or "deprecia" in txt:
+            return "Depreciación"
+        return "Adición" if (neto or 0) >= 0 else "Venta"
+
     mov = {}
+    mayor_lineas = []
+    piv = {}
     for f in datasets.get("mayor") or []:
         if not _t(f.get("cuenta")):
             continue
         cta = _t(f.get("cuenta"))
-        e = mov.setdefault(cta, {"cuenta": cta, "desc": _t(f.get("descripcion")), "debe": 0.0, "haber": 0.0, "n": 0})
+        cta_desc = _t(f.get("descripcion"))
+        e = mov.setdefault(cta, {"cuenta": cta, "desc": cta_desc, "debe": 0.0, "haber": 0.0, "n": 0})
         imp = _opc(f.get("importe"))
         deb = _opc(f.get("debe"))
         hab = _opc(f.get("haber"))
         if deb is None and hab is None and imp is not None:  # una sola columna de importe con signo
             deb, hab = (imp, 0.0) if imp >= 0 else (0.0, -imp)
-        e["debe"] += deb or 0.0
-        e["haber"] += hab or 0.0
+        deb = deb or 0.0
+        hab = hab or 0.0
+        e["debe"] += deb
+        e["haber"] += hab
         e["n"] += 1
         if not e["desc"]:
-            e["desc"] = _t(f.get("descripcion"))
+            e["desc"] = cta_desc
+        neto = deb - hab
+        clas = _clasif_mov(f, cta_desc, neto)
+        mayor_lineas.append({"cuenta": cta, "desc_cta": cta_desc, "linea": _t(f.get("linea")),
+                             "referencia": _t(f.get("referencia")), "fecha": _t(f.get("fecha")),
+                             "doc": _t(f.get("documento")) or _t(f.get("comprobante")),
+                             "debe": deb, "haber": hab, "neto": neto, "clas": clas, "_row": f.get("_row")})
+        pk = piv.setdefault(cta, {"cuenta": cta, "desc": cta_desc, **{t: 0.0 for t in _TIPOS_MOV}})
+        if not pk["desc"]:
+            pk["desc"] = cta_desc
+        pk[clas] = pk.get(clas, 0.0) + neto
     mayor = sorted(mov.values(), key=lambda x: x["cuenta"])
     for e in mayor:
         e["neto"] = e["debe"] - e["haber"]
+    mayor_pivote = sorted(piv.values(), key=lambda x: x["cuenta"])
+    for pk in mayor_pivote:
+        pk["total"] = sum(pk[t] for t in _TIPOS_MOV)
 
     # Conciliación de saldos del cliente: auxiliar (anexo) frente al balance (variaciones).
     concil = {"costo_aux": rf["costoFinal"], "costo_bal": (costo_balance if variaciones else None),
@@ -920,7 +968,8 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
                "activos": limpia(activos), "adiciones": limpia(adiciones), "prestamos": limpia(prestamos),
                "capitalizacion": limpia(capit), "tope": {"incurridos": tope_inc, "antes": tope_antes, "factor": factor},
                "desmantelamiento": desm, "rollforward": rf, "ajustes": aj, "parametros": p,
-               "variaciones": variaciones, "mayor": mayor, "conciliacion": concil,
+               "variaciones": variaciones, "mayor": mayor, "mayorLineas": mayor_lineas, "mayorPivote": mayor_pivote,
+               "conciliacion": concil,
                "vaucheo": vaucheo, "vaucheoAdSin": ad_sin, "vaucheoBaSin": ba_sin}
     return {"engine": VERSION, "rows": filas, "totals": totales, "labels": etiquetas, "primary": "ajusteResultado",
             "exceptions": pr, "schedule": [], "detalle": detalle}
@@ -945,6 +994,9 @@ CEDULAS = [
     ("25_Conciliacion", "Conciliación de saldos (auxiliar vs balance)"),
     ("26_Vaucheo", "Vaucheo de facturas (adiciones y bajas)"),
     ("27_Resumen_hallazgos", "Resumen de hallazgos por categoría"),
+    ("28_Detalle_mayor", "Detalle del libro mayor (homologado, línea por línea)"),
+    ("29_Mayor_homologado", "Mayores homologados (mayor normalizado a columnas estándar)"),
+    ("30_Movimiento", "Movimiento del mayor por tipo (adición, ajuste, venta, depreciación)"),
 ]
 
 
@@ -1082,9 +1134,9 @@ def _conciliacion_balance(hojas, e):
 
 # De qué celda sale el importe de cada problema (ver procesadores/problemas.py).
 REF_PROBLEMAS = {
-    "DEPRECIACION_DIFERENTE": _codigo("04_Depreciacion", "Diferencia"),                 # depreciación recalculada − registrada
-    "DEPRECIACION_EN_CONSTRUCCION": _codigo("04_Depreciacion", "Depreciación registrada"),  # depreciación registrada de la obra
-    "TOTALMENTE_DEPRECIADO_EN_USO": _codigo("05_Vidas_residual", "Costo"),             # costo del activo depreciado en uso
+    "DEPRECIACION_DIFERENTE": _codigo("21_Comparativo", "Dif. depreciación recálculo"),  # depreciación recalculada − registrada
+    "DEPRECIACION_EN_CONSTRUCCION": _codigo("21_Comparativo", "Gasto cliente"),        # depreciación registrada de la obra (= gasto cliente)
+    "TOTALMENTE_DEPRECIADO_EN_USO": _codigo("21_Comparativo", "Costo"),                # costo del activo depreciado en uso
     "VEHICULO_TOPE_FISCAL": _codigo("20_Fiscal", "Exceso vehículo no deducible"),      # depreciación sobre el exceso del tope (SRI)
     "RESIDUAL_EXCEDE_COSTO": _residual_excede,                                         # valor residual − costo
     "BAJA_MAL_CALCULADA": _codigo("07_Bajas", "Diferencia"),                           # resultado recalculado − registrado
@@ -1718,6 +1770,7 @@ def hojas(res: dict) -> list[dict]:
             fx(f'IF(F{r}="","",100/F{r})', (100.0 / a["vida_anios_sri"]) if a.get("vida_anios_sri") else None),      # R % dep. SRI
             fx(f"{FIS}F{r}", a.get("dep_fiscal")),                                      # S Gasto SRI (fiscal, 04 Art. 28)
             fx(f"{DEP}J{r}", a.get("nbv")),                                             # T Valor NIIF (VNL)
+            fx("", a["dif"]),                                                           # U Dif. depreciación recálculo (NIIF − registrada)
         ])
     _sg = lambda k: sum(a.get(k) or 0 for a in A)
     total_comp = ["TOTAL", "", suma("C", fin(n), sum(a["costo"] for a in A)), None, None, None, None, None, None,
@@ -1725,7 +1778,8 @@ def hojas(res: dict) -> list[dict]:
                   suma("M", fin(n), _sg("dreg")), suma("N", fin(n), _sg("acum_cliente")),
                   suma("O", fin(n), _sg("dif_gasto_dias")), suma("P", fin(n), _sg("dif_acum_dias")),
                   None, None, suma("S", fin(n), sum(a.get("dep_fiscal") or 0 for a in A)),
-                  suma("T", fin(n), sum(a.get("nbv") or 0 for a in A if a.get("nbv") is not None))] if n else None
+                  suma("T", fin(n), sum(a.get("nbv") or 0 for a in A if a.get("nbv") is not None)),
+                  suma("U", fin(n), sum(a["dif"] for a in A if a["dif"] is not None))] if n else None
     ex_comp21 = {
         "Código": "Código del activo en el anexo del cliente (hoja 03), para rastrear cada cálculo hasta su origen.",
         "Clase": "Clase o grupo del activo según el anexo del cliente; determina la vida útil por rubro.",
@@ -1747,6 +1801,7 @@ def hojas(res: dict) -> list[dict]:
         "% dep. SRI": "Porcentaje anual máximo del SRI (Art. 28): 100 ÷ vida tributaria (inmuebles 5 %, maquinaria/muebles 10 %, vehículos 20 %, cómputo 33,33 %).",
         "Gasto SRI (fiscal)": "Depreciación fiscal del período según el SRI (hoja 20): base deducible × tasa × días/365, con el tope de USD 35.000 en vehículos.",
         "Valor NIIF (VNL)": "Valor neto en libros NIIF al corte (hoja 04): costo − depreciación acumulada recalculada − deterioro.",
+        "Dif. depreciación recálculo": "Depreciación del año recalculada por el auditor menos la registrada por el cliente; fuera de tolerancia se reporta como hallazgo en la hoja de hallazgos.",
     }
 
     # 22 · guía comparativa NIIF vs SRI (totales por criterio) para orientar al auditor y al cliente.
@@ -1872,6 +1927,73 @@ def hojas(res: dict) -> list[dict]:
         "Estado": "Conciliado, Diferencia o Sin registro en libros.",
     }
 
+    # 28 · Detalle del mayor: el libro mayor homologado, línea por línea, en el orden en que se cargó.
+    DML = d.get("mayorLineas") or []
+    detalle_mayor = [[x["cuenta"], x["desc_cta"], x["linea"], x["referencia"], x["fecha"], x["doc"],
+                      fx("", x["debe"]), fx("", x["haber"]),
+                      fx(f"G{FILA0+i}-H{FILA0+i}", x["neto"]), x["clas"]] for i, x in enumerate(DML)]
+    ndm = len(DML)
+    total_detalle_mayor = ["TOTAL", "", "", "", "", "",
+                           suma("G", FILA0 + max(ndm, 1) - 1, sum(x["debe"] for x in DML)),
+                           suma("H", FILA0 + max(ndm, 1) - 1, sum(x["haber"] for x in DML)),
+                           suma("I", FILA0 + max(ndm, 1) - 1, sum(x["neto"] for x in DML)), ""] if ndm else None
+    ex_detalle_mayor = {
+        "Cuenta": "Número de cuenta contable del movimiento, tal como consta en el libro mayor que entregó el cliente.",
+        "Descripción de la cuenta": "Nombre de la cuenta contable a la que pertenece el movimiento del libro mayor.",
+        "Detalle": "Glosa o descripción del asiento tal como la registró el cliente en el libro mayor del período.",
+        "Referencia": "Texto de referencia del asiento (concepto, documento o leyenda) que trae el libro mayor cargado.",
+        "Fecha": "Fecha de la transacción del asiento según el libro mayor del cliente, dentro del período auditado.",
+        "Documento": "Número de documento o de entrada de diario que respalda el asiento en el libro mayor del cliente.",
+        "Débito": "Valor cargado (debe) del movimiento, tomado de la línea correspondiente del libro mayor del cliente.",
+        "Crédito": "Valor abonado (haber) del movimiento, tomado de la línea correspondiente del libro mayor del cliente.",
+        "Neto": "Débito menos crédito de la línea: aumenta el saldo de la cuenta si es positivo y lo disminuye si es negativo.",
+        "Clasificación": "Tipo de movimiento de auditoría (Adición, Ajuste, Venta o Depreciación), de la columna de auditoría o derivado de la cuenta y el signo.",
+    }
+
+    # 29 · Mayores homologados: el mismo mayor normalizado a columnas estándar, ordenado por cuenta y fecha.
+    DMLH = sorted(DML, key=lambda x: (x["cuenta"], str(x["fecha"] or "")))
+    mayor_homologado = [[x["fecha"], x["cuenta"], x["desc_cta"], x["doc"], x["referencia"],
+                         fx("", x["debe"]), fx("", x["haber"]),
+                         fx(f"F{FILA0+i}-G{FILA0+i}", x["neto"]), x["clas"]] for i, x in enumerate(DMLH)]
+    nmh = len(DMLH)
+    total_mayor_homologado = ["TOTAL", "", "", "", "",
+                              suma("F", FILA0 + max(nmh, 1) - 1, sum(x["debe"] for x in DMLH)),
+                              suma("G", FILA0 + max(nmh, 1) - 1, sum(x["haber"] for x in DMLH)),
+                              suma("H", FILA0 + max(nmh, 1) - 1, sum(x["neto"] for x in DMLH)), ""] if nmh else None
+    ex_mayor_homologado = {
+        "Fecha": "Fecha de la transacción del asiento según el libro mayor; las líneas van ordenadas por cuenta y fecha.",
+        "Cuenta": "Número de cuenta contable del movimiento, homologado al plan de cuentas estándar de la prueba.",
+        "Descripción de la cuenta": "Nombre normalizado de la cuenta contable a la que corresponde el movimiento del mayor.",
+        "Documento": "Número de documento o entrada de diario que respalda el asiento, homologado a la columna estándar.",
+        "Referencia": "Concepto o leyenda del asiento que trae el libro mayor, conservado en la homologación estándar.",
+        "Débito": "Valor cargado (debe) del movimiento, llevado a la columna estándar de débito del mayor homologado.",
+        "Crédito": "Valor abonado (haber) del movimiento, llevado a la columna estándar de crédito del mayor homologado.",
+        "Neto": "Débito menos crédito de la línea homologada: efecto neto del movimiento sobre el saldo de la cuenta.",
+        "Clasificación": "Clasificación de auditoría del movimiento (Adición, Ajuste, Venta o Depreciación) usada para el pivote.",
+    }
+
+    # 30 · Movimiento: pivote del mayor por cuenta y tipo de movimiento (Adición, Ajuste, Venta, Depreciación).
+    PIV = d.get("mayorPivote") or []
+    movimiento = [[x["cuenta"], x["desc"], fx("", x["Adición"]), fx("", x["Ajuste"]), fx("", x["Venta"]),
+                   fx("", x["Depreciación"]),
+                   fx(f"C{FILA0+i}+D{FILA0+i}+E{FILA0+i}+F{FILA0+i}", x["total"])] for i, x in enumerate(PIV)]
+    npv = len(PIV)
+    total_movimiento = ["TOTAL", "",
+                        suma("C", FILA0 + max(npv, 1) - 1, sum(x["Adición"] for x in PIV)),
+                        suma("D", FILA0 + max(npv, 1) - 1, sum(x["Ajuste"] for x in PIV)),
+                        suma("E", FILA0 + max(npv, 1) - 1, sum(x["Venta"] for x in PIV)),
+                        suma("F", FILA0 + max(npv, 1) - 1, sum(x["Depreciación"] for x in PIV)),
+                        suma("G", FILA0 + max(npv, 1) - 1, sum(x["total"] for x in PIV))] if npv else None
+    ex_movimiento = {
+        "Cuenta": "Número de cuenta contable del plan de cuentas cuyo movimiento del período se resume en esta fila.",
+        "Descripción": "Nombre de la cuenta contable cuyo movimiento del período se desglosa por tipo en esta fila.",
+        "Adición": "Suma neta de los movimientos clasificados como adición (compras y altas de activos) de la cuenta.",
+        "Ajuste": "Suma neta de los movimientos clasificados como ajuste contable registrados en la cuenta del período.",
+        "Venta": "Suma neta de los movimientos clasificados como venta o baja de activos registrados en la cuenta.",
+        "Depreciación": "Suma neta de los movimientos clasificados como gasto de depreciación del período en la cuenta.",
+        "Movimiento neto": "Suma de adiciones, ajustes, ventas y depreciación: variación neta del saldo de la cuenta en el período.",
+    }
+
     # 27 · resumen de hallazgos por categoría (consolida la cédula 16 para una lectura ejecutiva).
     cat = {}
     for e in res["exceptions"]:
@@ -1987,7 +2109,8 @@ def hojas(res: dict) -> list[dict]:
               ["Vida SRI (años)", "n"], ["Vida política (años)", "n"], ["Dep. diaria (anexo)", "n"], ["Días gasto", "i"],
               ["Gasto auditor (días)", "n"], ["Días acumulados", "i"], ["Dep. acum. auditor (días)", "n"], ["Gasto cliente", "n"],
               ["Dep. acum. cliente", "n"], ["Dif. gasto", "n"], ["Dif. dep. acum.", "n"],
-              ["% dep. cliente", "n"], ["% dep. SRI", "n"], ["Gasto SRI (fiscal)", "n"], ["Valor NIIF (VNL)", "n"]],
+              ["% dep. cliente", "n"], ["% dep. SRI", "n"], ["Gasto SRI (fiscal)", "n"], ["Valor NIIF (VNL)", "n"],
+              ["Dif. depreciación recálculo", "n"]],
              comparativo, total_comp, explica=ex_comp21),
         hoja("22_Guia_NIIF_SRI", "Guía comparativa NIIF vs SRI",
              [["Concepto", "t"], ["NIIF (meses)", "n"], ["NIIF (días)", "n"], ["SRI (días)", "n"], ["Política (días)", "n"], ["Cliente", "n"]],
@@ -2006,6 +2129,18 @@ def hojas(res: dict) -> list[dict]:
              [["Tipo", "t"], ["Código del activo", "t"], ["Proveedor / Cliente", "t"], ["RUC", "t"], ["Fecha", "d"],
               ["N° factura", "t"], ["Total", "n"], ["Registrado en libros", "n"], ["Diferencia", "n"], ["Estado", "t"]],
              vauch_rows, explica=ex_vauch, colores=["Estado"]),
+        hoja("28_Detalle_mayor", "Detalle del libro mayor (homologado, línea por línea)",
+             [["Cuenta", "t"], ["Descripción de la cuenta", "t"], ["Detalle", "t"], ["Referencia", "t"], ["Fecha", "d"],
+              ["Documento", "t"], ["Débito", "n"], ["Crédito", "n"], ["Neto", "n"], ["Clasificación", "t"]],
+             detalle_mayor, total_detalle_mayor, explica=ex_detalle_mayor),
+        hoja("29_Mayor_homologado", "Mayores homologados (mayor normalizado a columnas estándar)",
+             [["Fecha", "d"], ["Cuenta", "t"], ["Descripción de la cuenta", "t"], ["Documento", "t"], ["Referencia", "t"],
+              ["Débito", "n"], ["Crédito", "n"], ["Neto", "n"], ["Clasificación", "t"]],
+             mayor_homologado, total_mayor_homologado, explica=ex_mayor_homologado),
+        hoja("30_Movimiento", "Movimiento del mayor por tipo (adición, ajuste, venta, depreciación)",
+             [["Cuenta", "t"], ["Descripción", "t"], ["Adición", "n"], ["Ajuste", "n"], ["Venta", "n"],
+              ["Depreciación", "n"], ["Movimiento neto", "n"]],
+             movimiento, total_movimiento, explica=ex_movimiento),
         hoja("27_Resumen_hallazgos", "Resumen de hallazgos por categoría",
              [["Categoría", "t"], ["N° de hallazgos", "i"], ["Importe (valor absoluto)", "n"]],
              resumen_hz, total_hz, explica=ex_hz),
@@ -2050,15 +2185,22 @@ def definicion() -> dict:
         "name": "Propiedad, planta y equipo",
         "area": "Propiedad, planta y equipo",
         "processor": "ppe_propiedad_planta",
-        # El papel de trabajo muestra solo las cédulas del flujo del auditor; las demás (resumen, parámetros,
-        # auxiliar, vidas, fiscal, guía, roll-forward, ajustes, conclusión, lectura, resumen por estado y de
-        # hallazgos, además de carátula/base técnica/anexo y cierre) viajan OCULTAS —no borradas— porque el
-        # recálculo y el tablero las referencian por fórmula (ocultar evita romper con #REF!). «Procedimiento» es
-        # 00_Programa. Las cédulas de análisis (bajas, revaluación, deterioro, adiciones, préstamos,
-        # capitalización) solo existen —y por tanto solo se ven— cuando el cliente tiene ese hecho económico.
-        "hojas_visibles": ["00_Programa", "02_Parametros", "23_Sumaria", "25_Conciliacion", "21_Comparativo",
-                           "06_Componentes", "07_Bajas", "08_Revaluacion", "09_Deterioro", "10_Adiciones",
-                           "11_Prestamos", "12_Capitalizacion", "24_Movimiento_mayor", "26_Vaucheo", "16_Problemas"],
+        # El papel de trabajo entrega SOLO estas 10 cédulas, renombradas como el papel manual del cliente y en
+        # este orden; el resto de las cédulas, la carátula, la base técnica, el anexo técnico y el cierre viajan
+        # ocultos (el recálculo, los hallazgos y el tablero los referencian por fórmula; ocultar evita romper con
+        # #REF!). La hoja «Anexos (Datos Cliente)» es el anexo de activos del cliente (dataset «activos»).
+        "hojas_entregables": [
+            {"name": "00_Programa", "titulo": "Procedimientos"},
+            {"name": "23_Sumaria", "titulo": "Sumaria"},
+            {"name": "30_Movimiento", "titulo": "Movimiento"},
+            {"name": "29_Mayor_homologado", "titulo": "Mayores Homologados"},
+            {"name": "28_Detalle_mayor", "titulo": "Detalle Mayor"},
+            {"name": "25_Conciliacion", "titulo": "Conciliacion"},
+            {"name": "21_Comparativo", "titulo": "Recalculo de Activos Fijos"},
+            {"name": "16_Problemas", "titulo": "Hoja de Hallazgos"},
+            {"dataset": "activos", "titulo": "Anexos (Datos Cliente)"},
+            {"name": "26_Vaucheo", "titulo": "Vaucheo de Activos Fijos"},
+        ],
         "frameworks": [MARCO_COMPLETAS, MARCO_PYMES],
         "summary": ("Recalcula por activo la depreciación, el valor neto en libros y el resultado de las bajas; evalúa vidas útiles, "
                     "residuales, componentes, revaluación, deterioro y la provisión de desmantelamiento; con el anexo de préstamos separa los "

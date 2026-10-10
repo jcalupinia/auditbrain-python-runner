@@ -186,6 +186,47 @@ def _titulos_unicos(hojas: list[dict]) -> list[str]:
     return titulos
 
 
+def _aplicar_entregables(definicion: dict, hojas: list[dict], titulos: list[str]):
+    """Entrega SOLO las hojas de ``hojas_entregables``, renombradas al título del papel manual del
+    cliente y en ese orden; las demás quedan ocultas (conservarlas —no borrarlas— evita #REF! en la
+    portada y en las fórmulas). Re-mapea las referencias de fórmula (``'nombre'!`` → ``'título'!``)
+    para que el renombrado no rompa el recálculo ni el enlace de los hallazgos.
+
+    Devuelve (hojas, titulos, permitidos, orden): `permitidos` es el conjunto de nombres que quedan
+    visibles; `orden` mapea nombre → índice de presentación. Si la prueba no declara la clave,
+    devuelve los títulos sin tocar y (None, None)."""
+    spec = definicion.get("hojas_entregables")
+    if not spec:
+        return hojas, titulos, None, None
+    import copy as _copy
+    hojas = _copy.deepcopy(hojas)
+    ren, permit, orden = {}, set(), {}
+    for i, e in enumerate(spec):
+        for idx, h in enumerate(hojas):
+            if ("name" in e and h.get("name") == e["name"]) or ("dataset" in e and h.get("dataset") == e.get("dataset")):
+                ren[titulos[idx]] = e["titulo"][:31]
+                permit.add(h.get("name"))
+                orden[h.get("name")] = i
+                break
+
+    def _repl(f: str) -> str:
+        for old, new in ren.items():
+            if old != new:
+                f = f.replace("'" + old + "'!", "'" + new + "'!")
+        return f
+
+    for h in hojas:
+        for fila in (h.get("rows") or []):
+            for c in fila:
+                if isinstance(c, dict) and c.get("f"):
+                    c["f"] = _repl(c["f"])
+        for c in (h.get("total") or []):
+            if isinstance(c, dict) and c.get("f"):
+                c["f"] = _repl(c["f"])
+    titulos = [ren.get(t, t) for t in titulos]
+    return hojas, titulos, permit, orden
+
+
 # Secciones del libro: nombre, color de pestaña y botón, color del texto y qué reúne.
 SECCIONES = [
     ("RESULTADO", GOLD, NAVY, "resumen, problemas, asientos y conclusión"),
@@ -681,6 +722,8 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
         _cierre = lambda h: h["name"].startswith("00_") or h["name"] in (HOJA_CONCLUSION, HOJA_CONTROL)
         hojas = [h for h in hojas if not _cierre(h)] + [h for h in hojas if _cierre(h)]
     titulos = _titulos_unicos(hojas)
+    # Entrega acotada (p. ej. PP&E): solo las cédulas declaradas, renombradas y en su orden; el resto oculto.
+    hojas, titulos, permit_ent, orden_ent = _aplicar_entregables(definicion, hojas, titulos)
     titulo_prueba = f"{definicion.get('name', '')} · {(reg.get('engagement') or {}).get('client', '')} · corte {(reg.get('engagement') or {}).get('cutoff', '')}"
 
     inicio = wb.create_sheet("00_Inicio")
@@ -722,13 +765,28 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     # que el ICT, donde ocultar —no borrar— evita romper las referencias con #REF!). 00_Inicio
     # (Tablero) queda visible y activo. El papel de trabajo NO se protege con contraseña.
     visibles = definicion.get("hojas_visibles")
-    if visibles:
+    if permit_ent is not None:
+        # Entrega acotada: solo las cédulas declaradas quedan visibles, en el orden del papel; la
+        # portada, el anexo técnico y las demás cédulas quedan ocultos (no borrados: evita #REF!).
+        for h, t in zip(hojas, titulos):
+            if h.get("name") not in permit_ent:
+                wb[t].sheet_state = "hidden"
+        inicio.sheet_state = "hidden"
+        tec.sheet_state = "hidden"
+        orden_titulos = [t for _, t in sorted(
+            (orden_ent[h["name"]], t) for h, t in zip(hojas, titulos) if h.get("name") in permit_ent)]
+        resto = [ws for ws in wb._sheets if ws.title not in orden_titulos]
+        wb._sheets = [wb[t] for t in orden_titulos] + resto
+        wb.active = 0
+    elif visibles:
         permit = set(visibles)
         for h, t in zip(hojas, titulos):
             if h.get("name") not in permit:
                 wb[t].sheet_state = "hidden"
         tec.sheet_state = "hidden"
-    wb.active = 0
+        wb.active = 0
+    else:
+        wb.active = 0
     wb.calculation.fullCalcOnLoad = True  # el gráfico y las fórmulas se calculan al abrir
     salida = io.BytesIO()
     wb.save(salida)
