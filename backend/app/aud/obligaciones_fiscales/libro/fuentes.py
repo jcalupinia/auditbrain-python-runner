@@ -43,10 +43,12 @@ _CAMPOS_FIJOS = (
     ("ventas_iva", "Ventas · Valor IVA"),
     ("compras_no_objeto", "Compras · no objeto de IVA (cód. 19)"),
     ("compras_importacion", "Compras · importaciones (cód. 03/04)"),
+    ("compras_reembolso", "Compras · reembolsos (cód. 41)"),
     ("anulados", "Comprobantes anulados (informativo)"),
     ("iva_le_retuvieron", "IVA que le retuvieron (cas. 609)"),
     ("renta_le_retuvieron", "Renta que le retuvieron (informativo)"),
     ("ret_renta_total", "Retenciones de renta · total según ATS"),
+    ("ret_renta_base", "Retenciones de renta · base imponible según ATS"),
     ("ret_iva_total", "Retenciones de IVA · total según ATS"),
 )
 
@@ -62,6 +64,8 @@ def _valor_campo_ats(resumen: ResumenATS | None, campo: str) -> float:
         "compras_iva": resumen.compras.iva,
         "compras_no_objeto": resumen.compras_no_objeto,
         "compras_importacion": resumen.compras_importacion,
+        "compras_reembolso": resumen.compras_reembolso,
+        "ret_renta_base": resumen.retenciones_renta_base_total,
         "ventas_bi_0": resumen.ventas.bi_0,
         "ventas_bi_gravada": resumen.ventas.bi_gravada,
         "ventas_iva": resumen.ventas.iva,

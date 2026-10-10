@@ -40,7 +40,7 @@ from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm5_ventas import (
     CASILLEROS_IVA_VENTAS, CASILLEROS_VENTAS, CASILLEROS_VENTAS_0,
 )
 from backend.app.aud.obligaciones_fiscales.libro.cedulas.dm7_retenciones import (
-    CASILLERO_RET_IVA_CONTROL, CASILLERO_RET_RENTA, CASILLEROS_RET_IVA,
+    CASILLERO_RET_IVA_CONTROL, CASILLEROS_RET_IVA,
 )
 from backend.app.aud.obligaciones_fiscales.libro.estilos import (
     escribir_encabezado_cedula, escribir_leyenda_marcas,
@@ -64,9 +64,11 @@ CASILLERO_COMPRAS_TOTAL = "519"
 CASILLERO_COMPRAS_BRUTO = "509"
 CASILLERO_IVA_COMPRAS = "520"
 CASILLERO_IVA_RETENIDO_RECIBIDO = "609"
-# Base imponible de la retención de renta del F-103, según el papel de trabajo
-# del auditor: casilleros 349 − 302 + 429 + 421 (cada uno con su signo).
-CASILLEROS_F103_BASE = (("349", "+"), ("302", "-"), ("429", "+"), ("421", "+"))
+# Base imponible de la retención de renta del F-103 (papel del auditor):
+# casilleros 349 − 302.
+CASILLEROS_F103_BASE = (("349", "+"), ("302", "-"))
+# Valor retenido de renta del F-103 (papel del auditor): casilleros 399 − 352.
+CASILLEROS_F103_VALOR = (("399", "+"), ("352", "-"))
 
 # Casilleros de importaciones "Valor Neto" del F-104 (compras). Ver nota (*)
 # en el docstring del módulo.
@@ -90,6 +92,24 @@ def _dirs_casillero(dir_datos: dict, periodos: list[str], cas: str) -> dict[str,
         addr = dir_datos.get((periodo, cas))
         if addr:
             salida[mes] = addr
+    return salida
+
+
+def _formula_compuesta(dir_datos: dict, periodos: list[str],
+                       casilleros: tuple[tuple[str, str], ...]) -> dict[str, str]:
+    """{mes → fórmula} de una combinación de casilleros con signo (ej.
+    ``349 − 302`` → ``=addr349-addr302``). Un mes sin ninguna dirección se omite.
+    """
+    salida: dict[str, str] = {}
+    for periodo in periodos:
+        mes = periodo.split("-")[-1]
+        partes = []
+        for cas, signo in casilleros:
+            addr = dir_datos.get((periodo, cas))
+            if addr:
+                partes.append(f"{signo}{addr}" if partes or signo == "-" else addr)
+        if partes:
+            salida[mes] = "=" + "".join(partes)
     return salida
 
 
@@ -283,12 +303,42 @@ def build_dm8(
         fila_referencias(ws, fila=fila, etiqueta="Total ATS",
                          direcciones=_dirs_campo(dir_ats, "ret_renta_total"))
     fila += 1
-    fila_referencias(ws, fila=fila, etiqueta=f"Casillero {CASILLERO_RET_RENTA} (F-103)",
-                     direcciones=_dirs_casillero(dir_f103, periodos, CASILLERO_RET_RENTA))
+    # Valor retenido declarado del F-103 = casilleros 399 − 352 (no el 499).
+    fila_formula(ws, fila=fila, etiqueta="Valor retenido F-103 (399 − 352)",
+                 formulas_por_mes=_formula_compuesta(dir_f103, periodos, CASILLEROS_F103_VALOR))
     fila_cas_renta = fila
     fila += 1
     fila_diferencia(ws, fila=fila, etiqueta="Diferencia",
                     fila_libros=fila_total_ats_renta, fila_declarado=fila_cas_renta)
+    fila += 3
+
+    # --- Bases imponibles de la retención de renta: F-103 (349 − 302) vs la
+    # base de retención según el ATS, menos los reembolsos (código 41, no
+    # sujetos a retención). Antes solo estaba el cruce de VALORES retenidos. ---
+    escribir_encabezado_meses(ws, fila=fila, titulo="BASES DE RETENCIÓN DE RENTA (F-103 vs ATS)")
+    fila += 1
+    fila_f103_base_ret = fila
+    fila_formula(ws, fila=fila, etiqueta="Base F-103 (349 − 302)",
+                 formulas_por_mes=_formula_compuesta(dir_f103, periodos, CASILLEROS_F103_BASE))
+    fila += 1
+    fila_base_ats_ret = fila
+    fila_referencias(ws, fila=fila, etiqueta="Base de retención según ATS",
+                     direcciones=_dirs_campo(dir_ats, "ret_renta_base"))
+    fila += 1
+    fila_reemb_ret = fila
+    fila_referencias(ws, fila=fila, etiqueta="(−) Reembolsos ATS/NC (cód. 41)",
+                     direcciones=_dirs_campo(dir_ats, "compras_reembolso"))
+    fila += 1
+    fila_formula(
+        ws, fila=fila, etiqueta="Diferencia bases (F-103 − ATS − reembolsos)",
+        negrita=True,
+        formulas_por_mes={
+            mes: (f"=ROUND({get_column_letter(COL_PRIMER_MES + j)}{fila_f103_base_ret}"
+                  f"-{get_column_letter(COL_PRIMER_MES + j)}{fila_base_ats_ret}"
+                  f"-{get_column_letter(COL_PRIMER_MES + j)}{fila_reemb_ret},2)")
+            for j, mes in enumerate(MESES)
+        },
+    )
     fila += 3
 
     # --- Retenciones que le efectuaron ---
@@ -315,10 +365,10 @@ def build_dm8(
     fila += 3
 
     # --- Diferencia en las bases imponibles del F-103 y el F-104 ---
-    # La base de compras declarada en el F-104 (casillero 509, valor bruto),
-    # menos lo que no está sujeto a retención de renta (importaciones y
-    # dividendos), debe cuadrar con la base sobre la que se practicaron las
-    # retenciones de renta del F-103 (349 − 302 + 429 + 421).
+    # La base de compras declarada en el F-104 (casillero 509, valor bruto) MÁS
+    # el "no objeto" de IVA (código 19, que el ATS trae pero el 509 no), menos
+    # lo que no está sujeto a retención de renta (importaciones y dividendos),
+    # debe cuadrar con la base de retención de renta del F-103 (349 − 302).
     escribir_encabezado_meses(ws, fila=fila, titulo="BASES IMPONIBLES F-103 vs F-104")
     fila += 1
     fila_f104_bruto = fila
@@ -326,6 +376,10 @@ def build_dm8(
         ws, fila=fila, etiqueta=f"Formulario 104 (casillero {CASILLERO_COMPRAS_BRUTO} · bruto)",
         direcciones=_dirs_casillero(dir_f104, periodos, CASILLERO_COMPRAS_BRUTO),
     )
+    fila += 1
+    fila_noobj_base = fila
+    fila_referencias(ws, fila=fila, etiqueta="(+) No objeto de IVA (cód. 19 ATS)",
+                     direcciones=_dirs_campo(dir_ats, "compras_no_objeto"))
     fila += 1
     primer_resta_base = fila
     for cas in CASILLEROS_IMPORTACIONES:
@@ -341,29 +395,24 @@ def build_dm8(
                     desde=primer_resta_base, hasta=fila - 1)
     fila += 1
     fila_base_104 = fila
-    fila_diferencia(
-        ws, fila=fila,
-        etiqueta=f"Base F-104 ({CASILLERO_COMPRAS_BRUTO} − importaciones − dividendos)",
-        fila_libros=fila_f104_bruto, fila_declarado=fila_restas_base,
+    # Base F-104 = 509 + no objeto − (importaciones + dividendos).
+    fila_formula(
+        ws, fila=fila, negrita=True,
+        etiqueta=f"Base F-104 ({CASILLERO_COMPRAS_BRUTO} + no objeto − importaciones − dividendos)",
+        formulas_por_mes={
+            mes: (f"=ROUND({get_column_letter(COL_PRIMER_MES + j)}{fila_f104_bruto}"
+                  f"+{get_column_letter(COL_PRIMER_MES + j)}{fila_noobj_base}"
+                  f"-{get_column_letter(COL_PRIMER_MES + j)}{fila_restas_base},2)")
+            for j, mes in enumerate(MESES)
+        },
     )
     fila += 1
-    # Formulario 103: 349 − 302 + 429 + 421 (por mes, con el signo de cada uno).
-    fila_f103_base = fila
-    formulas_103: dict[str, str] = {}
-    for periodo in periodos:
-        mes = periodo.split("-")[-1]
-        partes = []
-        for cas, signo in CASILLEROS_F103_BASE:
-            addr = dir_f103.get((periodo, cas))
-            if addr:
-                partes.append(f"{signo}{addr}" if partes or signo == "-" else addr)
-        if partes:
-            formulas_103[mes] = "=" + "".join(partes)
-    fila_formula(ws, fila=fila, etiqueta="Formulario 103 (349 − 302 + 429 + 421)",
-                 formulas_por_mes=formulas_103)
+    fila_f103_base_104 = fila
+    fila_formula(ws, fila=fila, etiqueta="Formulario 103 (349 − 302)",
+                 formulas_por_mes=_formula_compuesta(dir_f103, periodos, CASILLEROS_F103_BASE))
     fila += 1
     fila_diferencia(ws, fila=fila, etiqueta="Diferencia bases (F-104 − F-103)",
-                    fila_libros=fila_base_104, fila_declarado=fila_f103_base)
+                    fila_libros=fila_base_104, fila_declarado=fila_f103_base_104)
     fila += 3
 
     escribir_leyenda_marcas(ws, fila=fila)
