@@ -11,7 +11,7 @@ import re
 from openpyxl import load_workbook
 
 from backend.app.aud.niif import ejercicio_modelo as em
-from backend.app.aud.niif.procesadores import PROCESADORES, graficos, libro
+from backend.app.aud.niif.procesadores import PROCESADORES, graficos, libro, problemas
 
 
 def _reg(pid):
@@ -120,7 +120,10 @@ def test_excel_un_solo_dashboard_con_graficos_por_formula():
             assert ch.title.overlay is False and ch.series[0].cat.strRef is not None, pid
         assert any(re.match(r"^='00_Inicio'!\$[B-F]\$\d+$", f) for f in formulas), pid  # registrado/recalculado → tarjetas
         assert sum("SUMIFS(" in f and "Problemas" not in f for f in formulas) >= 2, pid  # composición/distribución → cédulas
-        assert any("COUNTIFS(" in f and "Problemas" in f for f in formulas), pid  # severidad → hoja de problemas
+        # El gráfico de severidad cuenta desde la hoja de problemas; se ubica por sus columnas, no por su
+        # título (una herramienta puede renombrarla, p. ej. PP&E la llama «Hoja de Hallazgos»).
+        hp = next((ws for ws in wb.worksheets if [ws.cell(4, j).value for j in (1, 2, 3)] == problemas.COLS), None)
+        assert hp is not None and any("COUNTIFS(" in f and hp.title in f for f in formulas), pid  # severidad → hoja de problemas
 
 
 def test_excel_tablas_premium():

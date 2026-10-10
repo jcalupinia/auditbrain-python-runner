@@ -767,7 +767,10 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
     visibles = definicion.get("hojas_visibles")
     if permit_ent is not None:
         # Entrega acotada: solo las cédulas declaradas quedan visibles, en el orden del papel; la
-        # portada, el anexo técnico y las demás cédulas quedan ocultos (no borrados: evita #REF!).
+        # portada (Tablero), el anexo técnico y las demás cédulas quedan ocultos (no borrados: evita
+        # #REF!). 00_Inicio se conserva en la POSICIÓN 0 (el papel ejecutivo y sus pruebas lo exigen),
+        # pero oculto; las 10 cédulas entregables van justo después, en su orden, y el libro abre en
+        # la primera de ellas (Procedimientos).
         for h, t in zip(hojas, titulos):
             if h.get("name") not in permit_ent:
                 wb[t].sheet_state = "hidden"
@@ -775,9 +778,11 @@ def xlsx(definicion: dict, reg: dict, eventos: list, version: int, estado: str) 
         tec.sheet_state = "hidden"
         orden_titulos = [t for _, t in sorted(
             (orden_ent[h["name"]], t) for h, t in zip(hojas, titulos) if h.get("name") in permit_ent)]
-        resto = [ws for ws in wb._sheets if ws.title not in orden_titulos]
-        wb._sheets = [wb[t] for t in orden_titulos] + resto
-        wb.active = 0
+        vis = [wb[t] for t in orden_titulos]
+        cab = [ws for ws in wb._sheets if ws.title == inicio.title]
+        resto = [ws for ws in wb._sheets if ws.title != inicio.title and ws.title not in orden_titulos]
+        wb._sheets = cab + vis + resto
+        wb.active = wb._sheets.index(vis[0]) if vis else 0
     elif visibles:
         permit = set(visibles)
         for h, t in zip(hojas, titulos):
