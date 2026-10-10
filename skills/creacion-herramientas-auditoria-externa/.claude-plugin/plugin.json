@@ -1,0 +1,8 @@
+{
+  "name": "creacion-herramientas-auditoria-externa",
+  "version": "1.5.0-draft",
+  "description": "Plugin de skills para crear, revisar y publicar herramientas y pruebas de auditoría externa de AuditConsulting (Command Center / AUDIT-IA). Incluye la metodología vinculante (M01–M31, con la Puerta de conocimiento M31) y el orquestador de agentes de punta a punta.",
+  "author": {
+    "name": "AuditConsulting Auditores Cía. Ltda."
+  }
+}
