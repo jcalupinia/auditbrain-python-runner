@@ -75,3 +75,16 @@ export async function ingerir(file, tipoDeclarado, { ocr = true, consolidar = tr
     })
   ).json();
 }
+
+// Extrae datos puntuales de un documento narrativo (contrato/carta/informe) y
+// devuelve { dataset, cola_revision }. Determinístico primero: fechas, montos,
+// RUCs y porcentajes por regex. `usarIa` (opcional) suma obligaciones/partes/
+// cláusulas por IA, solo texto, con disclaimer.
+export async function narrativo(file, tipoDeclarado, { usarIa = false } = {}) {
+  return (
+    await call("narrativo", {
+      method: "POST",
+      body: cuerpo(file, tipoDeclarado, { usar_ia: usarIa }),
+    })
+  ).json();
+}
