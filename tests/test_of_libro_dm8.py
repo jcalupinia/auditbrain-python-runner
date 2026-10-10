@@ -21,9 +21,9 @@ PERIODOS = [f"2025-{m:02d}" for m in range(1, 13)]
 CAMPOS_ATS_FIJOS = [
     "ventas_bi_0", "ventas_bi_gravada", "ventas_iva",
     "compras_bi_0", "compras_bi_gravada", "compras_iva",
-    "compras_no_objeto", "compras_importacion",
+    "compras_no_objeto", "compras_importacion", "compras_reembolso",
     "anulados", "iva_le_retuvieron", "renta_le_retuvieron",
-    "ret_renta_total", "ret_iva_total",
+    "ret_renta_total", "ret_renta_base", "ret_iva_total",
 ]
 
 DIR_ATS = {
@@ -52,8 +52,8 @@ DIR_F103 = {
     ("2025-01", "499"): "'DATOS F-103'!C40",
     ("2025-01", "349"): "'DATOS F-103'!C41",
     ("2025-01", "302"): "'DATOS F-103'!C42",
-    ("2025-01", "429"): "'DATOS F-103'!C43",
-    ("2025-01", "421"): "'DATOS F-103'!C44",
+    ("2025-01", "399"): "'DATOS F-103'!C45",
+    ("2025-01", "352"): "'DATOS F-103'!C46",
 }
 
 
@@ -152,18 +152,37 @@ def test_el_no_objeto_cruza_el_campo_del_ats():
     assert isinstance(valor, str) and valor.startswith("='DATOS ATS'!")
 
 
-def test_el_bloque_de_bases_103_104_cruza_el_509_bruto_contra_la_base_del_103():
+def test_el_bloque_de_bases_103_104_cruza_el_509_bruto_mas_no_objeto_contra_349_302():
     ws = _cedula()
     etiquetas = _etiquetas(ws)
     assert any(e.startswith("Formulario 104 (casillero 509") for e in etiquetas)
-    # La base del F-103 es la combinación 349 − 302 + 429 + 421 (con signos).
+    # El "no objeto" se suma a la base del F-104 para que la diferencia sea exacta.
+    assert any(str(e or "").startswith("(+) No objeto de IVA") for e in etiquetas)
+    # La base del F-103 es 349 − 302.
     fila_103 = next(r for r in range(1, ws.max_row + 1)
-                    if str(ws.cell(r, 2).value or "").startswith("Formulario 103"))
-    formula = ws.cell(fila_103, 3).value
-    assert formula == ("='DATOS F-103'!C41-'DATOS F-103'!C42"
-                       "+'DATOS F-103'!C43+'DATOS F-103'!C44")
-    # Y hay una diferencia de bases (F-104 − F-103).
+                    if str(ws.cell(r, 2).value or "") == "Formulario 103 (349 − 302)")
+    assert ws.cell(fila_103, 3).value == "='DATOS F-103'!C41-'DATOS F-103'!C42"
     assert any(str(e or "").startswith("Diferencia bases") for e in etiquetas)
+
+
+def test_retencion_de_renta_valor_se_compara_contra_399_menos_352():
+    ws = _cedula()
+    fila = next(r for r in range(1, ws.max_row + 1)
+                if str(ws.cell(r, 2).value or "").startswith("Valor retenido F-103 (399"))
+    assert ws.cell(fila, 3).value == "='DATOS F-103'!C45-'DATOS F-103'!C46"
+
+
+def test_hay_cruce_de_bases_de_retencion_de_renta_f103_vs_ats():
+    """Nuevo bloque: la base del F-103 (349−302) contra la base de retención del
+    ATS menos los reembolsos (código 41)."""
+    ws = _cedula()
+    etiquetas = _etiquetas(ws)
+    assert any(str(e or "").startswith("Base F-103 (349 − 302)") for e in etiquetas)
+    assert any(str(e or "").startswith("Base de retención según ATS") for e in etiquetas)
+    assert any("Reembolsos ATS" in str(e or "") for e in etiquetas)
+    fila_dif = next(r for r in range(1, ws.max_row + 1)
+                    if str(ws.cell(r, 2).value or "").startswith("Diferencia bases (F-103 − ATS"))
+    assert str(ws.cell(fila_dif, 3).value).startswith("=ROUND(")
 
 
 def test_comprobantes_anulados_es_informativo_sin_casillero():
@@ -200,14 +219,6 @@ def test_retencion_de_renta_tiene_una_fila_por_codigo_visto_en_los_ats():
     etiquetas = _etiquetas(ws)
     assert any("303" in e for e in etiquetas)
     assert any("310" in e for e in etiquetas)
-
-
-def test_retencion_de_renta_se_compara_contra_casillero_499_del_f103():
-    ws = _cedula()
-    fila = next(r for r in range(1, ws.max_row + 1)
-                if "Casillero 499" in str(ws.cell(r, 2).value or ""))
-    valor = ws.cell(fila, 3).value
-    assert valor == "='DATOS F-103'!C40"
 
 
 def test_le_efectuaron_iva_se_compara_contra_casillero_609():

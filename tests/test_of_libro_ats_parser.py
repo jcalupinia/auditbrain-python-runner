@@ -122,6 +122,24 @@ def test_extrae_el_no_objeto_del_codigo_19():
     assert r.compras.bi_0 == 863.86  # el TOTAL sí incluye el código 19
 
 
+def test_extrae_los_reembolsos_del_codigo_41():
+    """El código 41 (comprobante de venta por reembolso) no está sujeto a
+    retención de renta: se resta del cruce de bases del F-103."""
+    texto = (
+        "ANEXO TRANSACCIONAL\nRUC: 1790000000001\nPeriodo: 05-2026\n"
+        "COMPRAS\n"
+        "Cod. Transacción No. Registros BI tarifa 0% BI tarifa 12% BI No Objeto IVA Valor IVA\n"
+        "01 FACTURA 10 100.00 2000.00 0.00 300.00\n"
+        "COMPROBANTE DE VENTA EMITIDO POR\n"
+        "41 3 1651.14 3362.80 0.00 504.40\n"
+        "REEMBOLSO\n"
+        "TOTAL: 1751.14 5362.80 0.00 804.40\n"
+        "VENTAS\nTOTAL: 0.00 0.00 0.00 0.00\n"
+    )
+    r = parse_ats_texto(texto)
+    assert r.compras_reembolso == 5013.94
+
+
 def test_reconstruye_el_nombre_partido_en_varias_lineas():
     """303: el nombre viene partido antes (línea previa) y después (línea
     siguiente) de la fila código+números. Nunca se debe heredar el nombre

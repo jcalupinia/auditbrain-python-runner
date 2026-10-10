@@ -110,6 +110,9 @@ class ResumenATS:
     # (códigos 03/04) del talón: se restan del casillero 519 en el cruce de DM8.
     compras_no_objeto: float = 0.0
     compras_importacion: float = 0.0
+    # Base de compras por reembolso (código 41): no está sujeta a retención de
+    # renta, se resta del cruce de bases del F-103.
+    compras_reembolso: float = 0.0
     comprobantes_anulados: int | None = None
     retenciones_renta: list[RetencionRenta] = field(default_factory=list)
     retenciones_renta_base_total: float = 0.0
@@ -238,6 +241,10 @@ CODIGOS_NO_OBJETO = frozenset({"19"})
 # Códigos de transacción del ATS de importaciones (no llevan retención en la
 # fuente de IVA local). Se restan junto con el "no objeto".
 CODIGOS_IMPORTACION = frozenset({"03", "04"})
+# Código de transacción del ATS de reembolsos (comprobante de venta emitido por
+# reembolso): su base NO está sujeta a retención de renta, así que se resta del
+# cruce de bases del F-103.
+CODIGOS_REEMBOLSO = frozenset({"41"})
 
 
 def _compras_por_codigo(lines: list[str]) -> dict[str, float]:
@@ -468,6 +475,9 @@ def parse_ats_texto(texto: str) -> ResumenATS:
     compras_importacion = round(
         sum(v for c, v in compras_por_codigo.items() if c in CODIGOS_IMPORTACION), 2
     )
+    compras_reembolso = round(
+        sum(v for c, v in compras_por_codigo.items() if c in CODIGOS_REEMBOLSO), 2
+    )
     anulados = _buscar_anulados(
         _seccion(lines, "COMPROBANTES ANULADOS", "RESUMEN DE RETENCIONES - AGENTE DE RETENCION")
     )
@@ -510,6 +520,7 @@ def parse_ats_texto(texto: str) -> ResumenATS:
         ventas=ventas or BloqueBase(),
         compras_no_objeto=compras_no_objeto,
         compras_importacion=compras_importacion,
+        compras_reembolso=compras_reembolso,
         comprobantes_anulados=anulados,
         retenciones_renta=retenciones_renta,
         retenciones_renta_base_total=renta_base_total,
