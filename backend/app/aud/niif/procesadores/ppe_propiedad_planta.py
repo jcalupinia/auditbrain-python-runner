@@ -45,15 +45,20 @@ VERSION = "ppe_propiedad_planta 1.0"
 RUBRO = "ACTIVOS_FIJOS"
 
 _ACTIVOS = [
-    campo("id", "Código del activo", alias=("codigo", "código", "activo", "codigo activo", "placa"), ejemplo="VEH-01"),
-    campo("descripcion", "Descripción", alias=("detalle", "nombre", "descripcion del activo"), ejemplo="Camioneta 4x4"),
-    campo("clase", "Clase", alias=("grupo", "tipo de activo", "cuenta", "categoria"), ejemplo="Vehículos"),
+    # Todos los campos son opcionales: la prueba nunca bloquea por un dato faltante. El MÍNIMO para que el
+    # recálculo salga completo es código, descripción, % de depreciación, vida útil tributaria, fecha de
+    # activación (disponible para uso), valor adquirido (costo) y valor residual; lo demás solo afina el análisis.
+    campo("id", "Código del activo", requerido=False, alias=("codigo", "código", "activo", "codigo activo", "placa"), ejemplo="VEH-01"),
+    campo("descripcion", "Descripción", requerido=False, alias=("detalle", "nombre", "descripcion del activo", "articulo", "artículo"), ejemplo="Camioneta 4x4"),
+    campo("clase", "Clase", requerido=False, alias=("grupo", "tipo de activo", "cuenta", "categoria"), ejemplo="Vehículos"),
     campo("elemento", "Elemento al que pertenece (componente)", requerido=False, alias=("componente de", "elemento principal", "activo padre"), ejemplo=""),
-    campo("fecha_uso", "Fecha disponible para uso", "date", requerido=False, alias=("fecha de uso", "fecha de activacion", "fecha inicio depreciacion", "fecha de compra"), ejemplo="2023-07-01"),
-    campo("costo_inicial", "Costo al inicio del año", "number", alias=("costo inicial", "saldo inicial costo", "costo historico", "costo ajustado", "valor adquirido"), ejemplo="40000"),
+    campo("fecha_uso", "Fecha disponible para uso", "date", requerido=False, alias=("fecha de uso", "fecha de activacion", "fecha de activación", "fecha inicio depreciacion", "fecha de compra"), ejemplo="2023-07-01"),
+    campo("costo_inicial", "Costo al inicio del año", "number", requerido=False, alias=("costo inicial", "saldo inicial costo", "costo historico", "costo ajustado", "valor adquirido"), ejemplo="40000"),
     campo("adiciones", "Adiciones del año", "number", requerido=False, alias=("altas", "adiciones", "compras del año"), ejemplo="0"),
     campo("residual", "Valor residual", "number", requerido=False, alias=("valor residual", "residual", "valor de salvamento"), ejemplo="4000"),
-    campo("vida_meses", "Vida útil (meses)", "number", requerido=False, alias=("vida util", "vida util meses", "meses de vida"), ejemplo="60"),
+    campo("vida_meses", "Vida útil (meses)", "number", requerido=False, alias=("vida util meses", "meses de vida"), ejemplo="60"),
+    campo("vida_anios", "Vida útil tributaria (años)", "number", requerido=False,
+          alias=("vida util", "vida util tributaria", "vida util anios", "vida util años", "años de vida", "anios de vida", "vida util en años", "vida"), ejemplo="5"),
     campo("metodo", "Método de depreciación", requerido=False, alias=("metodo", "método"), ejemplo="Lineal"),
     campo("dep_acum_inicial", "Depreciación acumulada inicial", "number", requerido=False, alias=("dep acumulada inicial", "depreciacion acumulada inicial"), ejemplo="10800"),
     campo("dep_acum_cliente", "Depreciación acumulada del cliente al corte", "number", requerido=False,
@@ -114,7 +119,7 @@ _MAYOR = [
     campo("tipo", "Tipo de asiento", requerido=False, alias=("tp", "tipo", "tipo asiento"), ejemplo="VO"),
     campo("debe", "Debe", "number", requerido=False, alias=("debe", "debito", "débito", "cargo"), ejemplo="1500"),
     campo("haber", "Haber", "number", requerido=False, alias=("haber", "credito", "crédito", "abono"), ejemplo="0"),
-    campo("importe", "Importe (valor neto del movimiento)", "number", requerido=False, alias=("valor", "monto", "importe", "saldo", "saldo auditado"), ejemplo="1500"),
+    campo("importe", "Importe (valor neto del movimiento)", "number", requerido=False, tolerante=True, alias=("valor", "monto", "importe", "saldo", "saldo auditado"), ejemplo="1500"),
     campo("clasificacion", "Clasificación del movimiento (Adición/Ajuste/Venta/Depreciación)", requerido=False,
           alias=("clasificacion", "clasificación", "auditoria", "auditoría", "tipo de movimiento", "movimiento"), ejemplo="Adición"),
 ]
@@ -347,9 +352,25 @@ def ejecutar(datasets: dict, parametros: dict, corte: str) -> dict:
         if not _t(f.get("id")):
             continue
         clase = _t(f.get("clase"))
+        # Vida útil en MESES a partir de lo que traiga el anexo, en este orden: meses → años tributarios → días →
+        # % de depreciación anual (vida = 100 / %; el % se normaliza: 0,20 → 20 %). Si nada consta o es ≤ 0, se usa
+        # más abajo la vida por clase o la del SRI (ningún dato faltante o ilegible bloquea la prueba).
         vida = _opc(f.get("vida_meses"))
+        if vida is None:
+            _va = _opc(f.get("vida_anios"))
+            if _va is not None and _va > 0:
+                vida = _va * 12
+        if vida is None:
+            _vd = _opc(f.get("vida_dias"))
+            if _vd is not None and _vd > 0:
+                vida = _vd / DIAS_ANIO_VIDA * 12
+        if vida is None:
+            _pct = _opc(f.get("pct_depreciacion"))
+            if _pct is not None and _pct > 0:
+                _pct = _pct * 100 if _pct <= 1 else _pct
+                vida = 100.0 / _pct * 12
         if vida is not None and vida <= 0:
-            raise ValueError(f"Activo {_t(f.get('id'))}: la vida útil debe ser mayor que cero.")
+            vida = None
         # Vida útil NIIF cuando el activo no trae vida propia: primero la que confirmó el auditor por clase (parámetro);
         # si no la fijó, se usa por defecto la vida del SRI (Art. 28) para recalcular como criterio de auditoría. Solo
         # las clases no reconocidas (o terrenos) quedan pendientes.
@@ -2288,8 +2309,11 @@ def definicion() -> dict:
                 "Cédula sumaria: saldos por cuenta del balance y su variación",
                 content="Una fila por cuenta: cuenta contable, descripción, saldo del año anterior y saldo al corte. Sin filas de total."),
             req("RQ-010", "Libro mayor de propiedad, planta y equipo", "mayor", "PPE-01",
-                "Movimiento del período y conciliación auxiliar-mayor (costo y depreciación acumulada)",
-                content="Una fila por movimiento: cuenta, descripción, fecha, comprobante, documento, tipo de asiento y el importe (o debe y haber). Sin filas de total."),
+                "Movimiento del período y conciliación auxiliar-mayor (costo y depreciación acumulada)", required=False,
+                content="Opcional: alimenta las hojas Movimiento, Detalle Mayor, Mayores Homologados y la conciliación. "
+                        "Una fila por movimiento: cuenta, descripción, fecha, documento, debe y haber (el importe es "
+                        "opcional; si una celda no es número se ignora y el neto se toma de Debe − Haber) y, si consta, "
+                        "la clasificación del movimiento (adición/ajuste/venta/depreciación). Sin filas de total."),
             req("RQ-001", "Auxiliar de propiedad, planta y equipo por activo al corte", "activos", "PPE-01", "Población a recalcular y conciliar con el mayor", content=aux),
             req("RQ-002", "Detalle de adiciones del año por documento", "adiciones", "PPE-02", "Examen de adiciones y costos por préstamos", required=False,
                 content="Una fila por documento: N° de documento, código del activo, fecha, descripción, tipo, importe, activo apto (Sí/No) e intereses capitalizados."),

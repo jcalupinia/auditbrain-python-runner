@@ -17,11 +17,17 @@ MARCO_COMPLETAS = "NIIF completas"
 MARCO_PYMES = "NIIF para las PYMES"
 
 
-def campo(key, label, tipo="text", requerido=True, alias=(), ejemplo=None) -> dict:
-    """Definición de una columna de un anexo (el modelo Excel y el mapeo salen de aquí)."""
+def campo(key, label, tipo="text", requerido=True, alias=(), ejemplo=None, tolerante=False) -> dict:
+    """Definición de una columna de un anexo (el modelo Excel y el mapeo salen de aquí).
+
+    ``tolerante=True`` en un campo numérico: una celda que no es número NO bloquea la validación (se ignora;
+    el procesador la parsea con su propio criterio). Útil en columnas de respaldo como el «Importe» del mayor,
+    cuyo valor neto se reconstruye con Debe − Haber."""
     c = {"key": key, "label": label, "type": tipo, "required": requerido, "aliases": list(alias)}
     if ejemplo is not None:
         c["example"] = ejemplo
+    if tolerante:
+        c["tolerant"] = True
     return c
 
 
@@ -37,7 +43,7 @@ def validar_campos(campos: list, filas: list, unico: str | None = "id") -> dict:
             v = "" if raw is None else str(raw).strip()
             if c.get("required") and not v:
                 errores.append({"row": fila, "field": c["key"], "message": f"Falta {c['label']}."})
-            elif v and c["type"] == "number" and a_num(v) is None:
+            elif v and c["type"] == "number" and a_num(v) is None and not c.get("tolerant"):
                 errores.append({"row": fila, "field": c["key"], "message": f"{c['label']}: número inválido."})
             elif v and c["type"] == "date" and a_fecha(v) is None:
                 errores.append({"row": fila, "field": c["key"], "message": f"{c['label']}: fecha inválida."})
