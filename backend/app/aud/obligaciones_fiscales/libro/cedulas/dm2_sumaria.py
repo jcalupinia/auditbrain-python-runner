@@ -145,6 +145,9 @@ def build_dm2(
         _fila_valores(ws, fila, codigo="", nombre=f"Subtotal {categoria}",
                       anterior=round(sub_anterior, 2), corte=round(sub_corte, 2),
                       total=True)
+        # Dirección del saldo al corte del SUBTOTAL de la categoría, para que
+        # DM3 cruce el saldo al corte por categoría contra lo declarado.
+        salida[("saldo_corte_categoria", categoria)] = f"'{SHEET_DM2}'!{col_corte}{fila}"
         fila += 2
         tot_anterior += sub_anterior
         tot_corte += sub_corte

@@ -131,8 +131,8 @@ def armar_libro(
         wb, clasificacion=clasificacion, movimientos=movimientos, **kwargs_comunes
     )
     build_dm3(
-        wb, dir_mayores=dir_mayores, dir_f104=dir_f104, dir_dm7=dir_dm7,
-        dir_dm2=dir_dm2, periodos=periodos, **kwargs_comunes,
+        wb, dir_mayores=dir_mayores, dir_f104=dir_f104, dir_f103=dir_f103,
+        dir_dm7=dir_dm7, dir_dm2=dir_dm2, periodos=periodos, **kwargs_comunes,
     )
     build_dm8(
         wb, dir_ats=dir_ats, dir_f104=dir_f104, dir_f103=dir_f103,
