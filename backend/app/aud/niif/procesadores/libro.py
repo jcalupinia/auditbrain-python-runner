@@ -39,7 +39,10 @@ def _excel(v, fmt):
     """Valor que se escribe en la celda: la fórmula (editable y trazable) si la
     hay; las fechas ISO como fecha de Excel, para que las fórmulas operen con ellas."""
     if isinstance(v, dict):
-        return "=" + v["f"]
+        f = v.get("f") or ""
+        if f:
+            return "=" + f
+        v = v.get("v")   # celda sin fórmula (p. ej. fx("", valor)): se escribe el VALOR, no un "=" vacío.
     if fmt in ("d", "x") and isinstance(v, str) and _ISO.match(v):
         return date.fromisoformat(v)
     return _seguro(v)

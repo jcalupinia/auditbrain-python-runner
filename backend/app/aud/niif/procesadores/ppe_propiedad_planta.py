@@ -2218,6 +2218,7 @@ def definicion() -> dict:
             {"name": "28_Detalle_mayor", "titulo": "Detalle Mayor"},
             {"name": "25_Conciliacion", "titulo": "Conciliacion"},
             {"name": "21_Comparativo", "titulo": "Recalculo de Activos Fijos"},
+            {"name": "20_Fiscal", "titulo": "Recalculo Fiscal (SRI)"},
             {"name": "16_Problemas", "titulo": "Hoja de Hallazgos"},
             {"dataset": "activos", "titulo": "Anexos (Datos Cliente)"},
             {"name": "26_Vaucheo", "titulo": "Vaucheo de Activos Fijos"},
