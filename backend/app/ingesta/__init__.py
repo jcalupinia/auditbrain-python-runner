@@ -79,6 +79,11 @@ from backend.app.ingesta.semantic_resolver import (
     resolver_campo,
     resolver_dataset,
 )
+from backend.app.ingesta.narrativo import (
+    enriquecer_con_ia,
+    extraer_campos_narrativos,
+    extraer_narrativo,
+)
 
 __all__ = [
     "CONTRATO_VERSION",
@@ -125,4 +130,7 @@ __all__ = [
     "resoluble",
     "resolver_campo",
     "resolver_dataset",
+    "enriquecer_con_ia",
+    "extraer_campos_narrativos",
+    "extraer_narrativo",
 ]
