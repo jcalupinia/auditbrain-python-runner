@@ -1,0 +1,19 @@
+{
+  "name": "creacion-herramientas-auditoria-externa",
+  "version": "1.5.0",
+  "description": "Metodología AuditBrain (M01–M38) y agentes para crear, revisar y publicar herramientas y pruebas de auditoría externa de AuditConsulting Auditores Cía. Ltda.: puerta de conocimiento → norma → ficha → cálculo → Excel con fórmulas → validación del socio → catálogo del Command Center. Incluye el dominio confirmado de nómina (pasivos acumulados y gastos) y sus patrones reutilizables.",
+  "author": {
+    "name": "AuditConsulting Auditores Cía. Ltda."
+  },
+  "keywords": [
+    "auditoría externa",
+    "NIIF",
+    "NIIF para las PYMES",
+    "NIA",
+    "papeles de trabajo",
+    "AUDIT-IA",
+    "nómina",
+    "beneficios sociales",
+    "IESS"
+  ]
+}

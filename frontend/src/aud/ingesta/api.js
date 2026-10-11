@@ -76,6 +76,19 @@ export async function ingerir(file, tipoDeclarado, { ocr = true, consolidar = tr
   ).json();
 }
 
+// Extrae datos puntuales de un documento narrativo (contrato/carta/informe) y
+// devuelve { dataset, cola_revision }. Determinístico primero: fechas, montos,
+// RUCs y porcentajes por regex. `usarIa` (opcional) suma obligaciones/partes/
+// cláusulas por IA, solo texto, con disclaimer.
+export async function narrativo(file, tipoDeclarado, { usarIa = false } = {}) {
+  return (
+    await call("narrativo", {
+      method: "POST",
+      body: cuerpo(file, tipoDeclarado, { usar_ia: usarIa }),
+    })
+  ).json();
+}
+
 // Resolución semántica por IA (Fase 6): ingiere y luego pide que la IA
 // desambigüe los campos de TEXTO que quedaron en revisión. Devuelve
 // { dataset, cola_revision, resolubles, resueltos }. El LLM no calcula cifras.

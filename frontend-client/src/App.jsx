@@ -7,6 +7,7 @@ import ToolShell from "./tools/ToolShell.jsx";
 import ICTDashboard from "./ict/ICTDashboard.jsx";
 import FlujoDashboard from "./flujo/FlujoDashboard.jsx";
 import ForgeDashboard from "./forge/ForgeDashboard.jsx";
+import ValidadorSriDashboard from "./validador/ValidadorSriDashboard.jsx";
 import { useAuth } from "./auth/AuthProvider.jsx";
 import ThemeSwitcher from "./theme/ThemeSwitcher.jsx";
 import { Routes, Route, Navigate } from "react-router-dom";
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="/tools/ICT_2025" element={<Protected><ICTDashboard /></Protected>} />
         <Route path="/tools/FLUJO_EFECTIVO" element={<Protected><FlujoDashboard /></Protected>} />
         <Route path="/tools/FORGE_CONSOLE" element={<Protected><ForgeDashboard /></Protected>} />
+        <Route path="/tools/VALIDADOR_SRI" element={<Protected><ValidadorSriDashboard /></Protected>} />
         <Route path="/tools/:toolCode" element={<Protected><ToolShell /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

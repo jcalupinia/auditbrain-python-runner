@@ -22,6 +22,12 @@ describe("Motor de ingesta", () => {
     expect(abrePruebasEncargo("AUD.INGESTA.MOTOR")).toBe(false);
   });
 
+  it("incluye el extractor narrativo como herramienta aparte (no en Pruebas del encargo)", () => {
+    const ids = (CATEGORIES[0].tools || []).map((t) => t.id);
+    expect(ids).toContain("AUD.INGESTA.NARRATIVO");
+    expect(abrePruebasEncargo("AUD.INGESTA.NARRATIVO")).toBe(false);
+  });
+
   it("incluye la Resolución semántica por IA como herramienta aparte", () => {
     const ids = (CATEGORIES[0].tools || []).map((t) => t.id);
     expect(ids).toContain("AUD.INGESTA.RESOLVER");

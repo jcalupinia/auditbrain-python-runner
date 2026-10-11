@@ -103,6 +103,7 @@ export default function ClientCatalog() {
                       if (t.code === "ICT_2025") nav("/tools/ICT_2025");
                       else if (t.code === "FLUJO_EFECTIVO") nav("/tools/FLUJO_EFECTIVO");
                       else if (t.code === "FORGE_CONSOLE") nav("/tools/FORGE_CONSOLE");
+                      else if (t.code === "VALIDADOR_SRI") nav("/tools/VALIDADOR_SRI");
                       else nav(`/tools/${t.code}`);
                     }}
                   >

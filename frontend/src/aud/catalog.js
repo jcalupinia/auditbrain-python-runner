@@ -22,6 +22,19 @@ export const CATEGORIES = [
         ],
       },
       {
+        id: "AUD.INGESTA.NARRATIVO",
+        label: "Extractor de documentos narrativos",
+        description:
+          "Extrae datos puntuales de contratos, cartas de control interno, informes y notas (fechas, montos, RUCs, porcentajes) con trazabilidad al origen. Determinístico primero; la IA solo enumera obligaciones/partes/cláusulas (texto), opcional y marcada para revisión.",
+        pruebas: [
+          "Fechas, montos, RUCs y porcentajes por regla (sin IA)",
+          "Trazabilidad al origen (línea y fragmento)",
+          "Nivel de confianza por dato y método de extracción",
+          "Enumeración por IA de obligaciones, partes y cláusulas (opcional)",
+          "Cola de revisión y disclaimer de validación humana",
+        ],
+      },
+      {
         id: "AUD.INGESTA.RESOLVER",
         label: "Resolución semántica por IA · cola de revisión",
         description:

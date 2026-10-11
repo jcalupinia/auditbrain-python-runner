@@ -25,6 +25,7 @@ from backend.app.ingesta import (
     TipoDocumento,
     clasificar_documento,
     cola_de_revision,
+    extraer_narrativo,
     ingerir,
     resoluble,
     resolver_dataset,
@@ -112,6 +113,29 @@ async def ingerir_endpoint(
         tipo_declarado=tipo_declarado,
         ocr=ocr,
         consolidar=consolidar,
+    )
+    return IngerirResponse(dataset=ds, cola_revision=cola_de_revision([ds]))
+
+
+@router.post("/narrativo", response_model=IngerirResponse)
+async def narrativo_endpoint(
+    file: UploadFile = File(...),
+    tipo_declarado: Optional[str] = Form(default=None),
+    usar_ia: bool = Form(default=False),
+) -> IngerirResponse:
+    """Extrae datos puntuales de un documento narrativo (contrato, carta, informe).
+
+    Determinístico primero: fechas, montos, RUCs y porcentajes salen por regex
+    con trazabilidad al origen. ``usar_ia`` (opcional, por defecto apagado) suma
+    la enumeración por IA de obligaciones/partes/cláusulas —solo texto, nunca
+    cifras— con disclaimer y degradación graciosa.
+    """
+    contenido = await _leer(file)
+    ds = extraer_narrativo(
+        file.filename or "documento",
+        contenido,
+        tipo_declarado=tipo_declarado,
+        usar_ia=usar_ia,
     )
     return IngerirResponse(dataset=ds, cola_revision=cola_de_revision([ds]))
 
