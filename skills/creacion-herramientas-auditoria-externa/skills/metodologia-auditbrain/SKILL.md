@@ -6,16 +6,17 @@ description: >
   cliente) y cuando el auditor sube un Excel de una cuenta de balance para revisarlo. Se activa ante: "crea una
   herramienta de auditoría", "diseña una prueba NIIF", "arma la ficha de…", "revisa este papel de trabajo", "reconstruye
   este Excel", "verifica las fórmulas", "¿cumple la metodología?", "prepara la entrega al Command Center", "publica en el
-  catálogo". Aplica la Memoria Metodológica AuditBrain v1.5.0-draft (M01–M31).
+  catálogo". Aplica la Memoria Metodológica AuditBrain v1.5.0 (M01–M38), con el dominio de nómina
+  (pasivos acumulados y gastos) ya confirmado.
 metadata:
-  version: "1.5.0-draft"
+  version: "1.5.0"
   author: "AuditConsulting Auditores Cía. Ltda."
 ---
 
-# Metodología AuditBrain — reglas vinculantes (v1.5.0-draft)
+# Metodología AuditBrain — reglas vinculantes (v1.5.0)
 
-Memoria aplicable: **v1.4.0 (2026-09-21)** — v1.3.2 más M18–M24, destiladas de las pruebas VNR (NIC 2), pérdidas
-incurridas (Secc. 11 PYMES) y pérdida crediticia esperada simplificada (NIIF 9). Las reglas son requisitos del sistema
+Memoria aplicable: **v1.5.0 (2026-10-10)** — v1.4.0 (M18–M24, de VNR, pérdidas incurridas y PCE) más M31 (puerta de
+conocimiento) y M32–M38, destiladas del módulo «Pasivos Acumulados y Gastos de Nómina». Las reglas son requisitos del sistema
 objetivo, no descripción de funciones ya existentes. Toda comunicación con el socio, en español.
 
 ## 1. Cuándo aplica
@@ -26,7 +27,7 @@ No aplica a consultas conceptuales sin producto (responder directamente), y no s
 
 ## 2. Fuentes canónicas
 
-- `metodologia/Memoria_Metodologica_AuditBrain_v1.4.0.md` (v1.3.2 + adenda M18–M24)
+- `metodologia/Memoria_Metodologica_AuditBrain_v1.4.0.md` (v1.3.2 + adenda M18–M24); M31–M38 viven en esta skill hasta que se publique la memoria v1.5.0
 - `metodologia/Manual_Arquitectura_AuditBrain_v1.3.2.md`
 - `metodologia/Prompt_base_nueva_herramienta.md` — arranque de una herramienta nueva
 - `metodologia/Prompt_revisar_reconstruir_excel.md` — revisión y reconstrucción de un Excel existente
@@ -34,7 +35,7 @@ No aplica a consultas conceptuales sin producto (responder directamente), y no s
 
 Todas viven en los documentos del proyecto **AuditBrain External Audit**. Si la sesión está conectada a ese proyecto, leerlas antes de diseñar (`project_read` / `project_search`): el texto completo prevalece sobre el resumen de esta skill. Si no lo está, aplicar esta skill y declarar expresamente que no se consultó el texto completo (M15). Declarar en cada entrega la versión de memoria aplicada.
 
-## 3. Reglas vinculantes M01–M24 (forma operativa)
+## 3. Reglas vinculantes M01–M38 (forma operativa)
 
 **M01 · Separación de sistemas.** Builder diseña; el repositorio conserva código, contratos y pruebas; AUDIT-IA ejecuta lo liberado. La IA asiste y no es fuente de verdad. No confundir diseño, implementación, integración, ejecución ni el estado de una sesión de IA.
 
@@ -84,12 +85,16 @@ Todas viven en los documentos del proyecto **AuditBrain External Audit**. Si la 
 
 **M24 · Pantallas de las pruebas: una sola disposición.** Toda prueba se ve y se opera igual, con la identidad de la firma (DM Sans, tema oscuro, Gold `#C7A83C` / Navy `#0A2342`) y el formato del Workspace de Obligaciones Fiscales: landing por rubro, centro NIIF, Pruebas del encargo y vista de trabajo (barra de acciones, base técnica, subir documentos, parámetros, resultado con problemas, tarjetas de cédulas, cierre). Detalle obligatorio en `references/pantallas.md`.
 
-**M31 · Puerta de conocimiento (antes de diseñar).** Si el rubro o la prueba no está cubierto por un paquete de dominio ya confirmado (`references/dominios/<rubro>.md`), no inventar ni deducir la norma en silencio: ejecutar esta puerta en orden y detenerse en la compuerta.
-1. **Objetivo.** Preguntar al socio qué debe lograr la prueba, qué afirmación de auditoría cubre y si existe normativa aplicable (contable, legal, laboral o tributaria).
-2. **Inventario de lo instalado.** Mapear qué plugins y skills disponibles cubren total o parcialmente la prueba (p. ej. `finance:reconciliation` para una conciliación bancaria, `finance:financial-statements`, `finance:journal-entry`, `sox-testing`, las skills `auditbrain-*`). Listar al socio cuáles sirven y para qué, y proponer reutilizarlos antes de construir nada nuevo.
-3. **Búsqueda externa como borrador.** Solo si lo instalado no alcanza, buscar en la web la lógica general y la norma pública. Nada de repositorios privados o sistemas cerrados por iniciativa propia: solo si el socio los conecta. Lo hallado entra como **borrador por verificar**, nunca como norma confirmada.
-4. **Validación del socio (compuerta).** Presentar al socio lo encontrado —de un plugin o de la web— y preguntar expresamente «¿así es como su firma hace esta prueba?». La web y los plugins proponen; el socio dispone. Sin su confirmación no se vuelve regla.
-5. **Captura.** Lo que el socio confirma o corrige se guarda como `references/dominios/<rubro>.md` (reglas con código, fuente y ejemplo), para no volver a preguntarlo. Contrastar siempre contra la fuente oficial ecuatoriana antes de darlo por regla; lo no contrastado queda «VERIFICAR».
+**M31 · Puerta de conocimiento (antes de diseñar).** Si el rubro no tiene paquete de dominio confirmado (`references/dominios/`), no deducir la norma en silencio: (1) preguntar el objetivo, la afirmación y la normativa; (2) inventariar plugins y skills instalados que la cubran y proponer reutilizarlos; (3) solo si no alcanza, buscar en la web como **borrador por verificar**; (4) compuerta: «¿así es como su firma hace esta prueba?»; (5) capturar lo confirmado en `references/dominios/<rubro>.md`. Procedimiento completo: agente `explorador-conocimiento`.
+
+**M32–M38 · Reglas del módulo de nómina** (texto completo y casos en `references/reglas-M32-M38.md`; patrones en `references/patrones/`):
+- **M32** Toda prueba nace de un RQ o de otra prueba y vive en el panel; fuentes base primero; un RQ opcional no bloquea y, si falta, genera observación automática.
+- **M33** Cifras de libros provisionales (naranja) hasta tener el mayor; el mayor se concilia con el anexo (saldo inicial + movimientos = ESF) antes de usarlo; signo débito +, crédito −; clasificación por concepto con reglas.
+- **M34** Un generador reproducible por cédula; ninguna cifra ni nombre del cliente en el código o en los textos; hallazgos por reglas; inventario de literales antes de integrar.
+- **M35** Valores de control (JSON + intermedios, tolerancia 0,01); datos reales nunca en el repositorio ni en ejemplos; pruebas con datos ficticios.
+- **M36** Tras cada cambio: bitácora, FLUJOS, capturas, ZIP acumulado y republicación del panel; año auditado visible en cada libro.
+- **M37** Normativa verificada en la fuente oficial con enlace; lo no cotejado queda «pendiente de texto oficial»; criterios del socio más allá de la ley van como parámetro documentado.
+- **M38** Inspeccionar el repositorio antes de integrar (herramienta existente, contrato, precedente de artefacto HTML embebido); el socio decide reemplazar/convivir/extender; declarar con honestidad lo que falta.
 
 **Regla de cierre de la memoria.** Antes de construir, resumir el contexto confirmado y preguntar únicamente el primer dato pendiente. Entregar especificación de entradas, reglas, cédulas, fórmulas, controles y pruebas **antes** del código.
 
@@ -107,7 +112,7 @@ Todas viven en los documentos del proyecto **AuditBrain External Audit**. Si la 
 9. Entregables XLSX/HTML (M11, M12)
 10. Puerta de calidad (M14)
 11. Encerado (M13)
-12. Entrega a integración en el Command Center (M01, M15, M18) — ver sección 8
+12. Entrega a integración en el Command Center (M01, M15, M18, M34, M35, M38) — ver `references/patrones/entrega-command-center.md`
 13. Validación del socio y publicación en el catálogo (M19, M20, M23)
 
 No saltar compuertas. Si falta una, nombrarla, detenerse ahí y entregar solo lo que sí es diseñable, sin fingir lo pendiente.
@@ -124,12 +129,13 @@ Cada procedimiento tiene un agente especializado; la skill `crear-herramienta-au
 
 | Paso | Procedimiento | Agente | Referencia |
 |---|---|---|---|
+| 0 | Puerta de conocimiento: dominio confirmado, plugins instalados, borrador web y validación del socio | `explorador-conocimiento` | `references/dominios/README.md` |
 | 1–2 | Marco, modelo del rubro y lectura de la norma | `analista-marco-norma` | `references/receta.md` |
 | 3–4 | Diseño más simple que cumple y ficha A–E con ejemplo numérico | `disenador-ficha` | `references/formato-ficha.md` |
 | 5 | Dónde vive el cálculo y paquete de entrega al Command Center | `arquitecto-calculo` | `references/integracion-command-center.md` |
 | 6–8 | Verificación del Excel: paridad con el motor y prueba de mutación | `verificador-excel` | `references/verificacion-excel.md` |
 | 9 | Revisión de pantallas contra M24 | `revisor-pantallas` | `references/pantallas.md` |
-| — | Puerta de calidad y tabla de cumplimiento M01–M24 | `auditor-cumplimiento` | sección 5 |
+| — | Puerta de calidad y tabla de cumplimiento M01–M38 | `auditor-cumplimiento` | sección 5 |
 | 10–12 | Paquete de validación del socio y publicación en el catálogo | `preparador-publicacion` | `references/receta.md` |
 | — | Revisar y reconstruir un Excel existente | `revisor-excel-existente` | `references/revisar-reconstruir.md` |
 

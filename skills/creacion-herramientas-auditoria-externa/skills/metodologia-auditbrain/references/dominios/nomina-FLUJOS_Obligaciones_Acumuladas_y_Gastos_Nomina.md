@@ -203,7 +203,7 @@ Reglas del clasificador por palabra clave en la descripción: patronal → Aport
 
 **Resultado del recálculo.** 36 registros con diferencia en 17 trabajadores. Diferencias netas: patronal +530,66 · individual −388,61 · CCC −18,38.
 
-- **Hallazgo principal:** Montesdeoca Cárdenas Magdalena (7 meses) y Remache Rocha José (4 meses), con relación Código del Trabajo, aportaron con el esquema de pasante (0% patronal, 17,6% individual). Base USD 4.762,66; patronal omitido USD 531,08; individual cobrado en exceso USD 388,11.
+- **Hallazgo principal:** Trabajador A (7 meses) y Trabajador B (4 meses), con relación Código del Trabajo, aportaron con el esquema de pasante (0% patronal, 17,6% individual). Base USD 4.762,66; patronal omitido USD 531,08; individual cobrado en exceso USD 388,11.
 - **Valor CCC:** 15 trabajadores con CCC distinto del 1% (valores fijos arrastrados de otros meses; un caso con base 0 y CCC 5,41). Diferencia menor, por explicar.
 
 **Cruces informativos con DO-2.** Patronal + CCC (293.760,06) vs gasto Aporte Patronal (297.457,82): diferencia −3.697,76, se resuelve en DO-6/DO-7. Base imponible vs Sueldos + Horas Extras + Bono (2.298.486,47): diferencia 138.638,31, se resuelve en DO-8.
@@ -234,9 +234,9 @@ Reglas del clasificador por palabra clave en la descripción: patronal → Aport
 
 **Matriz de validaciones (hoja Controles).** V01, V02 y V03 automáticas: 0 casos. V04–V05 pendientes de fecha de ingreso (RQ-007). V06 se prueba contra la provisión del cliente en DO-10. V07 cubierta por la base de materia gravada (puente en DO-8). V08: 156 trabajadores acumulan décimos, por lo que deben existir sus solicitudes escritas (la ley establece pago mensual salvo solicitud). V09 requiere kárdex; V10 requiere comprobantes de pago.
 
-**Mensualizados.** El modelo excluye de ambos décimos a García Costa Miguel Eduardo y García Mancero Juan Miguel (16.000 mensuales de base de enero a septiembre; 21.872,78 en octubre y noviembre; 31.872,78 en diciembre). Se registraron como inferidos, a confirmar con RQ-007.
+**Mensualizados.** El modelo excluye de ambos décimos a [presidente] y [representante legal] (16.000 mensuales de base de enero a septiembre; 21.872,78 en octubre y noviembre; 31.872,78 en diciembre). Se registraron como inferidos, a confirmar con RQ-007.
 
-**Diferencia con el modelo.** El modelo excluyó todos los registros con patronal 0, incluidos Montesdeoca y Remache (Código del Trabajo con esquema de pasante). El reproceso los incluye por su relación de trabajo: +396,89 en D13 y D14 y +198,44 en vacaciones (base 4.762,66). Los demás meses cuadran al centavo.
+**Diferencia con el modelo.** El modelo excluyó todos los registros con patronal 0, incluidos Trabajador A y Trabajador B (Código del Trabajo con esquema de pasante). El reproceso los incluye por su relación de trabajo: +396,89 en D13 y D14 y +198,44 en vacaciones (base 4.762,66). Los demás meses cuadran al centavo.
 
 **Cálculo por región (decisión del socio).** El reproceso se calcula en dos bloques, Sierra/Amazonía y Costa/Galápagos, con un resumen por región, porque el décimo cuarto tiene período y fecha de pago distintos (Sierra: ago–jul, pago 15-ago, 5 meses pendientes al 31-dic; Costa: mar–feb, pago 15-mar, 10 meses pendientes). La región se asigna por registro según el archivo RQ-003 cargado. Este cliente opera solo en Sierra: el bloque Costa queda en cero.
 
@@ -264,7 +264,7 @@ Reglas del clasificador por palabra clave en la descripción: patronal → Aport
 
 ## 8-ter. Prueba terminada 5 — Resumen de Roles de Pago (DO-3.1)
 
-**Archivo:** `DO-3.1_Resumen_Roles_de_Pago.xlsx` (generador `mk_do31.py`). **Fuente (decisión del socio):** `Rol_historico_2025_PROPHAR.xlsx`, **solo la hoja «normal»** (empleados y jubilados). Los pasantes no forman parte del rol que se audita; sus registros quedan identificados en el IESS como «fuera del rol».
+**Archivo:** `DO-3.1_Resumen_Roles_de_Pago.xlsx` (generador `mk_do31.py`). **Fuente (decisión del socio):** `Rol_historico_2025.xlsx`, **solo la hoja «normal»** (empleados y jubilados). Los pasantes no forman parte del rol que se audita; sus registros quedan identificados en el IESS como «fuera del rol».
 
 **Hojas:** DO3.1 Resumen Roles (mensual por concepto, provisiones del cliente, jubilados) · Detalle Rol (1.723 registros) · Detalle RQ-003 (con marca «En rol normal») · Maestro Trabajadores (160 personas) · Cruce Rol vs IESS · Parámetros · Controles.
 
@@ -278,8 +278,8 @@ Reglas del clasificador por palabra clave en la descripción: patronal → Aport
 - **Base gravada rol 2.422.139,00 vs base IESS 2.417.228,14: diferencia +4.910,86** en 22 trabajadores (mayores: Pérez Orozco −1.740, Ramos Tapia +1.710, Rivera Jaramillo +1.123,02, Sánchez Naranjo +739,38).
 - Aporte personal: dif. 203,73 · aporte patronal (patronal + CCC): dif. 195,95.
 - Provisiones del cliente: D13 174.967,98 · D14 62.134,06 · vacaciones 128.050,19 · fondos de reserva 16.728,48 (= gasto FR DO-2 − FR en rol, cuadre exacto).
-- **Mensualizados: 10 en D13 y 10 en D14.** García Costa y García Mancero no mensualizan: el supuesto anterior de DO-4 queda refutado (PR-05).
-- Montesdeoca y Remache: en el rol «normal» solo desde su relación laboral (oct y jul); sus meses de pasantía constan en el IESS fuera del rol con código 06 → el hallazgo de DO-3 se reformula como inconsistencia de código de relación.
+- **Mensualizados: 10 en D13 y 10 en D14.** El representante legal y el presidente no mensualizan: el supuesto anterior de DO-4 queda refutado (PR-05).
+- Trabajador A y Trabajador B: en el rol «normal» solo desde su relación laboral (oct y jul); sus meses de pasantía constan en el IESS fuera del rol con código 06 → el hallazgo de DO-3 se reformula como inconsistencia de código de relación.
 
 **Controles:** 13 en OK, 28.799 fórmulas, 0 errores.
 
@@ -294,8 +294,8 @@ Reglas del clasificador por palabra clave en la descripción: patronal → Aport
 **Pasivo al 31-dic (reproceso vs DO-2):** D13 17.112,85 vs 14.478,17 (−2.634,68) · D14 24.993,56 vs 24.695,21 (−298,35) · vacaciones 105.906,73 vs 130.720,39 (+24.813,66, sobreprovisión) · FR 1.433,30 vs 1.433,34 (cuadra).
 
 **Hallazgos:**
-1. **D13 no provisionado a García Mancero Juan Miguel (−11.724,03) y García Costa Miguel Eduardo (−6.577,50):** no mensualizan según el rol y figuran en el IESS con relación 06; el cliente no les provisiona D13 (sí FR y vacaciones). Confirmar naturaleza del vínculo (mandato vs Código del Trabajo). Explica el 98% de la diferencia anual de D13 (−17.796,15) y casi toda la del pasivo.
-2. **Vacaciones sobreprovisionadas:** el cliente provisiona ≈5,25% de la base contra 4,17% (1/24); exceso anual 27.332,35 y pasivo sobrestimado en 24.813,66 (mayor efecto en directivos García).
+1. **D13 no provisionado a [representante legal] (−11.724,03) y [presidente] (−6.577,50):** no mensualizan según el rol y figuran en el IESS con relación 06; el cliente no les provisiona D13 (sí FR y vacaciones). Confirmar naturaleza del vínculo (mandato vs Código del Trabajo). Explica el 98% de la diferencia anual de D13 (−17.796,15) y casi toda la del pasivo.
+2. **Vacaciones sobreprovisionadas:** el cliente provisiona ≈5,25% de la base contra 4,17% (1/24); exceso anual 27.332,35 y pasivo sobrestimado en 24.813,66 (mayor efecto en directivos).
 3. **V04 – Rivera Jaramillo:** FR pagado en rol (45,03, junio) en un mes con base IESS 0; ligado a su diferencia de base rol vs IESS (+1.123,02, DO-3.1).
 
 **Validaciones:** V01–V03 = 0 · V04 = 1 · V05 = 0 · V08 = 148 trabajadores que acumulan (exigir solicitudes escritas). **Controles:** 28 en OK, 45.944 fórmulas, 0 errores.
@@ -311,7 +311,7 @@ Reglas del clasificador por palabra clave en la descripción: patronal → Aport
 7. Integrar la Sumaria DO-2 al panel como segundo botón activo.
 8. Obtener la versión horizontal del logo Partner Auditing.
 9. Trasladar la estructura al sitio propio "Audit Consulting Group" cuando se cree.
-10. Confirmar con el cliente la relación de trabajo de Montesdeoca y Remache (pasantes mal clasificados o error de planilla).
+10. Confirmar con el cliente la relación de trabajo de Trabajador A y Trabajador B (pasantes mal clasificados o error de planilla).
 12. Definir el contenido y formato del RQ-007 (con el rol ya disponible, se limita a solicitudes escritas de acumulación y kárdex de vacaciones). La lista de mensualizados, la fecha de ingreso y los goces se tomarán del rol de pagos (DO-3.1); el RQ-007 queda solo para lo que el rol no contenga (solicitudes escritas de acumulación, kárdex de vacaciones).
 13. Décimo cuarto de jornada parcial: hoy por días; confirmar horas para prorratear por jornada.
 14. Actualizar la matriz de requerimientos del panel: las tarjetas pueden mostrar requerimientos distintos de los definidos inicialmente (caso Reproceso: RQ-003, RQ-005, RQ-007). Ya actualizado en el panel: Resumen de Planillas → RQ-003; Reproceso → RQ-003, RQ-005, RQ-007.
@@ -326,5 +326,182 @@ Reglas del clasificador por palabra clave en la descripción: patronal → Aport
 - **Código 109** (representante legal / administrador por nombramiento) agregado a Parámetros como «No aplica beneficios»: exclusión automática de todos los beneficios.
 - **Nuevo insumo opcional del RQ-003: «Exclusiones»** (`RQ-003_Exclusiones_Beneficios.xlsx`). Se listan solo las personas con código 06 que no deben generar uno o más beneficios; «X» por beneficio (D13, D14, vacaciones, FR) y motivo obligatorio. No bloquea el procesamiento.
 - DO-4: hoja «Exclusiones», columnas AM–AU del detalle (marcas, motivo y valores excluidos), columna «Excluido por el auditor» en la conciliación con el rol y bloque «Exclusiones aplicadas» por persona. Validación nueva **V11** (FR pagado en rol a persona excluida).
-- Caso PROPHAR: García Mancero Juan Miguel (representante legal) y García Costa Miguel Eduardo (presidente) — se excluyen D13, D14 y FR; conservan vacaciones. Excluido: D13 18.301,53 · D14 940,00 · FR 18.294,21.
+- Caso cliente piloto: [representante legal] (representante legal) y [presidente] (presidente) — se excluyen D13, D14 y FR; conservan vacaciones. Excluido: D13 18.301,53 · D14 940,00 · FR 18.294,21.
 - Pendiente en el panel: compartimento «Exclusiones» dentro de la tarjeta RQ-003.
+
+## 8-sexies. DO-4C Cruce Global y DO-5 Cruce Mensual del Pasivo (v1.11)
+
+**Referencia de formato:** papel de trabajo «DO - Pasivos Acumulados.xlsx» (pestañas DO4 Cruc Global Pasivo y DO5 Cruce MensPasivo). El módulo pasa a **13 pruebas**: las dos nuevas tarjetas van inmediatamente después del Reproceso de Beneficios. Los códigos RQ no cambian.
+
+**Archivo:** `DO-4C_DO-5_Cruce_Pasivo_Beneficios.xlsx` (generador `mk_do45.py`). Hojas: DO4 Cruce Global Pasivo · DO5 Cruce Mensual Pasivo · Ficha · Libros · Insumo Auditoría · Controles. 9 controles OK, 209 fórmulas, 0 errores.
+
+**DO-4C — fórmula del papel:** Total diferencia = (Según ESF − Según auditoría bruto) + Liquidaciones + Ajuste + Finiquito + Pago mensual.
+- D13: bruto = devengado de diciembre (base/12, sin exclusiones) 15.137,31; pago mensual rol 680,53.
+- D14 Sierra: bruto ago–dic 26.090,22; finiquito (devengado de salidos) 569,22; pago mensual 919,16.
+- Vacaciones: saldo inicial 120.035,57 + provisión 100.717,84; liquidaciones (vac. finiquito) 15.524,67; pago mensual (goces) 99.322,01.
+- Ajuste: columna amarilla editable, cero por defecto (antes el papel traía 14.770,63 y 2.518,69 digitados sin soporte).
+- Resultado: D13 21,39 · D14 93,37 · Vacaciones 24.813,65 (19%) · Total 24.928,41. Neto del cruce = pasivo DO-4 v3 al centavo (tolerancia de mensualizados).
+
+**DO-5 — cruce mensual libros vs auditoría y cierre con DO-4C:**
+- D13 (dic) cierra en 0.
+- D14 (ago–dic) por conciliar −60,01 = finiquitos en libros (509,21) vs auditoría (569,22).
+- Vacaciones por conciliar 1.416,97 = débitos del año en libros (116.263,65) vs goces y finiquitos del rol (114.846,68).
+
+**Libros:** provisionalmente tomados del papel de trabajo (hoja «Libros», celdas azules). **Pendiente:** automatizar con los mayores de nómina (RQ-004) y confirmar con ellos las dos partidas por conciliar.
+
+## 8-septies. DO-6 Cruce Global y DO-7 Cruce Mensual del Gasto (v1.12)
+
+**Formato:** pestañas DO6 Cruce Gsto Benefi. y DO7 Cruce Mens Gasto Beneficios del papel de referencia. **Archivo:** `DO-6_DO-7_Cruce_Gasto_Beneficios.xlsx` (generador `mk_do67.py`). Hojas: DO6 Cruce Global Gasto · DO7 Cruce Mensual Gasto · Ficha · Libros mensuales · Insumo Auditoría · Controles. 14 controles OK, 361 fórmulas, 0 errores.
+
+**DO-6 (libros por cuenta y centro de costo vs devengado de auditoría):**
+| Beneficio | Libros | Auditoría | Diferencia |
+|---|---|---|---|
+| Décimo tercero | 183.639,53 | 183.134,14 | 505,39 |
+| Décimo cuarto | 63.953,92 | 63.070,08 | 883,84 |
+| Aporte patronal + CCC | 293.956,01 | 293.760,06 | 195,95 |
+| Fondos de reserva | 193.660,36 | 174.834,73 | 18.825,63 |
+| Vacaciones | 125.552,86 | 100.717,85 | 24.835,01 |
+| Aporte pasantes | 3.501,81 | 3.501,81 | 0,00 |
+| **Total** | 864.264,49 | 819.018,67 | **45.245,82** |
+
+- **Fondos de reserva** se explica al centavo: FR de representantes legales excluidos 18.294,20 + pagado en exceso del devengado 486,40 + libros vs pagado 45,03 (Rivera Jaramillo, V04).
+- **DO-7:** cada beneficio cuadra con la DO-6. Aporte pasantes cuadra mes a mes (el papel anterior tenía la columna de auditoría desordenada por mes). D14: mayor diferencia en enero (614,44). Vacaciones: exceso sistemático por tasa de provisión.
+- **Coherencia gasto vs pasivo:** vacaciones, gasto en libros 125.552,86 vs provisión acreditada al pasivo 126.948,47 (−1.395,61). Confirmar con el mayor RQ-004.
+- Libros provisionales del papel; se automatizan con los mayores RQ-004.
+
+## 8-octies. DO-8 Base imponible IESS vs libros (v1.13)
+
+**Formato:** pestaña DO8 Calculo Base imponible Apor del papel de referencia. **Archivo:** `DO-8_Base_Imponible_IESS_vs_Libros.xlsx` (generador `mk_do8.py`). Hojas: DO8 Base Imponible IESS · Ficha · Insumos mensuales · Controles. 11 controles OK, 260 fórmulas, 0 errores.
+
+**Revisión del papel anterior:**
+- Su base «según planilla» (2.423.874,50) era la base IESS total menos la diferencia de pasantes IESS vs libros: mezclaba dos poblaciones. Se separa en **A. Empleados** y **B. Pasantes**.
+- La columna IESS de pasantes estaba **desordenada por mes**, igual que en la DO-7; se corrige con el Consolidado.
+- Encabezado con `#REF!` y doble referencia «DO-8»; se vincula a la Ficha.
+
+**Resultados:**
+- **Empleados:** planilla 2.417.228,14 vs libros 2.416.978,68 (sueldos, horas extras, bonos, comisiones, premios y vacaciones tomadas del rol) → **249,46 (0,01%)**, igual a la diferencia del papel anterior.
+- **Pasantes:** base IESS sobre SBU 19.896,64 vs estipendio en libros 6.646,36 → 13.250,28. Confirmar base legal de la aportación de pasantes.
+- **Rol vs IESS:** la base gravada del rol excede la reportada al IESS en **4.910,86** (22 trabajadores, DO-3.1): posible subdeclaración de aportes. Se muestra por mes.
+- Libros provisionales del papel; se automatizan con los mayores RQ-004.
+
+## 8-nonies. Verificación de trazabilidad y RQ-004 (v1.14)
+
+**Regla (decisión del socio):** toda cédula debe provenir de un botón de requerimientos o de una prueba anterior, y tener su tarjeta en el panel.
+
+**Matriz de trazabilidad:**
+| Cédula | Origen | Estado |
+|---|---|---|
+| DO-1 | RQ-001 | OK |
+| DO-2 | RQ-002 | OK |
+| DO-3 | RQ-003 | OK |
+| DO-3.1 | RQ-006 + RQ-003 | Tarjeta corregida (se agregó RQ-003) |
+| DO-4 | RQ-003 (+ Exclusiones), DO-3.1, DO-2 | Tarjeta: RQ-005 y RQ-007 marcados «· validación» |
+| DO-4C | RQ-002 (saldos ESF e iniciales), DO-4, DO-3.1 | Fuente corregida a RQ-002 |
+| DO-5 | Provisiones mensuales: papel del equipo | **Provisional** → RQ-004 Mayor de pasivos |
+| DO-6 | 150 cuentas RQ-002; 23 cuentas de vacaciones del papel | Parcial; cuentas del papel en naranja |
+| DO-7 | Gasto mensual: papel del equipo | **Provisional** → RQ-004 Mayor de gastos |
+| DO-8 | Sueldos, HE y bonos RQ-002; comisiones, premios y estipendio del papel; mensual del papel | Parcial; cuentas del papel en naranja |
+
+**Cambios aplicados:**
+- Cédulas: las cuentas se leen del Anexo RQ-002 cuando existen (azul); las demás en naranja. Banda amarilla de «Libros provisionales» en DO-4C (fuente), DO-5, DO-6, DO-7 y DO-8.
+- Panel: RQ-004 con dos compartimentos obligatorios, **Mayor de pasivos (5BS.212…)** y **Mayor de gastos (5PYG / 5D…)**, y texto de ayuda.
+- **Modelo `RQ-004_Mayores_Nomina.xlsx`:** Instrucciones · Catálogo (195 cuentas: 10 de pasivo y 185 de gasto, con concepto, cédulas que la usan y saldo RQ-002; 35 marcadas «No está en RQ-002») · Mayor pasivos (asiento por fila, tipo de movimiento clasificado por el auditor, control de saldo final vs RQ-002) · Mayor gastos (saldo mensual por cuenta con control anual vs RQ-002 y resumen por concepto que alimenta DO-5 a DO-8).
+
+**Pendiente:** al recibir el RQ-004 del cliente, reemplazar los libros provisionales de DO-5, DO-6, DO-7 y DO-8 y confirmar las partidas por conciliar.
+
+## 8-decies. DO-9 IESS por pagar: libros vs comprobantes de pago (v1.15)
+
+**Insumo nuevo — RQ-005 leído desde PDF:** 85 comprobantes del IESS (plantilla única, texto extraíble). Campos: número, concepto (normales / ajustes), período, emisión, vigencia, valor, intereses, seguro de salud tiempo parcial, honorarios, gastos administrativos, subtotal, notas de crédito y total. Préstamos clasificados por concepto: «PAGO CREDITOS HIPOTECARIOS» = hipotecario; «PAG.DIV.PRESTAMOS» = quirografario. Lector: `parse_comp.py`.
+
+**Archivo:** `DO-9_IESS_por_Pagar_Comprobantes.xlsx` (generador `mk_do9.py`). Hojas: DO9 IESS por Pagar · Comprobantes RQ-005 (detalle con control aritmético y V10) · Insumos · Ficha · Controles. 11 controles OK, 510 fórmulas, 0 errores.
+
+**Resultados:**
+| Concepto | Libros | Comprobantes | Diferencia | Explicación |
+|---|---|---|---|---|
+| Aportes (+ ext. salud 50,12) | 528.136,31 | 525.890,37 | 2.245,94 | Notas de crédito IESS 1.538,60; resto por conciliar con RQ-004 |
+| Fondos de reserva | 16.952,78 | 16.491,03 | 461,75 | Enero 238,18 nota de crédito; febrero 223,57 por conciliar |
+| Préstamos | 137.698,55 | 137.698,55 | 0,00 | Quirografarios 85.967,02 · hipotecarios 51.731,53 |
+
+- **Tres vías:** aportes comprobantes bruto 527.582,79 vs Consolidado 525.690,48 → 1.892,31; fondos de reserva 16.729,21 vs 16.683,45 → 45,76.
+- **Seguro de salud tiempo parcial 349,18** = «Otros gastos de nómina» AD 4,41% JP de la DO-2 (cierra con evidencia externa).
+- **Saldos de diciembre** (aportes 46.636,01; FR 1.433,34; quirografarios 6.704,37; hipotecarios 4.411,90) = Anexo RQ-002. Sueldos por pagar: rol «normal» 163.774,65 + pasantes 942,00 = 164.716,65 pagado en el mes; saldo 2.165,73 (un trabajador) por sustentar.
+- **V10:** 0 comprobantes emitidos fuera de plazo; margen mínimo 6 días.
+- **Correcciones al papel anterior:** préstamos con columnas hipotecario/quirografario cruzadas de enero a agosto (21.250,12 mal clasificados); aportes 525.937,84 incluía el «valor» y no el total de dos comprobantes de extensión de salud.
+
+**Panel:** RQ-005 con 5.º compartimento opcional «Extensión de salud cónyuges» y lectura automática de PDF; tarjeta renombrada «IESS por Pagar: Libros vs Comprobantes de Pago» con RQ-002, RQ-004, RQ-005 y RQ-006.
+
+## 8-undecies. DO-10 Roles de pago vs libros: gastos y provisiones (v1.16)
+
+**Tarjeta renombrada:** «Conciliación Libros vs Roles de Pago» → **«Roles de Pago vs Libros: Gastos y Provisiones»**, alineada al papel («Prov. y Gstos vs Roles») y al estilo de la DO-9. RQ: 002, 004, 005 y 006.
+
+**Archivo:** `DO-10_Roles_vs_Libros.xlsx` (generador `mk_do10.py`). Hojas: DO10 Roles vs Libros · Rol RQ-006 · Ficha · Controles. 12 controles OK, 314 fórmulas, 0 errores.
+
+**Resultados:**
+- Rol por mes y 16 conceptos (RQ-006, pestañas «normal» y «pasantes»), igual a la DO-3.1.
+- Libros (RQ-002): horas extras 170.746,03, bonos 538.111,47 → cuadran; comisiones 15.170,20, premios 4.000,00 y pasantes 6.646,36 → cuadran (libros provisionales del papel).
+- **Sueldos: rol excede a libros en 3.603,33**, abierto por mes (enero 1.262,50 · diciembre 761,10 · julio 639,59 · junio −486,34); apertura por trabajador pendiente del RQ-004.
+- **Fondos de reserva:** rol 176.931,88 + depósitos IESS 16.491,03 = 193.422,91 vs gasto 193.660,36 → −237,45 = 45,03 (Rivera Jaramillo, V04) + 192,42 (FR Consolidado vs comprobantes, DO-9).
+- **Pagos que debitan el pasivo** (goces 99.322,01; vacaciones de finiquito 15.524,67; D13 mens. + liq. 20.258,93; D14 mens. + liq. 6.675,80): lado de libros pendiente del Mayor de pasivos RQ-004. El papel anterior comparaba vacaciones tomadas del rol contra sí mismo.
+- **501,82 de décimos en el rol fuera del IESS = décimos jubilares** (D13 27,60 y D14 474,22) de la jubilada patronal Beltrán Cañizares; no es un error de cruce.
+
+## 8-duodecies. Prueba 1 — Procedimiento de Auditoría de Nómina (DO-0) (v1.17)
+
+**Decisión del socio:** antes de la DO-12, recopilar todos los procedimientos ejecutados con sus indicaciones, y presentarlos en HTML que se despliega al presionar la tarjeta.
+
+**Panel:** la tarjeta «Procedimiento de Auditoría Nómina» queda **DISPONIBLE** y abre un modal con cuatro pestañas:
+- **Programa:** 12 pruebas (DO-1 a DO-12) como secciones desplegables; cada una con objetivo, aserciones, insumos (RQ / PT), criterio y normativa, resultado, hallazgo vinculado, estado y pasos numerados (52 pasos). Botón «Desplegar todo».
+- **Requerimientos:** RQ-001 a RQ-007, estado para cliente piloto y cédulas que los consumen.
+- **Hallazgos:** 14 hallazgos con importe, naturaleza y acción requerida (insumo directo de la DO-12).
+- **Normativa:** base legal y códigos de las REGLAS.
+- Botones **Imprimir** (versión para papel) y **Excel** (descarga `DO-0_Programa_Auditoria_Nomina.xlsx`, con columnas de «Hecho por» y «Revisado por»).
+
+**Archivo:** `DO-0_Programa_Auditoria_Nomina.xlsx` (generador `mk_pa.py`). Hojas: Programa · Requerimientos · Hallazgos · Normativa · Ficha. Tarjeta: insumo «DO-0 · Todas las pruebas».
+
+## 8-terdecies. DO-12 Hoja de hallazgos y ajustes (v1.18)
+
+**Formato:** pestaña DO12 del papel (No. · Observación · Ref. PT · Recomendación), ampliado según su propio procedimiento: problema (condición), criterio, causa y efecto con el valor en USD. **Archivo:** `DO-12_Hallazgos_y_Ajustes.xlsx` (generador `mk_do12.py`). Hojas: DO12 Hoja de Hallazgos · Ajustes propuestos · Resumen NIA 450 · Carta control interno · Ficha (incluye materialidad) · Controles. 5 controles OK, 0 errores.
+
+**Hallazgos (14; 68.897,83 cuantificados):** ajuste contable 24.813,65 · reclasificación 18.294,20 · ajustes menores 928,87 · por conciliar / sustento 6.699,97 · cumplimiento IESS (código de relación, base rol vs IESS 4.910,86, pasantes 13.250,28 por confirmar) · control interno (148 acumulaciones de D13 sin solicitud) · calidad del papel (interno).
+
+**Ajustes propuestos:**
+- **AJ-1:** Dr 5BS.21204.003 Vacaciones por pagar 24.813,65 / Cr gasto de vacaciones (prorrata en 23 centros de costo). Saldo auditado de vacaciones 105.906,74 (= reproceso DO-4). Aumenta la utilidad en 24.813,65.
+- **RJ-1:** reclasificación de fondos de reserva a remuneración de administradores: 5DGEN.61101 11.719,34 y 5DIR.61101 6.574,86 (total 18.294,20). Sin efecto en resultado; verificar centro de costo y efecto tributario.
+
+**NIA 450:** incorrecciones de hecho no ajustadas (D13 21,39; D14 93,37; FR 45,03) y de juicio (sueldos 3.603,33; aportes omitidos) evaluadas contra la materialidad que se ingresa en la Ficha. **Carta de control interno:** 6 observaciones (H-1, H-2, H-3, H-6, H-8, H-12).
+
+**Panel:** tarjeta DO-12 DISPONIBLE; abre el modal en la pestaña «Hallazgos (DO-12)» (desplegables con condición, criterio, causa, efecto y recomendación) y «Ajustes propuestos» (asientos y efecto en saldos). El botón Excel descarga la DO-12 desde esas pestañas y la DO-0 desde las demás. El programa DO-0 marca la DO-12 como terminada.
+
+**v1.19 — Decisión del socio: sin materialidad.** Al probarse el 100% de la nómina no se aplica materialidad de muestreo ni proyección. La hoja «Resumen NIA 450» pasa a «Resumen de incorrecciones»: las diferencias son exactas; se proponen los ajustes sustentados (AJ-1, RJ-1) y se comunican todas las demás. Se retiró el bloque de materialidad de la Ficha. Programa DO-0 y tarjeta del panel actualizados.
+
+
+## 8-quaterdecies. DO-4 V08 muestreo de solicitudes y DO-4V vacaciones no gozadas (v1.20)
+
+**DO-4 V08 — Solicitudes de acumulación de décimos (RQ-007).** Origen: reproceso DO-4 (Detalle RQ-003, después de exclusiones). Población: 147 trabajadores que acumulan D13; 146 también D14. Muestra única para ambos certificados: n = REDONDEAR.MAS(N × %), 10% por defecto = 15; partidas clave = 5 mayores D13; resto por selección sistemática (intervalo = (N − clave)/(n − clave), arranque configurable). El auditor marca Sí/No (D14: N/A si no acumula). Conclusión: PENDIENTE / CONFORME / CON EXCEPCIONES → DO-12 H-8 y ampliar muestra. Archivo `RQ-007_Muestreo_Solicitudes_Decimos.xlsx` (generador `mk_rq007.py`). Es la única prueba con muestra; el resto cubre el 100%.
+
+**DO-4V — Vacaciones no gozadas, liquidación hipotética al corte (RQ-008).**
+1. Visita preliminar: sin kárdex → estado NO SOPORTADO y observación automática OBS-VAC (condición, criterio arts. 69/71/76 CT y NIC 19, efecto, recomendación).
+2. Visita final, con kárdex, por trabajador activo: días devengados = 15·Y + Σ adicionales (k − 5, máx. 15, desde el 6.º año) + días del año en curso × fracción; saldo = devengados − gozados/pagados; pasivo = saldo × remuneración de corte / 30.
+3. Ajuste total = Σ pasivo − libros al corte. Resultados acumulados = pasivo correcto al cierre anterior (remuneración de ese cierre) − libros a esa fecha (NIC 8). Gasto del año = [(a) − (c)] − [(b) − (d)].
+4. Estados: NO SOPORTADO (0 con kárdex) · PARCIAL (algunos sin kárdex: no concluyente) · CALCULADO (asiento habilitado). Alertas: saldo negativo, más de tres períodos acumulados (art. 75 CT); tope de acumulación de 5 períodos anuales (decisión del socio, v1.20.1; parámetro editable en Ficha, 0 = sin tope): saldo = MIN(devengados − gozados, 5 × días del año en curso); estado «Tope aplicado».
+Archivos `VAC_Calculadora_Vacaciones_No_Gozadas.xlsx` (generador `mk_vac.py`; `python3 mk_vac.py DEMO <salida>` genera una copia de prueba) y `RQ-008_Kardex_Vacaciones.xlsx`.
+
+**Año auditado.** El encargo es 2026; las cédulas se construyeron con la plantilla 2025 (rol, IESS, anexo, comprobantes). Período terminado 31-dic-2026 con nota en cada libro; al recibir la información 2026 se regeneran con los mismos generadores.
+
+
+## 8-quindecies. Verificación normativa aplicada (v1.21)
+
+- **Pasantes (DO-8 → DO-12 H-5):** prueba de cumplimiento de la Ley de Pasantías art. 7 sobre la pestaña «pasantes» del rol: estipendio ≥ 1/3 SBU (157,00 vs 156,67 ✓), aporte 17,6% sobre el SBU íntegro a cargo de la empresa (82,72; sin aporte personal ✓) y duración ≤ 6 meses (✗ Trabajador C 9,1; Trabajador A 6,3). La diferencia de base IESS vs libros (13.250,28) es esperada.
+- **DO-4V:** base del valor día seleccionable en Ficha (C18). Por defecto remuneración de corte / 30; alternativa art. 71: promedio de los últimos 12 meses / 30 (columna W). Fila 27: pasivo con la base alternativa (columna X).
+- **Representantes legales:** art. 308 (mandatario) y código IESS 109 respaldan EX-01/EX-02 y RJ-1; la afiliación con código 06 se observa en H-2.
+- **Pendientes de texto oficial:** arts. 76, 113 y 635 del Código del Trabajo y resolución IESS del código 109.
+
+
+## 8-sexdecies. Mayores RQ-004 integrados (v1.22)
+
+**Lectura (`leer_mayores_RQ004.py`).** Signo del mayor: débito +, crédito −. Pasivo de beneficios (5BS.21204): clasificación por el concepto de la explicación — PROVISION (DECIMO 13, DECIMO 14 S, VACACIONES), FINIQUITOS (LIQ.*, VAC.FINIQUIT), GOCES (VAC TOMADAS), PAGOS (TRANSF/PGO/PAGO) y AJUSTES (resto). IESS por pagar (5BS.21203): columna REF del cliente; los pagos se separan en pago al IESS (CANCELACION.IESS), notas de crédito por permisos médicos (CIERR.CXC IESS) y otros. Gasto: concepto por la descripción de la cuenta (las cuentas MQLA se suman a su concepto).
+
+**Controles de integridad.** Saldo inicial (RQ-002) + movimientos = saldo ESF en cada cuenta de pasivo; gasto del mayor = anexo en las cuentas comunes; las cuentas que el anexo omite se presentan en la DO-2.
+
+**Uso por cédula.** DO-5: provisiones mensuales y movimiento anual; DO-6/7: gasto mensual por concepto; DO-8: componentes mensuales y estipendio; DO-9: libros mensuales netos de reversiones, rollforward y pagos por período vs comprobantes; DO-10: débitos del pasivo y mensualizados; DO-2: cuentas fuera del anexo.
+
+**Regla de pagos al IESS.** El pago del mes m corresponde a la planilla del mes m−1; el de enero cancela el saldo inicial y la planilla de diciembre es el saldo final.

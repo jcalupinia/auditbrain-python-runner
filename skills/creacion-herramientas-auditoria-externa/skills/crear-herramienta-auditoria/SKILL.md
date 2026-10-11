@@ -6,7 +6,7 @@ description: >
   inventarios / activos fijos…", "convierte este HTML/Excel en herramienta del Command Center", "pasa esta prueba al
   catálogo". Encadena los agentes del plugin en el orden de la receta, con compuertas y aprobación humana.
 metadata:
-  version: "1.5.0-draft"
+  version: "1.5.0"
 ---
 
 # Crear una herramienta de auditoría externa de punta a punta
@@ -36,19 +36,32 @@ Confirmar, preguntando solo lo que falte (una pregunta a la vez):
    Compuerta: norma leída del texto oficial; lo no verificado queda «VERIFICAR».
 2. **`disenador-ficha`** → versión más simple que cumple y ficha A–E con el ejemplo numérico de control.
    Compuerta: **el socio aprueba el diseño** antes de construir.
-3. **`arquitecto-calculo`** → declarativo o procesador (M18), anexos, modelos, cédulas con fórmulas y paquete de entrega
-   para Claude Code (Command Center). Compuerta: especificación completa antes del código.
+3. **`arquitecto-calculo`** → declarativo, procesador (M18) o artefacto HTML con motor propio (M38); anexos, modelos,
+   cédulas con fórmulas (un generador por cédula, M34) y paquete de entrega para Claude Code con valores de control y
+   datos privados separados (M35). Compuerta: especificación completa antes del código.
 4. Construcción en el Command Center (Claude Code): procesador, pruebas con el ejemplo y casos límite, ciclo completo.
 5. **`verificador-excel`** → cero diferencias en Excel real y prueba de mutación (M20).
 6. **`revisor-pantallas`** → la vista de trabajo cumple M24 (con capturas).
-7. **`auditor-cumplimiento`** → tabla M01–M24 con evidencia; cualquier Brecha bloqueante detiene la entrega.
+7. **`auditor-cumplimiento`** → tabla M01–M38 con evidencia; cualquier Brecha bloqueante detiene la entrega.
 8. **`preparador-publicacion`** → papel de muestra, cifras recalculadas a mano y lista de pendientes para el socio.
    Compuerta: **aprobación expresa del socio** para enviar al catálogo (M23). Nunca se deduce de una aprobación anterior.
+
+## Patrones ya probados (reutilizar antes de inventar)
+
+En `metodologia-auditbrain/references/patrones/`: lectura y conciliación de mayores (M33), muestreo de atributos con
+partidas clave, calculadora de liquidación hipotética al corte, panel de requerimientos y pruebas (M32) y paquete de
+entrega al Command Center (M38). El dominio de nómina completo está en `references/dominios/` como ejemplo de módulo
+terminado.
+
+## Disciplina de cada cambio (M36)
+
+Tras cada cambio: bitácora de versiones, FLUJOS del dominio, capturas del panel, ZIP acumulado y republicación del
+panel. El año auditado se ve en cada libro.
 
 Si el material de partida es un Excel ya armado, empezar por **`revisor-excel-existente`** y continuar la secuencia con
 su diagnóstico.
 
 ## Cierre
 
-Declarar: versión de memoria (v1.5.0-draft), marco y edición, compuertas superadas, resultado de la verificación en Excel,
+Declarar: versión de memoria (v1.5.0), marco y edición, compuertas superadas, resultado de la verificación en Excel,
 pendientes y qué requiere aprobación del socio. Los errores encontrados y corregidos se informan.

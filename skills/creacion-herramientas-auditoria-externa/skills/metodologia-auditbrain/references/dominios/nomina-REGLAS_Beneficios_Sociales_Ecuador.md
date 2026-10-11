@@ -1,10 +1,10 @@
 ---
 nombre: reglas-beneficios-sociales-ecuador
 modulo: AUD › Pruebas de Auditoría › Pasivos Acumulados
-version: 1.2
-fecha: 2026-10-06
+version: 1.4
+fecha: 2026-10-09
 fuente: Manual Consolidado de Capacitación — Beneficios Sociales del Trabajador, Ecuador 2026 (AuditSmart Pro)
-aplica_a: DO-4 Reproceso de Beneficios Sociales · DO-4 Cruce Global · DO-5 · DO-6 · DO-7 · DO-9 · DO-10
+aplica_a: DO-4 Reproceso de Beneficios Sociales · DO-4 V08 Muestreo · DO-4V Vacaciones no gozadas · DO-4 Cruce Global · DO-5 · DO-6 · DO-7 · DO-8 · DO-9 · DO-10 · DO-12
 relacionado: FLUJOS_Obligaciones_Acumuladas_y_Gastos_Nomina.md
 ---
 
@@ -22,7 +22,7 @@ Reglas normativas que gobiernan el cálculo y la auditoría de décimo tercero, 
 | P-04 | Divisor vacaciones | 24 | 24 | Vacaciones |
 | P-05 | Base diaria décimo cuarto | SBU ÷ 360 | SBU ÷ 360 | Décimo cuarto proporcional |
 
-Regla de uso: el parámetro se toma del **ejercicio auditado**, no del año en que se ejecuta la prueba. Una auditoría del ejercicio 2025 usa SBU USD 470.
+Regla de uso: el parámetro se toma del **ejercicio auditado**, no del año en que se ejecuta la prueba. El encargo actual es 2026 (SBU USD 482); las cédulas de plantilla con datos 2025 usan SBU USD 470.
 
 ## 2. Reglas generales
 
@@ -33,7 +33,7 @@ Regla de uso: el parámetro se toma del **ejercicio auditado**, no del año en q
 | RG-03 | Por ley, décimo tercero y décimo cuarto se pagan **mensualmente**. La acumulación solo procede con **solicitud escrita** del trabajador. |
 | RG-04 | Si un décimo ya se pagó mensualmente, no se provisiona ni se vuelve a pagar en diciembre, agosto, marzo o en el finiquito. |
 | RG-05 | Vacaciones no se mensualizan: se provisionan para todo trabajador con derecho. |
-| RG-06 | El cálculo se hace sobre el 100% de la población, por trabajador y por mes. No se usa muestreo. |
+| RG-06 | El cálculo se hace sobre el 100% de la población, por trabajador y por mes. Única excepción: la prueba de atributos de solicitudes de acumulación de décimos (DO-4 V08, NIA 530). |
 
 ## 3. Décimo tercero (D13)
 
@@ -43,7 +43,8 @@ Regla de uso: el parámetro se toma del **ejercicio auditado**, no del año en q
 | D13-02 | Período | 1 de diciembre del año anterior al 30 de noviembre |
 | D13-03 | Incluye | Sueldo, horas ordinarias, suplementarias y extraordinarias, comisiones y accesorios normales (Art. 95 del Código del Trabajo) |
 | D13-04 | Excluye | Décimos, utilidades legales, fondo de reserva, reembolsos e indemnizaciones |
-| D13-05 | Pago | Mensual; acumulado hasta el 24 de diciembre solo con solicitud escrita |
+| D13-05 | Pago | Regla: mensual. Acumulado hasta el 24 de diciembre solo con solicitud escrita del trabajador (art. 111) |
+| D13-08 | Solicitud de acumulación | Se presenta por escrito en los primeros 15 días de enero; quien ingresa en el año, al firmar el contrato o en sus primeros 15 días. **No se renueva cada año**: en la muestra se aceptan solicitudes de años anteriores vigentes |
 | D13-06 | Cese | Parte proporcional menos los valores ya mensualizados |
 | D13-07 | Pasivo al 31-dic | Devengo de diciembre de los trabajadores que acumulan |
 
@@ -76,10 +77,10 @@ Ejemplo: sueldo 800 + horas extras 120 + comisión 80 = base 1.000; D13 del mes 
 
 | ID | Elemento | Regla |
 |---|---|---|
-| FR-01 | Elegibilidad | Después de más de un año con el mismo empleador; operativamente desde el mes 13 |
+| FR-01 | Elegibilidad | Después del primer año con el mismo empleador (art. 196); operativamente desde el mes 13 |
 | FR-02 | Base | Materia gravada o remuneración de aportación al IESS |
 | FR-03 | Porcentaje | 8,33% mensual (P-02) |
-| FR-04 | Pago directo | Se incluye en el rol cuando el trabajador no pidió acumulación en el IESS |
+| FR-04 | Pago directo | Regla general: pago mensual en el rol (Ley para el Pago Mensual del Fondo de Reserva, RO 644, 29-jul-2009); se omite solo si el trabajador pidió la acumulación en el IESS |
 | FR-05 | Acumulación IESS | Se deposita mensualmente con los aportes |
 | FR-06 | Control | No calcular antes del mes 13; verificar fecha de ingreso y opción de pago |
 | FR-07 | Total a verificar | FR pagado en rol + FR depositado en el IESS = 8,33% de la base de los trabajadores con derecho |
@@ -97,6 +98,24 @@ Ejemplo: sueldo 800 + horas extras 120 + comisión 80 = base 1.000; D13 del mes 
 | VAC-05 | Cese | Se paga el saldo proporcional no gozado |
 | VAC-06 | Control | Separar el kárdex de días del cálculo monetario: la fórmula 1/24 no prueba que el descanso se haya gozado |
 | VAC-07 | Pasivo al 31-dic | Saldo inicial + provisión del año − goces − liquidaciones y finiquitos |
+| VAC-08 | Días adicionales (art. 69) | +1 día por cada año que exceda de cinco con el mismo empleador (desde el 6.º año), máximo 15 adicionales; el empleador elige concederlos o pagarlos |
+| VAC-09 | Valor (art. 71) | 1/24 de lo percibido en el año completo, incluidas horas suplementarias y extraordinarias, sin décimos |
+| VAC-10 | Acumulación (art. 75) | Hasta tres años consecutivos para gozarlas en el cuarto (60 días). La calculadora DO-4V aplica un **tope de 5 años** por criterio del socio (parámetro editable; más conservador que el art. 75) y alerta desde 3 períodos |
+| VAC-11 | Liquidación hipotética (art. 76) | Pasivo exigible al corte = (días devengados desde el ingreso − gozados o pagados según kárdex) × valor día. Valor día por defecto: remuneración de corte / 30 (decisión del socio); alternativa art. 71: promedio de los últimos 12 meses / 30. La cédula presenta ambas |
+| VAC-12 | Años anteriores (NIC 8) | Ajuste a resultados acumulados = pasivo correcto al cierre anterior − libros a esa fecha; el resto, gasto del año auditado |
+| VAC-13 | Sin kárdex | Visita preliminar: observación OBS-VAC automática; el pasivo queda NO SOPORTADO hasta la visita final |
+
+## 6-bis. Pasantías (PAS) — v1.4
+
+Fuente: Ley de Pasantías en el Sector Empresarial, arts. 4, 5 y 7 (reforma RO 234-S, 20-ene-2023).
+
+| ID | Elemento | Regla |
+|---|---|---|
+| PAS-01 | Naturaleza | Relación civil, no laboral; no aplican beneficios del Código del Trabajo (RG-01, RL-03) |
+| PAS-02 | Estipendio | No menor a 1/3 del SBU (2025: 156,67; 2026: 160,67) por mes completo; proporcional en meses parciales |
+| PAS-03 | Afiliación | Obligatoria; la empresa aporta **la totalidad** sobre el SBU vigente (17,6%: 82,72 en 2025), sin descuento al pasante. La diferencia entre base IESS (SBU) y estipendio en libros es **esperada**, no incumplimiento |
+| PAS-04 | Duración | Máximo 6 meses sin generar relación de dependencia; al exceder, evaluar contingencia laboral (remuneración mínima, décimos, vacaciones y aportes como trabajador) |
+| PAS-05 | Riesgo normativo | La sentencia de la Corte Constitucional 16-16-IN/22 declaró inconstitucional la reducción del estipendio a 1/3 del SBU con efectos diferidos; el plazo a la Asamblea venció en ene-2024 sin nueva ley. Requiere criterio legal antes de concluir sobre el estipendio mínimo |
 
 ## 7. Matriz de validaciones de auditoría
 
@@ -109,8 +128,9 @@ Ejemplo: sueldo 800 + horas extras 120 + comisión 80 = base 1.000; D13 del mes 
 | V05 | Fondo de reserva posterior al mes 13 no pagado ni depositado | Diferencia | RQ-007 + RQ-005 / roles |
 | V06 | Décimo cuarto calculado con sueldo | Error de base | Provisión del cliente (DO-10) |
 | V07 | Décimo tercero sin variables normales | Base incompleta | DO-8 |
-| V08 | Acumulación sin solicitud escrita | Incumplimiento documental | RQ-007 |
-| V09 | Vacaciones con saldo negativo | Error de integridad | Kárdex (RQ-007) |
+| V08 | Acumulación sin solicitud escrita (muestra 10%, D13 y D14) | Incumplimiento documental | RQ-007 |
+| V09 | Vacaciones con saldo negativo o más de 3 períodos | Error de integridad / alerta | Kárdex (RQ-008) |
+| V12 | Pasantía mayor a 6 meses o estipendio < 1/3 SBU | Contingencia laboral | Rol pestaña «pasantes» (RQ-006) |
 | V10 | Pago fuera de fecha | Incumplimiento de plazo | RQ-005 / roles |
 
 ## 8. Procedimiento y clasificación de hallazgos
@@ -145,3 +165,8 @@ Ejemplo: sueldo 800 + horas extras 120 + comisión 80 = base 1.000; D13 del mes 
 - **EX-02** Persona afiliada con código 06 que el auditor determina sin derecho a uno o más beneficios: se excluye solo el beneficio marcado, con motivo documentado en el archivo de exclusiones del RQ-003.
 - **EX-03** Lo excluido no forma parte del pasivo ni del gasto reprocesado; se presenta aparte como «excluido por el auditor».
 - **EX-04** Beneficio pagado por el cliente a una persona excluida (p. ej. FR en rol) = gasto sin sustento: evaluar ajuste o reclasificación (V11).
+- **EX-05** Representante legal con poder general = mandatario, no empleado (Código del Trabajo, art. 308). Se afilia con código 109 (sin relación de dependencia), aporte 17,6% a cargo de la empresa sobre lo percibido. Si figura con código 06, además de la exclusión se observa la afiliación ante el IESS.
+
+## Verificación normativa (v1.4, 09-oct-2026)
+
+Confirmado en fuentes web: arts. 69, 71 y 75 (vacaciones), 111 (D13), 196 y Ley de 2009 (FR), Ley de Pasantías art. 7 y sentencia 16-16-IN/22, art. 308 y código IESS 109, SBU 2026 = 482. **Pendiente del texto oficial** (Registro Oficial / Asamblea): art. 76 literal, art. 113 literal, art. 635 (prescripción) y la resolución del IESS que fija el código 109 para representantes legales.

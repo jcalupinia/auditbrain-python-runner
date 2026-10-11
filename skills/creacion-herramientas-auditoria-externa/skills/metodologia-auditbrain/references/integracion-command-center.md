@@ -26,3 +26,13 @@ Cuando el cálculo exige procesador, la entrega incluye lo que el Command Center
 - `hojas(resultado)`: cédulas con celdas `{"f": fórmula, "v": valor}` para el Excel con fórmulas (M20, M21).
 - `definicion()` de la ficha (base técnica, NIA, programa, requerimientos, `frameworks`, `calculo` legible) y
   `EJEMPLO` = el ejemplo numérico de la ficha (M19).
+
+## Tercera vía: artefacto HTML con motor propio (lección de nómina, M38)
+
+Cuando el módulo ya tiene un panel HTML probado y generadores de Python verificados, la integración no reprograma el
+cálculo: replica el precedente de la planificación (`procesadores/artefacto_html.py`, plantilla
+`assets/*.tmpl.html`, `ciclo/servicio.py::papel_artefacto_html`). El panel es la **cara**; los generadores son el
+**motor**; el Command Center inyecta la ficha del encargo (cliente, RUC, ejercicio, corte, visita, marco, firma y logos,
+`logoCliente`) en placeholders de la plantilla. Requisitos del paquete: valores de control y datos privados separados
+(M35), inventario de literales del cliente (M34), lista de cédulas sin generador y dependencias del contenedor. Ver
+`patrones/entrega-command-center.md`.
