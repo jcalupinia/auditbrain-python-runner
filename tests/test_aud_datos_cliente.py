@@ -14,7 +14,9 @@ from openpyxl.utils import column_index_from_string
 from backend.app.aud.niif import ejercicio_modelo as em
 from backend.app.aud.niif.procesadores import PROCESADORES, datos_cliente, libro
 
-IDS = [p for p in PROCESADORES if p not in datos_cliente.PROPIAS]
+# Camino genérico (datos_cliente): se excluyen las que arman sus datos a mano (PROPIAS)
+# y las bespoke (p. ej. nómina 2.0, que tiene su propio panel y no usa este flujo).
+IDS = [p for p in PROCESADORES if p not in datos_cliente.PROPIAS and not PROCESADORES[p].definicion().get("bespoke")]
 CELDA = r"'(D\d+_[^']+)'!([A-Z]+)(\d+)"
 # Formas de un enlace: la celda, VALUE(celda) si el cliente entregó el número como texto, o
 # IF(celda="",otra,celda) cuando la herramienta usa otro dato de la fila o un valor por defecto.
@@ -33,8 +35,10 @@ def _papel(pid):
 
 
 def test_son_las_20_herramientas():
-    # 20 herramientas NIIF (incl. PCE por cohortes) + la planificación de la auditoría (planificacion_nia).
-    assert len(IDS) == 21 and "perdidas_incurridas_s11" not in IDS and "planificacion_nia" in IDS
+    # 19 herramientas NIIF genéricas (incl. PCE por cohortes; nómina 2.0 es bespoke y sale
+    # de este camino) + la planificación de la auditoría (planificacion_nia).
+    assert len(IDS) == 20 and "perdidas_incurridas_s11" not in IDS and "planificacion_nia" in IDS
+    assert "nomina_beneficios" not in IDS
 
 
 @pytest.mark.parametrize("pid", IDS)
@@ -134,7 +138,7 @@ def test_html_y_word_muestran_la_guia():
 
     from docx import Document
 
-    mod = PROCESADORES["nomina_beneficios"]
+    mod = PROCESADORES["impuesto_corriente_diferido"]
     d = mod.definicion()
     ds, par, corte = em.escenario(mod)
     reg = em._reg(d, mod, ds, par, corte)
@@ -144,7 +148,7 @@ def test_html_y_word_muestran_la_guia():
     assert sum(p.text.startswith("¿De dónde saco este dato?") for p in doc.paragraphs) >= 2
 
 
-@pytest.mark.parametrize("pid", list(PROCESADORES))
+@pytest.mark.parametrize("pid", [p for p, m in PROCESADORES.items() if not m.definicion().get("bespoke")])
 def test_ninguna_cifra_ni_fecha_queda_pegada(pid):
     """Pedido del dueño (2026-09-25, «hazlo de todo»): en las cédulas no queda ningún importe ni fecha
     como valor fijo. Los datos del cliente son fórmulas a su hoja «Datos del cliente», los cálculos son

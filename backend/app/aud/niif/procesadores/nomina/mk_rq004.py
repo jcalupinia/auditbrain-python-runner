@@ -30,10 +30,12 @@ def band(ws, title, ncol):
 anexo = {}
 for r in load_workbook(_R.CTX.anexo, data_only=True).active.iter_rows(min_row=4, values_only=True):
     if r[0]: anexo[str(r[0]).strip()] = (str(r[1]).strip(), r[5])
-src = load_workbook(_R.CTX.papel, data_only=True)
-s6 = src['DO6 Cruce Gsto Benefi.']; s8 = src['DO8 Calculo Base imponible Apor']
-papel = [(s6.cell(r, 2).value, str(s6.cell(r, 3).value).strip()) for r in range(10, 133) if s6.cell(r, 2).value]
-papel += [(s8.cell(r, 1).value, str(s8.cell(r, 2).value).strip()) for r in range(15, 92) if s8.cell(r, 1).value]
+from backend.app.aud.niif.procesadores.nomina import mayores as MY
+_vistas = set(); papel = []
+for _k in MY.GKEY:
+    for _c, _n, _ in MY.cuentas_por_concepto(_k):
+        if _c not in _vistas:
+            _vistas.add(_c); papel.append((_c, _n))
 
 def concepto(nombre):
     n = nombre.lower()

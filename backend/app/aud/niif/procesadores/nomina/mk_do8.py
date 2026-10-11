@@ -8,7 +8,6 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.drawing.image import Image as XLImage
 
 OUT = (_R.CTX.out + '/DO-8_Base_Imponible_IESS_vs_Libros.xlsx')
-SRC = _R.CTX.papel
 g = pd.read_pickle((_R.CTX.home + '/g3.pkl'))
 MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 
@@ -35,21 +34,17 @@ def th(ws, row, col0, labels, height=30):
         c = ws.cell(row, col0 + i, t); c.font = WH; c.fill = NAVY; c.alignment = C; c.border = BOX
     ws.row_dimensions[row].height = height
 
-src = load_workbook(SRC, data_only=True)['DO8 Calculo Base imponible Apor']
 ANEXO = {str(r[0]).strip(): abs(r[5]) for r in load_workbook(_R.CTX.anexo, data_only=True).active.iter_rows(min_row=4, values_only=True) if r[0] and isinstance(r[5], (int, float))}
 ORANGE = Font(name='Arial', size=10, color='FFC65911')
-GROUPS = [('SUE', 'Sueldos', 15, 34), ('HE', 'Horas extras', 36, 52), ('BON', 'Bono desempeño', 54, 73),
-          ('COM', 'Comisiones', 75, 76), ('PRE', 'Premios', 78, 79)]
-acc = {k: [(src.cell(r, 1).value, str(src.cell(r, 2).value).strip(), float(src.cell(r, 3).value or 0))
-           for r in range(a, b + 1) if src.cell(r, 1).value] for k, _, a, b in GROUPS}
-pas_acc = [(src.cell(r, 1).value, str(src.cell(r, 2).value).strip(), float(src.cell(r, 3).value or 0)) for r in range(84, 92) if src.cell(r, 1).value]
-
+GROUPS = [('SUE', 'Sueldos'), ('HE', 'Horas extras'), ('BON', 'Bono desempeño'),
+          ('COM', 'Comisiones'), ('PRE', 'Premios')]
 from backend.app.aud.niif.procesadores.nomina import mayores as MY
 mon = {'F': MY.gasto_mes('SUE'), 'G': MY.gasto_mes('HE'), 'H': MY.gasto_mes('BON'), 'I': MY.gasto_mes('COM'), 'J': MY.gasto_mes('PRE'),
        'K': MY.pasivo_mes(MY.B, '5BS.21204.003', 'GOCES')}
 pas_lib = MY.gasto_mes('EST')
-acc = {k: [(cod, cta, MY.gasto_cta(str(cod).strip())) for cod, cta, _ in v] for k, v in acc.items()}
-pas_acc = [(cod, cta, MY.gasto_cta(str(cod).strip())) for cod, cta, _ in pas_acc]
+# Agrupación de cuentas por concepto desde el mayor RQ-004 (no del papel del equipo).
+acc = {k: MY.cuentas_por_concepto(k) for k, _ in GROUPS}
+pas_acc = MY.cuentas_por_concepto('EST')
 
 wb = Workbook()
 wf = wb.active; wf.title = 'Ficha'

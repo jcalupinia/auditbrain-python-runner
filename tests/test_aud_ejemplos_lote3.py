@@ -24,8 +24,10 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PUB = os.path.join(RAIZ, "frontend", "public", "ejemplos")
 MANIFIESTO = os.path.join(RAIZ, "frontend", "src", "aud", "niif", "ejemplosRequerimientos.js")
 
+# nomina_beneficios 2.0 es bespoke (panel propio, no usa el flujo genérico de
+# ejemplos del catálogo); por eso no está en estos lotes.
 LOTE1 = [
-    "nomina_beneficios", "ingresos_contratos", "gastos_analisis",
+    "ingresos_contratos", "gastos_analisis",
     "provisiones_contingencias", "impuesto_corriente_diferido", "patrimonio",
 ]
 

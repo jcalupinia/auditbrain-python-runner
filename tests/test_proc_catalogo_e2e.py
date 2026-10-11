@@ -16,7 +16,10 @@ from tests.test_aud_ciclo_evidencia import _leer, _subir
 from tests.test_aud_ciclo_http import BASE, FICHA, _accion, _staff_con_proyecto
 from tests.test_aud_niif_fichas import _h
 
-CATALOGO = sorted(pid for pid, m in procesadores.PROCESADORES.items() if getattr(m, "RUBRO", None))
+# Herramientas del catálogo que corren de principio a fin por el camino genérico.
+# Las bespoke (nómina 2.0) tienen cara propia (panel) y no exponen ese flujo.
+CATALOGO = sorted(pid for pid, m in procesadores.PROCESADORES.items()
+                  if getattr(m, "RUBRO", None) and not m.definicion().get("bespoke"))
 
 
 @pytest.fixture

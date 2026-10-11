@@ -19,6 +19,9 @@ import pytest
 from backend.app.aud.niif import ejercicio_modelo as em
 from backend.app.aud.niif.procesadores import PROCESADORES, base, graficos, graficos_svg, html_ejecutivo, libro
 
+# Camino genérico (libro.html/panel). Las bespoke (nómina 2.0) tienen cara propia.
+GENERICOS = [p for p, m in PROCESADORES.items() if not m.definicion().get("bespoke")]
+
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _spec = importlib.util.spec_from_file_location("verificar_explicaciones",
                                                os.path.join(RAIZ, "scripts", "verificar_explicaciones.py"))
@@ -40,7 +43,7 @@ def _texto_visible(h: str) -> str:
     return re.sub(r"<[^>]+>", " ", h)  # solo nodos de texto (no coordenadas SVG)
 
 
-@pytest.mark.parametrize("pid", list(PROCESADORES))
+@pytest.mark.parametrize("pid", GENERICOS)
 def test_explicaciones_humanas_en_todas_las_columnas(pid):
     pendientes = verificar.revisar(pid)
     assert not pendientes, f"{pid}:\n" + "\n".join(pendientes)
@@ -75,7 +78,7 @@ def test_ejemplo_traduce_rangos_y_columnas_completas_con_numeros():
                    if "!" not in e), "quedan referencias de celda sin traducir a números"
 
 
-@pytest.mark.parametrize("pid", list(PROCESADORES))
+@pytest.mark.parametrize("pid", GENERICOS)
 def test_panel_resuelve_kpis_y_graficos(pid):
     mod = PROCESADORES[pid]
     ds, par, corte = em.escenario(mod)
@@ -84,7 +87,7 @@ def test_panel_resuelve_kpis_y_graficos(pid):
     assert not p["faltan"], (pid, p["faltan"])
 
 
-@pytest.mark.parametrize("pid", list(PROCESADORES))
+@pytest.mark.parametrize("pid", GENERICOS)
 def test_html_premium_autonomo_es_ec_y_con_selectores(pid):
     d, _, reg = _reg(pid)
     h = libro.html(d, reg, [], 1, "APROBADO").decode("utf-8")

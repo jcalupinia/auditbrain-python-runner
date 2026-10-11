@@ -38,15 +38,8 @@ def test_brecha_del_comparativo_es_el_ajuste(pid, clave):
     assert brecha == pytest.approx(_n(run["totals"][clave]), abs=0.01), (pid, brecha, run["totals"][clave])
 
 
-def test_nomina_compara_solo_pasivos_laborales():
-    p, run = _panel("nomina_beneficios")
-    conceptos = [e for e, _ in p["composicion"]["items"]]
-    assert not any(c.startswith(("Remuneraciones", "Aporte patronal")) for c in conceptos), conceptos
-    brecha = p["recalculado"]["valor"] - p["registrado"]["valor"]
-    # La brecha = ajuste + provisiones sin registro informado (se reportan como problema, no se ajustan).
-    sin_informar = sum(_n(e["amount"]) for e in run["exceptions"]
-                       if e["code"] == "VACACIONES_NO_PROVISIONADAS" and "no informada" in e["message"])
-    assert brecha == pytest.approx(_n(run["totals"]["ajustePasivos"]) + sin_informar, abs=0.01)
+# (nomina_beneficios 2.0 es bespoke: su panel propio no pasa por este comparativo
+# genérico «registrado vs recalculado»; se verifica en su propia suite de panel.)
 
 
 def test_gastos_compara_con_lo_llevado_a_gasto_no_con_lo_facturado():

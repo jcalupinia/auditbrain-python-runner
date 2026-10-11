@@ -11,8 +11,8 @@ from openpyxl.worksheet.datavalidation import DataValidation
 OUT = (_R.CTX.out + '/DO-12_Hallazgos_y_Ajustes.xlsx')
 ANEXO = {str(r[0]).strip(): (str(r[1]).strip(), abs(r[5])) for r in load_workbook(_R.CTX.anexo, data_only=True).active.iter_rows(min_row=4, values_only=True)
          if r[0] and isinstance(r[5], (int, float))}
-s6 = load_workbook(_R.CTX.papel, data_only=True)['DO6 Cruce Gsto Benefi.']
-VAC = [(s6.cell(r, 2).value, str(s6.cell(r, 3).value).strip(), float(s6.cell(r, 4).value or 0)) for r in range(102, 125) if s6.cell(r, 2).value]
+from backend.app.aud.niif.procesadores.nomina import mayores as MY
+VAC = MY.cuentas_por_concepto('VAC')
 
 NAVY = PatternFill('solid', fgColor='FF0F2341'); SUB = PatternFill('solid', fgColor='FFDDE6F3'); YEL = PatternFill('solid', fgColor='FFFFF2CC')
 GRN = PatternFill('solid', fgColor='FFE2EFDA'); ORG = PatternFill('solid', fgColor='FFFCE4D6'); RSF = PatternFill('solid', fgColor='FFF8D7DA')

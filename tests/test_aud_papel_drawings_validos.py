@@ -20,6 +20,9 @@ from xml.etree import ElementTree as ET
 from backend.app.aud.niif import ejercicio_modelo as em
 from backend.app.aud.niif.procesadores import PROCESADORES, libro
 
+# Camino genérico (libro). Las bespoke (nómina 2.0) tienen cara propia (panel).
+GENERICOS = [p for p, m in PROCESADORES.items() if not m.definicion().get("bespoke")]
+
 
 def _papel(pid):
     mod = PROCESADORES[pid]
@@ -48,7 +51,7 @@ def test_efectivo_dibujos_de_la_portada_son_xml_valido():
 
 def test_todas_las_herramientas_emiten_dibujos_validos():
     fallos = {}
-    for pid in PROCESADORES:
+    for pid in GENERICOS:
         malos = _drawings_bien_formados(_papel(pid))
         if malos:
             fallos[pid] = malos

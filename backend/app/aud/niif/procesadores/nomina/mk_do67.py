@@ -9,7 +9,6 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.drawing.image import Image as XLImage
 
 OUT = (_R.CTX.out + '/DO-6_DO-7_Cruce_Gasto_Beneficios.xlsx')
-SRC = _R.CTX.papel
 g = pd.read_pickle((_R.CTX.home + '/g2.pkl'))
 MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 
@@ -57,19 +56,16 @@ def texts(ws, items, last):
             ws.merge_cells(f'B{r}:{last}{r}'); ws[f'B{r}'].alignment = Alignment(wrap_text=True, vertical='top'); ws.row_dimensions[r].height = 28
 
 # --------------------------- datos del papel de trabajo (libros)
-src = load_workbook(SRC, data_only=True)
 ANEXO = {str(r[0]).strip(): abs(r[5]) for r in load_workbook(_R.CTX.anexo, data_only=True).active.iter_rows(min_row=4, values_only=True) if r[0] and isinstance(r[5], (int, float))}
 ORANGE = Font(name='Arial', size=10, color='FFC65911')
-s6 = src['DO6 Cruce Gsto Benefi.']; s7 = src['DO7 Cruce Mens Gasto Beneficios']
-GROUPS = [('D13', 'Décimo tercer sueldo', 10, 31), ('D14', 'Décimo cuarto sueldo', 33, 51), ('APO', 'Aporte patronal', 53, 74),
-          ('FR', 'Fondos de reserva', 77, 99), ('VAC', 'Vacaciones', 102, 124), ('PAS', 'Aporte patronal pasantes', 126, 132)]
-accounts = {k: [(s6.cell(r, 2).value, str(s6.cell(r, 3).value).strip(), float(s6.cell(r, 4).value or 0))
-                for r in range(a, b + 1) if s6.cell(r, 2).value] for k, _, a, b in GROUPS}
+GROUPS = [('D13', 'Décimo tercer sueldo'), ('D14', 'Décimo cuarto sueldo'), ('APO', 'Aporte patronal'),
+          ('FR', 'Fondos de reserva'), ('VAC', 'Vacaciones'), ('PAS', 'Aporte patronal pasantes')]
 mon_rows = {'APO': ('B', 9), 'PAS': ('I', 9), 'D13': ('B', 26), 'D14': ('B', 43), 'FR': ('B', 62), 'VAC': ('B', 80)}
 
 from backend.app.aud.niif.procesadores.nomina import mayores as MY
 monthly = {k: MY.gasto_mes(k) for k in mon_rows}
-accounts = {k: [(cod, cta, MY.gasto_cta(str(cod).strip())) for cod, cta, _ in v] for k, v in accounts.items()}
+# La agrupación de cuentas por concepto sale del mayor RQ-004 (no del papel del equipo).
+accounts = {k: MY.cuentas_por_concepto(k) for k, _ in GROUPS}
 
 
 def banner(ws, last_col, texto):
@@ -133,7 +129,7 @@ COMENT = {'D13': 'Diferencia menor.', 'D14': 'Sobreprovisión menor (ver DO-7: e
           'APO': 'Diferencia de base rol vs IESS (DO-3.1).', 'FR': 'Incluye FR de representantes legales excluidos (ver análisis).',
           'VAC': 'Provisión ≈5,25% de la base vs 1/24 (4,17%).', 'PAS': 'Cuadra.'}
 r = 10; group_rows = {}
-for k, titulo, _, _ in GROUPS:
+for k, titulo, *_ in GROUPS:
     first = r
     for cod, cta, val in accounts[k]:
         enA = cod in ANEXO

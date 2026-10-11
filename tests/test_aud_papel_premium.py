@@ -13,6 +13,9 @@ from openpyxl import load_workbook
 from backend.app.aud.niif import ejercicio_modelo as em
 from backend.app.aud.niif.procesadores import PROCESADORES, graficos, libro, problemas
 
+# Camino genérico (libro.html/excel/panel). Las bespoke (nómina 2.0) tienen cara propia.
+GENERICOS = [p for p, m in PROCESADORES.items() if not m.definicion().get("bespoke")]
+
 
 def _reg(pid):
     mod = PROCESADORES[pid]
@@ -22,7 +25,7 @@ def _reg(pid):
 
 
 def test_html_trae_panorama_svg_en_las_20():
-    for pid in PROCESADORES:
+    for pid in GENERICOS:
         d, _, reg = _reg(pid)
         h = libro.html(d, reg, [], 1, "APROBADO").decode("utf-8")
         assert h.count("<svg") >= 1, pid
@@ -31,14 +34,14 @@ def test_html_trae_panorama_svg_en_las_20():
 
 
 def test_html_para_pdf_con_graficos_y_sin_scripts():
-    for pid in PROCESADORES:
+    for pid in GENERICOS:
         d, _, reg = _reg(pid)
         h = libro.html(d, reg, [], 1, "APROBADO", para_pdf=True).decode("utf-8")
         assert "<svg" in h and "<script" not in h, pid
 
 
 def test_resumen_no_mezcla_tasas_con_usd():
-    for pid in PROCESADORES:
+    for pid in GENERICOS:
         mod = PROCESADORES[pid]
         ds, par, corte = em.escenario(mod)
         run = mod.ejecutar(ds, par, corte)
@@ -82,7 +85,7 @@ def test_excel_un_solo_dashboard_con_graficos_por_formula():
     activan ``PANEL["tableros_en_hoja"]`` (hoy la planificación), que además repiten el
     gráfico de cada tablero dentro de su cédula visible, como el HTML pone el gráfico junto
     a su pestaña."""
-    for pid in PROCESADORES:
+    for pid in GENERICOS:
         d, _, reg = _reg(pid)
         wb = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "APROBADO")))  # abre sin «reparar»
         con_grafico = [ws.title for ws in wb.worksheets if ws._charts]
