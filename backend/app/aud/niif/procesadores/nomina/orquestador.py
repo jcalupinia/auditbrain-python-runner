@@ -12,7 +12,7 @@ from backend.app.aud.niif.procesadores.nomina import motor, mayores, series, com
 
 _DIR = os.path.dirname(__file__)
 # generadores de referencia (archivo del paquete -> nombre de cédula de salida)
-LEGACY = ['mk_do3', 'mk_do31', 'mk_do4', 'mk_do45', 'mk_do67', 'mk_do8', 'mk_do9', 'mk_do10', 'mk_do12', 'mk_pa', 'mk_rq007', 'mk_vac', 'mk_rq004']
+LEGACY = ['mk_do2', 'mk_do3', 'mk_do31', 'mk_do4', 'mk_do45', 'mk_do67', 'mk_do8', 'mk_do9', 'mk_do10', 'mk_do12', 'mk_pa', 'mk_rq007', 'mk_vac', 'mk_rq004']
 
 
 def correr(rutas, ficha: dict | None = None) -> dict[str, bytes]:
@@ -39,7 +39,10 @@ def correr(rutas, ficha: dict | None = None) -> dict[str, bytes]:
     series.exportar_pickles(R, rutas)
 
     # 4) cédulas nuevas
-    cedulas_nuevas.build_do2(rutas.anexo, f'{rutas.out}/DO-2_Cedula_Sumaria_Nomina.xlsx', ficha)
+    # DO-2: lo arma el generador de referencia ``mk_do2`` (en LEGACY), que calca la
+    # cédula de referencia (2 hojas) reproduciendo el layout físico del anexo RQ-002 y
+    # el bloque «cuentas solo en el mayor» agrupado por concepto de ``mayores.py``.
+    # ``cedulas_nuevas.build_do2`` queda disponible pero ya no se invoca.
     # DO-3: lo arma el generador de referencia ``mk_do3`` (en LEGACY), que calca la
     # cédula de referencia leyendo el Consolidado crudo. ``cedulas_nuevas.build_do3``
     # queda disponible pero ya no se invoca.

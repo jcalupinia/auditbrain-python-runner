@@ -224,7 +224,7 @@ rs['B4'] = 'Nombre del cliente:'; rs['C4'] = _cliente
 rs['F4'] = 'Período terminado:'; rs['H4'] = _periodo_term
 rs['B5'] = 'Preparado por:'; rs['C5'] = _prep
 rs['D5'] = 'Revisado:'; rs['E5'] = _rev
-rs['F5'] = 'Fecha:'; rs['G5'] = '[desde Ficha]'
+rs['F5'] = 'Fecha:'; rs['G5'] = '[Fecha]'
 rs['I5'] = 'Referencia de PT'; rs['J5'] = 'DO-4'
 for c in ('B4', 'F4', 'B5', 'D5', 'F5', 'I5', 'J5'):
     rs[c].font = BF

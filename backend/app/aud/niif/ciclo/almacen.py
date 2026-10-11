@@ -19,6 +19,7 @@ MAX_ARCHIVO = 25 * 1024 * 1024  # el mismo límite del sitio
 
 TIPOS = {
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "xls": "application/vnd.ms-excel",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "csv": "text/csv", "xml": "application/xml", "pdf": "application/pdf", "txt": "text/plain",
     "md": "text/markdown", "zip": "application/zip", "png": "image/png", "jpg": "image/jpeg",
