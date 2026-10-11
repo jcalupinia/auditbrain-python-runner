@@ -88,3 +88,15 @@ export async function narrativo(file, tipoDeclarado, { usarIa = false } = {}) {
     })
   ).json();
 }
+
+// Resolución semántica por IA (Fase 6): ingiere y luego pide que la IA
+// desambigüe los campos de TEXTO que quedaron en revisión. Devuelve
+// { dataset, cola_revision, resolubles, resueltos }. El LLM no calcula cifras.
+export async function resolver(file, tipoDeclarado, { ocr = true } = {}) {
+  return (
+    await call("resolver", {
+      method: "POST",
+      body: cuerpo(file, tipoDeclarado, { ocr }),
+    })
+  ).json();
+}

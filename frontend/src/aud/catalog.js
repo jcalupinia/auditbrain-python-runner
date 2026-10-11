@@ -34,6 +34,19 @@ export const CATEGORIES = [
           "Cola de revisión y disclaimer de validación humana",
         ],
       },
+      {
+        id: "AUD.INGESTA.RESOLVER",
+        label: "Resolución semántica por IA · cola de revisión",
+        description:
+          "Último paso de la escalera determinístico-primero: la IA desambigua solo los campos de texto que el motor dejó en revisión (una sigla, un concepto ambiguo). El LLM no calcula cifras ni fechas; tope de confianza media y disclaimer de validación humana.",
+        pruebas: [
+          "IA solo sobre campos de texto en revisión (no numéricos)",
+          "Tope de confianza media (nunca alta automática)",
+          "Degradación graciosa si no hay proveedor de IA",
+          "Disclaimer de validación humana en cada dato resuelto",
+          "Reutiliza el Motor de Ingesta (no recalcula nada)",
+        ],
+      },
     ],
   },
   {
