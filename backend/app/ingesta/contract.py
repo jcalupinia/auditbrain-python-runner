@@ -90,6 +90,11 @@ class TipoDocumento(str, Enum):
     MAYOR = "mayor"
     KARDEX = "kardex"
     FACTURACION = "facturacion"
+    # Tipos tabulares de la Capa de Mapeo Universal (Fase A3). Aditivos: ningún
+    # match/switch exhaustivo depende del enum (los registros usan .get()).
+    ASIENTO_DIARIO = "asiento_diario"
+    VENTAS = "ventas"
+    COMPRAS = "compras"
     COMPROBANTE_SRI = "comprobante_sri"
     ESTADO_FINANCIERO = "estado_financiero"
     CARTA_CONTROL_INTERNO = "carta_control_interno"
