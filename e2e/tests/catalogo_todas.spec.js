@@ -28,7 +28,7 @@ const TOOLS = [
   { processor: "inversiones_instrumentos", nombre: "Inversiones e Instrumentos Financieros", nEjec: 9, primarias: ["Anexo de Inversiones por Instrumento", "Estados de Cuenta y Confirmaciones"] },
   { processor: "patrimonio", nombre: "Patrimonio", nEjec: 9, primarias: ["Movimiento de Cuentas Patrimoniales", "Actas y Transacciones Patrimoniales"] },
   { processor: "provisiones_contingencias", nombre: "Provisiones y Contingencias", nEjec: 11, primarias: ["Detalle de Provisiones y Contingencias", "Respuestas de los Abogados"] },
-  { processor: "nomina_beneficios", nombre: "Nómina y Beneficios a Empleados", nEjec: 11, primarias: ["Anexo de Empleados del Ejercicio", "Resumen del Informe Actuarial"] },
+  { processor: "nomina_beneficios", nombre: "Pasivos Acumulados y Gastos de Nómina", nEjec: 11, primarias: ["Anexo de Nómina (saldos por cuenta)", "Consolidado de Planillas del IESS (Sierra/Costa) + Exclusiones"] },
   { processor: "impuesto_corriente_diferido", nombre: "Impuesto Corriente y Diferido", nEjec: 11, primarias: ["Conciliación Tributaria (F-101)", "Anexo de Diferencias Temporarias"] },
   { processor: "gastos_analisis", nombre: "Análisis de Gastos", nEjec: 11, primarias: ["Sumaria de Cuentas de Gasto", "Muestra de Transacciones de Gasto"] },
   { processor: "seguros_cobertura", nombre: "Seguros y Cobertura", nEjec: 9, primarias: ["Maestro de Activos Asegurables", "Detalle de Pólizas Vigentes y Vencidas"] },

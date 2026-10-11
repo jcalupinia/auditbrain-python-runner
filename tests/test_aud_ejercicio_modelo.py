@@ -55,8 +55,9 @@ def test_recorrido_se_arma_para_perdidas_incurridas():
 
 def test_todas_las_herramientas_de_catalogo_tienen_ejercicio_modelo():
     # Cada herramienta con RUBRO trae EJEMPLO/ESCENARIOS: su botón no queda «pendiente».
+    # Las bespoke (p. ej. nómina 2.0) tienen cara propia (panel) y no usan el ejercicio modelo genérico.
     for pid, mod in PROCESADORES.items():
-        if getattr(mod, "RUBRO", None):
+        if getattr(mod, "RUBRO", None) and not mod.definicion().get("bespoke"):
             assert ejercicio_modelo.disponible(mod), pid
 
 
