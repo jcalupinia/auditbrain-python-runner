@@ -15,8 +15,8 @@
 | Paso | Motor | Estado de la ficha |
 |---|---|---|
 | 1.0 | Ingesta y normalización | Pendiente (el plan lo da por «ya verificado»; se confirmará que nada cambió) |
-| **1.1** | **Extractor de documentos narrativos** | ✅ **Verificado (esta entrega)** |
-| 1.2 | Resolución semántica por IA | Pendiente (tras visto bueno) |
+| **1.1** | **Extractor de documentos narrativos** | ✅ **Verificado** |
+| **1.2** | **Resolución semántica por IA** | ✅ **Verificado (esta entrega)** |
 | 1.3 | Capa de Mapeo Universal | Pendiente (en pausa; solo verificar) |
 | 1.4 | Piezas de soporte | Pendiente |
 | 1.5 | Consolidación (3 huecos + veredicto) | Pendiente |
@@ -95,5 +95,70 @@ bloqueantes.*
 
 ---
 
-_Las fichas 1.0 y 1.2–1.5 se agregan a este mismo archivo tras el visto bueno del
+## Ficha 1.2 — Resolución semántica por IA
+**Archivo:** `backend/app/ingesta/semantic_resolver.py` (186 líneas)
+
+### 1. ¿Qué hace?
+Último recurso de la escalera determinístico-primero: **desambigua por IA solo
+los campos de TEXTO/DESCONOCIDO** que quedaron en la cola de revisión; nunca
+cifras ni fechas. `semantic_resolver.py:1-23`; `resolver_dataset` `:171`,
+`resolver_campo` `:101`, `resoluble` `:92`.
+
+### 2. ¿Está completo?
+**Sí.**
+- `resoluble` gatea solo texto/desconocido en revisión (`:92-98`, `_RESOLUBLE_TIPOS`
+  `:46`).
+- `resolver_campo` con esquema Pydantic estricto (`ResolucionSemantica` `:65-72`),
+  reintentos acotados (`:123`), **degradación graciosa** sin lanzar (`:131-136`) y
+  **tope MEDIUM** (`_MAP_CONFIANZA` `:49-53`, `_nivel_desde` `:85-89`).
+- `resolver_dataset` pasa por los campos y **recalcula** `review_required`
+  (`:182-185`).
+
+### 3. ¿Está conectado?
+**Sí.** Exportado en `backend/app/ingesta/__init__.py:75-80,128-132`; endpoint
+`POST /ingesta/resolver` en `backend/app/api/ingesta.py:160-174` (usa `resoluble`
+`:167` y `resolver_dataset` `:168`); `DISCLAIMER_IA` lo reutiliza
+`narrativo.py:44,269`; frontend `ResolutorSemanticoTool.jsx` + catálogo
+`AUD.INGESTA.RESOLVER`. → **El «Hueco 2» NO aplica.**
+
+### 4. ¿Está probado?
+- **M14: SÍ.** `tests/test_ingesta_resolutor_ia.py` (13) + `tests/test_ingesta_resolver.py`
+  (4) = **17/17 verdes** (ejecutadas el 2026-10-11).
+- **M20 (mutación): cubierto de facto en lo crítico, falta formalizarlo.** Las
+  invariantes duras ya están protegidas por pruebas que **fallarían ante la
+  mutación correspondiente**: `test_confianza_nunca_sube_a_high` (`:84`) cubre el
+  tope MEDIUM; `test_moneda_no_es_resoluble` (`:57`) y `test_fecha_no_es_resoluble`
+  (`:62`) cubren «la IA no toca cifras ni fechas». No hay una prueba **rotulada**
+  como mutación, pero el riesgo que M20 busca atajar aquí ya está cubierto.
+
+### 5. ¿Respeta el contrato?
+**Sí.** Trabaja sobre `CampoExtraido`/`DatasetNormalizado`.
+- **«La IA no calcula cifras»: garantizado** por `_RESOLUBLE_TIPOS` (solo
+  TEXTO/DESCONOCIDO, `:46`, `:92-98`) y el prompt del sistema (`:55-60`, `:140-151`).
+- **«La incertidumbre no se oculta»:** tope MEDIUM (`:49-53`); si el modelo no está
+  seguro, el campo queda LOW/REVIEW (`:85-89`); disclaimer disponible (`:40-43`) y
+  método IA + warning por campo (`:161-167`).
+- **Punto menor a notar (no bloqueante):** `resolver_dataset` modifica los campos
+  **in situ pero NO vuelve a sellar** el dataset (`:171-186`, no llama `sellar()`);
+  el endpoint `/resolver` selló el dataset en la ingesta previa y lo devuelve con
+  ese sello, que queda **desactualizado respecto al contenido ya resuelto por IA**.
+  Conviene re-sellar tras resolver, o documentar que el sello corresponde al
+  dataset **pre-IA**.
+
+### 6. ¿Qué le falta para estar terminado?
+- **Bloqueante:** ninguno.
+- **Recomendado:** (a) **re-sellar** el dataset tras `resolver_dataset` (o
+  documentar que el sello es pre-IA); (b) rotular/formalizar una **prueba de
+  mutación M20** (las invariantes críticas ya están cubiertas de facto).
+- **Opcional:** pasar `contexto` por campo en el endpoint (ya soportado en
+  `resolver_campo` `:105,146`, pero el endpoint no lo expone).
+
+**Veredicto de la ficha 1.2:** *Completo y conectado; M14 verde (17/17) y las
+invariantes críticas (tope MEDIUM, «la IA no toca cifras ni fechas») protegidas
+por pruebas. Faltantes recomendados: re-sello tras resolución y una prueba de
+mutación rotulada. Sin bloqueantes.*
+
+---
+
+_Las fichas 1.0 y 1.3–1.5 se agregan a este mismo archivo tras el visto bueno del
 socio, en el orden de la §3 del plan._
