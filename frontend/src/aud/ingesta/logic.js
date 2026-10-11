@@ -40,6 +40,9 @@ const TIPO_ETIQUETA = {
   ats: "ATS",
   balance: "Balance",
   mayor: "Libro Mayor",
+  asiento_diario: "Asiento de diario",
+  ventas: "Ventas",
+  compras: "Compras",
   kardex: "Kardex",
   facturacion: "Facturación",
   comprobante_sri: "Comprobante SRI",
@@ -71,6 +74,32 @@ export function metodoEtiqueta(metodo) {
 
 export function tipoEtiqueta(tipo) {
   return TIPO_ETIQUETA[tipo] || tipo || "Desconocido";
+}
+
+// Tipos tabulares que acepta la Capa de Mapeo Universal (Fase A3/B). Deben
+// coincidir con CATALOGO_ESQUEMAS del backend (backend/app/ingesta/mapeo).
+export const TIPOS_MAPEO = ["mayor", "asiento_diario", "balance", "ventas", "compras"];
+
+// Mapeo inicial editable { campo_canonico: indice_columna } derivado de la
+// propuesta del backend. El auditor parte de aquí y corrige (M07).
+export function mapeoInicialDesdePropuesta(propuesta) {
+  const m = {};
+  const lista = propuesta && Array.isArray(propuesta.propuestas) ? propuesta.propuestas : [];
+  for (const p of lista) {
+    if (p && typeof p.columna_indice === "number") m[p.campo_canonico] = p.columna_indice;
+  }
+  return m;
+}
+
+// Campos OBLIGATORIOS del esquema que el mapeo actual deja sin columna. El
+// botón de confirmar se bloquea mientras haya alguno (no se normaliza a medias).
+export function obligatoriosSinCubrir(esquema, mapeo) {
+  const campos = Array.isArray(esquema) ? esquema : [];
+  const m = mapeo || {};
+  return campos
+    .filter((c) => c && c.obligatorio)
+    .filter((c) => m[c.nombre] === undefined || m[c.nombre] === null || m[c.nombre] === "")
+    .map((c) => c.nombre);
 }
 
 // "archivo.pdf · p. 3 · hoja 1 Disenio · fila 12 · celda B4" — la trazabilidad

@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   evidenciaTexto,
   formatValor,
+  mapeoInicialDesdePropuesta,
   metodoEtiqueta,
   nivelClase,
   nivelEtiqueta,
   nivelNormalizado,
+  obligatoriosSinCubrir,
   qualityPct,
   resumenCampos,
+  TIPOS_MAPEO,
   tipoEtiqueta,
 } from "./logic.js";
 
@@ -93,5 +96,38 @@ describe("Motor de ingesta · calidad", () => {
     expect(qualityPct(1.4)).toBe(100);
     expect(qualityPct(-0.2)).toBe(0);
     expect(qualityPct("x")).toBe(0);
+  });
+});
+
+describe("Capa de Mapeo Universal · lógica de confirmación", () => {
+  it("expone los cinco tipos tabulares del backend", () => {
+    expect(TIPOS_MAPEO).toEqual(["mayor", "asiento_diario", "balance", "ventas", "compras"]);
+  });
+
+  it("deriva el mapeo inicial editable desde la propuesta del backend", () => {
+    const propuesta = {
+      propuestas: [
+        { campo_canonico: "cuenta", columna_indice: 0 },
+        { campo_canonico: "debe", columna_indice: 2 },
+      ],
+    };
+    expect(mapeoInicialDesdePropuesta(propuesta)).toEqual({ cuenta: 0, debe: 2 });
+    expect(mapeoInicialDesdePropuesta(null)).toEqual({});
+    expect(mapeoInicialDesdePropuesta({})).toEqual({});
+  });
+
+  it("detecta los obligatorios sin columna (bloquean la normalización)", () => {
+    const esquema = [
+      { nombre: "cuenta", obligatorio: true },
+      { nombre: "debe", obligatorio: true },
+      { nombre: "haber", obligatorio: true },
+      { nombre: "glosa", obligatorio: false },
+    ];
+    // haber sin mapear → falta; glosa opcional no cuenta.
+    expect(obligatoriosSinCubrir(esquema, { cuenta: 0, debe: 2 })).toEqual(["haber"]);
+    // todos los obligatorios cubiertos → ninguno falta.
+    expect(obligatoriosSinCubrir(esquema, { cuenta: 0, debe: 2, haber: 3 })).toEqual([]);
+    // una cadena vacía NO cuenta como mapeada.
+    expect(obligatoriosSinCubrir(esquema, { cuenta: 0, debe: 2, haber: "" })).toEqual(["haber"]);
   });
 });

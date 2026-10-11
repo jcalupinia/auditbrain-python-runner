@@ -100,3 +100,23 @@ export async function resolver(file, tipoDeclarado, { ocr = true } = {}) {
     })
   ).json();
 }
+
+// Capa de Mapeo Universal (Fase A3/B) — flujo en dos tiempos, SIN estado.
+// Etapa 1: perfila la tabla y PROPONE el mapeo (la máquina propone, M07).
+// Devuelve { perfil, esquema, propuesta, cola_revision }. No normaliza nada.
+export async function prepararMapeo(file, tipoDocumento) {
+  const fd = cuerpo(file, undefined, { tipo_documento: tipoDocumento });
+  return (await call("mapeo/preparar", { method: "POST", body: fd })).json();
+}
+
+// Etapa 2: aplica el mapeo CONFIRMADO por el auditor (el auditor dispone).
+// Se reenvía el mismo archivo (sin estado en el servidor). `mapeoConfirmado`
+// es un objeto { campo_canonico: indice_columna }. Devuelve { dataset,
+// cola_revision }. M22: un obligatorio vacío queda None, nunca cero.
+export async function aplicarMapeo(file, tipoDocumento, mapeoConfirmado) {
+  const fd = cuerpo(file, undefined, {
+    tipo_documento: tipoDocumento,
+    mapeo_confirmado: JSON.stringify(mapeoConfirmado || {}),
+  });
+  return (await call("mapeo/aplicar", { method: "POST", body: fd })).json();
+}

@@ -47,6 +47,19 @@ export const CATEGORIES = [
           "Reutiliza el Motor de Ingesta (no recalcula nada)",
         ],
       },
+      {
+        id: "AUD.INGESTA.MAPEO",
+        label: "Capa de Mapeo Universal · columnas → esquema canónico",
+        description:
+          "Acepta un mayor, asiento de diario, balance, ventas o compras venga como venga el formato del cliente (otro nombre de columna, otro orden, encabezado en cualquier fila) y lo normaliza al esquema canónico del motor. La máquina propone el mapeo columna→campo; el auditor lo confirma antes de normalizar. Determinista, sin IA.",
+        pruebas: [
+          "Perfilado de la tabla y detección del encabezado sin palabras clave",
+          "Propuesta de mapeo columna→campo con score y confianza (sin IA)",
+          "Confirmación del auditor antes de normalizar (la máquina propone)",
+          "Soporte de Excel y CSV con formatos regionales (. y ,)",
+          "Campo obligatorio vacío queda vacío y a revisión, nunca cero (M22)",
+        ],
+      },
     ],
   },
   {
