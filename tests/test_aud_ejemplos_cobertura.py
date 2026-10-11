@@ -28,14 +28,15 @@ def _manifiesto_tool(pid):
 
 
 def _con_requerimientos():
-    """Todos los procesadores que exponen requerimientos en su definición."""
+    """Procesadores del camino genérico que exponen requerimientos en su definición.
+    Las bespoke (p. ej. nómina 2.0) tienen cara propia y no usan el flujo de ejemplos."""
     out = []
     for pid, mod in PROCESADORES.items():
         try:
             d = mod.definicion()
         except Exception:  # noqa: BLE001
             continue
-        if d.get("requests"):
+        if d.get("requests") and not d.get("bespoke"):
             out.append(pid)
     return out
 

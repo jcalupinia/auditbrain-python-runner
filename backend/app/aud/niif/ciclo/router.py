@@ -451,6 +451,69 @@ def descargar_reproceso_excel(prueba_id: int, db: Session = Depends(get_db),
                     headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
 
 
+def _prueba_nomina(db: Session, user: User, prueba_id: int) -> Prueba:
+    """Carga la prueba y exige que sea «Pasivos Acumulados y Gastos de Nómina» (bespoke)."""
+    p = _prueba(db, user, prueba_id)
+    if (p.definicion or {}).get("processor") != "nomina_beneficios":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            detail="Esta operación aplica solo a «Pasivos Acumulados y Gastos de Nómina».")
+    return p
+
+
+@router.get("/pruebas/{prueba_id}/panel-nomina")
+def panel_nomina(prueba_id: int, db: Session = Depends(get_db),
+                 user: User = Depends(require_staff)) -> Response:
+    """Panel propio de la herramienta de nómina (la «cara»), con el encargo del Command Center
+    inyectado. Los botones de descarga piden las cédulas al motor (``cedula-nomina``)."""
+    p = _prueba_nomina(db, user, prueba_id)
+    from backend.app.aud.niif.procesadores import nomina_panel_html
+    html = nomina_panel_html.render((p.registro or {}).get("engagement") or {}, p.id)
+    return Response(html, media_type="text/html; charset=utf-8")
+
+
+@router.get("/pruebas/{prueba_id}/cedula-nomina/{nombre}")
+def descargar_cedula_nomina(prueba_id: int, nombre: str, db: Session = Depends(get_db),
+                            user: User = Depends(require_staff)) -> Response:
+    """Una de las 15 cédulas del motor de nómina (xlsx), generada al vuelo desde los archivos
+    de la prueba (como el papel genérico, que tampoco se persiste)."""
+    p = _prueba_nomina(db, user, prueba_id)
+    from backend.app.aud.niif.procesadores import nomina_beneficios as nb
+    if nombre not in nb.CEDULAS:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cédula de nómina no reconocida.")
+    try:
+        cedulas = servicio.correr_nomina(db, p)
+    except ReglaIncumplida as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+    data = cedulas.get(nombre)
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="La cédula no está disponible todavía.")
+    fn = nombre.encode("ascii", "replace").decode().replace('"', "_")
+    return Response(data, media_type=almacen.TIPOS["xlsx"],
+                    headers={"Content-Disposition": f'attachment; filename="{fn}"'})
+
+
+@router.get("/pruebas/{prueba_id}/cedulas-nomina")
+def descargar_cedulas_nomina(prueba_id: int, db: Session = Depends(get_db),
+                             user: User = Depends(require_staff)) -> Response:
+    """Las 15 cédulas del motor de nómina en un ZIP."""
+    import io
+    import zipfile
+
+    p = _prueba_nomina(db, user, prueba_id)
+    try:
+        cedulas = servicio.correr_nomina(db, p)
+    except ReglaIncumplida as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for nom, by in cedulas.items():
+            z.writestr(nom, by)
+    cliente = ((p.registro or {}).get("engagement") or {}).get("client", "")
+    fn = f"Cedulas_Nomina_{cliente}.zip".encode("ascii", "replace").decode().replace('"', "_")
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{fn}"'})
+
+
 @router.get("/pruebas/{prueba_id}/libro")
 def descargar_libro(prueba_id: int, formato: str = "xlsx", seccion: str | None = None,
                     adjuntos: bool = True,
@@ -471,6 +534,11 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", seccion: str | None =
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Formato no disponible.")
     mime, funcion, ext = tipos[formato]
     p = _prueba(db, user, prueba_id)
+    if (p.definicion or {}).get("bespoke"):
+        # Las herramientas bespoke tienen su propia cara (panel) y sus propias descargas.
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            detail="«Pasivos Acumulados y Gastos de Nómina» usa su propio panel; "
+                                   "descargue las cédulas desde el panel de nómina.")
     if not p.definicion.get("processor") or not (p.registro.get("run") or {}).get("hojas"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Procese la prueba antes de descargar su papel.")
     try:

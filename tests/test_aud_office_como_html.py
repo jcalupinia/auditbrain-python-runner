@@ -19,6 +19,11 @@ from backend.app.aud.niif.procesadores import html_ejecutivo as hx
 from backend.app.aud.niif.procesadores import graficos_svg as gs
 
 
+# Herramientas del camino genérico (libro.html). Las bespoke (p. ej. nómina 2.0)
+# tienen cara propia —su panel— y no pasan por este flujo.
+GENERICOS = [p for p, m in PROCESADORES.items() if not m.definicion().get("bespoke")]
+
+
 def _reg(pid):
     mod = PROCESADORES[pid]
     d = mod.definicion()
@@ -42,7 +47,7 @@ def test_svg_png_dibuja_el_svg_del_html():
     assert Image.open(io.BytesIO(dona)).size == im.size
 
 
-@pytest.mark.parametrize("pid", list(PROCESADORES))
+@pytest.mark.parametrize("pid", GENERICOS)
 def test_powerpoint_como_el_html(pid):
     from pptx import Presentation
     from pptx.enum.shapes import MSO_SHAPE_TYPE
@@ -62,7 +67,7 @@ def test_powerpoint_como_el_html(pid):
         assert k["valor"] in texto and k["rotulo"].upper() in texto, (pid, k["valor"])
 
 
-@pytest.mark.parametrize("pid", ["perdidas_incurridas_s11", "nomina_beneficios", "impuesto_corriente_diferido", "planificacion_nia"])
+@pytest.mark.parametrize("pid", ["perdidas_incurridas_s11", "impuesto_corriente_diferido", "planificacion_nia"])
 def test_word_como_el_html_impreso(pid):
     from docx import Document
 
@@ -86,7 +91,7 @@ def test_word_xml_en_el_orden_del_esquema():
     from docx import Document
     from docx.oxml.ns import qn
 
-    d, _, reg = _reg("nomina_beneficios")
+    d, _, reg = _reg("impuesto_corriente_diferido")
     doc = Document(io.BytesIO(libro.docx(d, reg, [], 1, "APROBADO")))
     orden_tc = [qn(f"w:{t}") for t in ("tcW", "gridSpan", "vMerge", "tcBorders", "shd", "noWrap", "tcMar",
                                        "textDirection", "tcFitText", "vAlign", "hideMark")]

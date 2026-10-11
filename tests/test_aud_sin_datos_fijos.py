@@ -18,6 +18,9 @@ from openpyxl import load_workbook
 from backend.app.aud.niif import ejercicio_modelo as em
 from backend.app.aud.niif.procesadores import PROCESADORES, graficos, libro, problemas
 
+# Camino genérico (libro/portada/problemas). Las bespoke (nómina 2.0) tienen cara propia.
+GENERICOS = [p for p, m in PROCESADORES.items() if not m.definicion().get("bespoke")]
+
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _spec = importlib.util.spec_from_file_location(
     "verificar_problemas_enlazados", os.path.join(RAIZ, "scripts", "verificar_problemas_enlazados.py"))
@@ -33,7 +36,7 @@ def _libro(pid):
     return load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "APROBADO")))
 
 
-@pytest.mark.parametrize("pid", list(PROCESADORES))
+@pytest.mark.parametrize("pid", GENERICOS)
 def test_importe_de_cada_problema_remite_a_su_celda(pid):
     mod = PROCESADORES[pid]
     refs = dict(getattr(mod, "REF_PROBLEMAS", {}) or {})
@@ -43,7 +46,7 @@ def test_importe_de_cada_problema_remite_a_su_celda(pid):
         assert not pend, (pid, nombre, pend)
 
 
-@pytest.mark.parametrize("pid", list(PROCESADORES))
+@pytest.mark.parametrize("pid", GENERICOS)
 def test_portada_y_problemas_sin_cifras_pegadas(pid):
     wb = _libro(pid)
     ini = wb["00_Inicio"]
@@ -88,7 +91,7 @@ def test_conclusion_sin_none_cuando_aun_no_hay_conciliacion():
 # recalculado, registrado, problemas) y cada cifra es una fórmula a la cédula que la calcula.
 # La tarjeta que no tiene celda de origen no se muestra: nunca un valor pegado.
 
-@pytest.mark.parametrize("pid", list(PROCESADORES))
+@pytest.mark.parametrize("pid", GENERICOS)
 def test_portada_tarjetas_son_formulas(pid):
     m = PROCESADORES[pid]
     d = m.definicion()

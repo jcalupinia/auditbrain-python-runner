@@ -78,7 +78,7 @@ def test_formulas_intactas_en_su_celda():
 
 def test_todas_las_herramientas_generan_excel_que_abre_sin_reparar():
     for pid, mod in PROCESADORES.items():
-        if not getattr(mod, "RUBRO", None):
+        if not getattr(mod, "RUBRO", None) or mod.definicion().get("bespoke"):
             continue
         d, _, reg = _reg(pid)
         wb = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "APROBADO")))  # abre sin reparar
@@ -113,7 +113,7 @@ def test_como_se_calcula_ejemplo_coincide_con_el_valor_de_la_fila_1():
 
 def test_bloque_como_se_calcula_no_rompe_ninguna_herramienta():
     for pid, mod in PROCESADORES.items():
-        if not getattr(mod, "RUBRO", None):
+        if not getattr(mod, "RUBRO", None) or mod.definicion().get("bespoke"):
             continue
         d, _, reg = _reg(pid)
         wb = load_workbook(io.BytesIO(libro.xlsx(d, reg, [], 1, "APROBADO")))  # abre sin reparar con el bloque
@@ -124,7 +124,7 @@ def test_todos_los_formatos_se_generan_en_las_18():
     import zipfile
 
     for pid, mod in PROCESADORES.items():
-        if not getattr(mod, "RUBRO", None):
+        if not getattr(mod, "RUBRO", None) or mod.definicion().get("bespoke"):
             continue
         d, _, reg = _reg(pid)
         docx = libro.docx(d, reg, [], 1, "APROBADO")

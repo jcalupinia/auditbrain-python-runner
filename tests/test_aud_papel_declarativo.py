@@ -180,7 +180,7 @@ def test_procesadores_no_cambian():
     from backend.app.aud.niif import ejercicio_modelo as em
     from backend.app.aud.niif.procesadores import PROCESADORES
 
-    mod = PROCESADORES["nomina_beneficios"]
+    mod = PROCESADORES["impuesto_corriente_diferido"]
     d = mod.definicion()
     assert graficos.modulo(d) is mod
     ds, par, corte = em.escenario(mod)
@@ -223,7 +223,7 @@ def test_procesador_sin_calculadora():
     from backend.app.aud.niif import ejercicio_modelo as em
     from backend.app.aud.niif.procesadores import PROCESADORES
 
-    mod = PROCESADORES["nomina_beneficios"]
+    mod = PROCESADORES["impuesto_corriente_diferido"]
     d = mod.definicion()
     ds, par, corte = em.escenario(mod)
     h = libro.html(d, em._reg(d, mod, ds, par, corte), [], 1, "APROBADO").decode()

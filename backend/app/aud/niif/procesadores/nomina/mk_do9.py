@@ -8,7 +8,6 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.drawing.image import Image as XLImage
 
 OUT = (_R.CTX.out + '/DO-9_IESS_por_Pagar_Comprobantes.xlsx')
-SRC = _R.CTX.papel
 comp = pd.read_pickle((_R.CTX.home + '/comprobantes.pkl')).sort_values(['mes', 'tipo', 'comprobante']).reset_index(drop=True)
 cons = pd.read_pickle((_R.CTX.home + '/consol.pkl'))
 MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']

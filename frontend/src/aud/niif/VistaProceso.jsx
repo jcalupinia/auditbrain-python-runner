@@ -4,7 +4,7 @@ import * as api from "../../api";
 import { Ejecucion } from "./CicloEjecucion";
 import { Revision } from "./CicloRevision";
 import { ChipDocumento, MapeoManual, VistaTrabajo } from "./CicloVista";
-import { PENDIENTE_MAPEO, prepararBaseTecnica, producir, revisarColumnas } from "./cicloOrquestacion";
+import { PENDIENTE_MAPEO, prepararBaseTecnica, producir, producirBespoke, revisarColumnas } from "./cicloOrquestacion";
 import {
   avanceCarga,
   estaProcesada,
@@ -221,6 +221,9 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   const estado = prueba.estado;
   const principalesConfig = config.principales || [];
   const ejecuciones = config.ejecuciones || [];
+  // Herramienta bespoke (nómina 2.0): su cara es el panel propio y sus descargas son las
+  // cédulas del motor; no usa el flujo genérico de `libro` (Excel/Word/PDF del servidor).
+  const esPanel = !!config.panel;
   const [trabajando, setTrabajando] = useState(false);
   const [error, setError] = useState("");
   const [aviso, setAviso] = useState("");
@@ -278,6 +281,12 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
 
   const procesar = () =>
     correr(async () => {
+      if (esPanel) {
+        // Bespoke: el motor lee los archivos crudos; no hay mapeo de columnas.
+        await producirBespoke(prueba);
+        setAviso("Nómina procesada: ya puede abrir el panel y descargar las cédulas.");
+        return;
+      }
       const param = { ...(d.parametros || {}), ...(reg.parameters || {}) };
       const r = await producir(prueba, {
         param,
@@ -458,6 +467,58 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prueba.id, prueba.version, d.name]);
 
+  // --- Herramienta bespoke (nómina 2.0): panel propio + descargas de cédulas del motor ---
+  // Abre el panel (la cara) en una PESTAÑA NUEVA con blob URL (como el tablero). Sus botones
+  // de descarga postMessage a ESTA vista (su `window.opener`), que baja la cédula con auth.
+  async function abrirPanelNomina() {
+    const win = window.open("", "_blank");
+    if (!win) {
+      setError("El navegador bloqueó la ventana nueva. Habilitá las ventanas emergentes (pop-ups) para este sitio y volvé a intentar.");
+      return;
+    }
+    win.document.write(_placeholderTablero());
+    try {
+      const bytes = await api.cicloBajarPanelNomina(prueba.id, { timeoutMs: 120000, retries: 1 });
+      if (win.closed) return;
+      const url = URL.createObjectURL(new Blob([bytes], { type: "text/html;charset=utf-8" }));
+      win.location = url;
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      if (!win.closed) win.document.body.innerHTML = _errorTablero(e.message || String(e));
+      setError(e.message || String(e));
+    }
+  }
+
+  async function bajarCedulaNomina(nombre) {
+    try {
+      descargar(nombre, await api.cicloBajarCedulaNomina(prueba.id, nombre, { timeoutMs: 180000, retries: 1 }), XLSX);
+    } catch (e) {
+      setError(e.message || String(e));
+    }
+  }
+
+  async function bajarCedulasNominaZip() {
+    try {
+      const cliente = (reg.engagement?.client || "Nomina").replace(/[^\w-]+/g, "_").slice(0, 60);
+      descargar(`Cedulas_Nomina_${cliente}.zip`, await api.cicloBajarCedulasNomina(prueba.id, { timeoutMs: 180000, retries: 1 }), "application/zip");
+    } catch (e) {
+      setError(e.message || String(e));
+    }
+  }
+
+  // El panel de nómina (pestaña nueva) pide descargar una cédula por postMessage a su opener.
+  useEffect(() => {
+    if (!esPanel) return undefined;
+    const onMensaje = (e) => {
+      const msg = e && e.data;
+      if (!msg || msg.type !== "auditbrain:nomina-descargar" || !msg.cedula) return;
+      bajarCedulaNomina(String(msg.cedula));
+    };
+    window.addEventListener("message", onMensaje);
+    return () => window.removeEventListener("message", onMensaje);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [esPanel, prueba.id]);
+
   // Corrige la «Visita de auditoría» (Preliminar/Final) sin reiniciar la prueba:
   // actualiza las cabeceras de período del HTML y el prorrateo del Excel, y re-genera
   // el papel. onAccion recarga la prueba al terminar.
@@ -470,6 +531,10 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   // - Efectivo (reproceso) y declarativas: la vista de trabajo detallada de siempre.
   async function abrirEjecucion(item) {
     if (!procesada) return;
+    // Bespoke (nómina): la tarjeta abre el panel, baja una cédula del motor o el ZIP de las 15.
+    if (item.panel) { await abrirPanelNomina(); return; }
+    if (item.cedula) { await bajarCedulaNomina(item.cedula); return; }
+    if (item.cedulasZip) { await bajarCedulasNominaZip(); return; }
     // Si la tarjeta declara una sección, abre el HTML autónomo arrancando en ESA sección
     // (planificación → artefacto por pestaña; las demás → `libro.html` por cédula). Las
     // tarjetas sin sección y el reproceso conservan la vista de trabajo detallada (tablas).
@@ -737,7 +802,27 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
           <h3>Descarga del papel de trabajo</h3>
         </header>
         {!procesada && <p className="nf-ef-aviso">Procese la información para habilitar las descargas.</p>}
-        {procesada && (
+        {procesada && esPanel && (
+          <>
+            <p className="nf-ef-aviso">
+              La cara de la herramienta es el panel (control interno laboral, programa y pruebas). El papel de trabajo
+              son las 15 cédulas que arma el motor; descárguelas una a una desde «Ejecución de auditoría» o todas en un ZIP.
+            </p>
+            <div className="nf-ef-descargas">
+              <button type="button" className="nf-ef-dl" onClick={abrirPanelNomina}>
+                <Icono name="dashboard" color="purple" />
+                <span className="nf-ef-dl-t">Abrir panel de nómina</span>
+                <span className="nf-ef-dl-s">Control interno laboral · programa · pruebas</span>
+              </button>
+              <button type="button" className="nf-ef-dl" onClick={bajarCedulasNominaZip}>
+                <Icono name="doc" color="blue" />
+                <span className="nf-ef-dl-t">Descargar las 15 cédulas (ZIP)</span>
+                <span className="nf-ef-dl-s">Todo el papel de trabajo de nómina</span>
+              </button>
+            </div>
+          </>
+        )}
+        {procesada && !esPanel && (
           <>
             <p className="nf-ef-aviso">
               El mismo papel en varios formatos. El HTML funciona sin internet y recalcula al editar; el Excel trae

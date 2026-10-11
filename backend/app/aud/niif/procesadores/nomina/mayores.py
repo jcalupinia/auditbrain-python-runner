@@ -71,3 +71,16 @@ def pasivo_mes(df, cta, cat):
 
 def pasivo_tot(df, cta, cat):
     return round(float(df[(df.cta == cta) & (df.clase == cat)].Importe.sum()), 2)
+
+
+def cuentas_por_concepto(key):
+    """Cuentas de gasto de un concepto (reemplaza la lista que antes se leía del
+    papel del equipo): [(cuenta, nombre, total)] ordenadas por código. El nombre
+    sale del propio mayor y el total de ``gasto_cta``."""
+    c = GKEY[key]; c = c if isinstance(c, tuple) else (c,)
+    sub = G[G.concepto.isin(c)]
+    out = []
+    for cta in sorted(sub.cta.unique()):
+        nombre = str(sub[sub.cta == cta].desc.iloc[0]).replace('MQLA ', '')
+        out.append((cta, nombre, gasto_cta(cta)))
+    return out

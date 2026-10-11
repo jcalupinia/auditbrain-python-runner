@@ -8,19 +8,19 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.drawing.image import Image as XLImage
 
 OUT = (_R.CTX.out + '/DO-10_Roles_vs_Libros.xlsx')
-SRC = _R.CTX.papel
 rm = pd.read_pickle((_R.CTX.home + '/rol_mes.pkl'))
 comp = pd.read_pickle((_R.CTX.home + '/comprobantes.pkl'))
 MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 ANEXO = {str(r[0]).strip(): abs(r[5]) for r in load_workbook(_R.CTX.anexo, data_only=True).active.iter_rows(min_row=4, values_only=True)
          if r[0] and isinstance(r[5], (int, float))}
-s8 = load_workbook(SRC, data_only=True)['DO8 Calculo Base imponible Apor']
-def grp(a, b): return [s8.cell(r, 1).value for r in range(a, b + 1) if s8.cell(r, 1).value]
-SUE, HE, BON = grp(15, 34), grp(36, 52), grp(54, 73)
-s6 = load_workbook(SRC, data_only=True)['DO6 Cruce Gsto Benefi.']
-FRC = [s6.cell(r, 2).value for r in range(77, 100) if s6.cell(r, 2).value]
+
+
 
 from backend.app.aud.niif.procesadores.nomina import mayores as MY
+SUE = [c for c, _, _ in MY.cuentas_por_concepto('SUE')]
+HE = [c for c, _, _ in MY.cuentas_por_concepto('HE')]
+BON = [c for c, _, _ in MY.cuentas_por_concepto('BON')]
+FRC = [c for c, _, _ in MY.cuentas_por_concepto('FR')]
 lib_sue_mes = MY.gasto_mes('SUE')
 fr_iess = comp[comp.tipo == 'Fondos de reserva'].groupby('mes').total.sum()
 

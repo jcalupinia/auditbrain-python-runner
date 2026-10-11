@@ -22,11 +22,15 @@ ARCHIVOS = {
     "auditconsulting_blanco": "logo_auditconsulting_blanco.png",
     "auditconsulting_oscuro": "logo_auditconsulting_oscuro.png",
     "audit_ia": "logo_audit_ia.jpg",
+    # Segunda firma del grupo (decisión del dueño: mantener ambas firmas). La herramienta
+    # de nómina elige el logo según la firma del encargo (ficha).
+    "partner_auditing": "logo_partner_auditing.png",
 }
 ALT = {
     "auditconsulting_blanco": "AuditConsulting Auditores Cía. Ltda.",
     "auditconsulting_oscuro": "AuditConsulting Auditores Cía. Ltda.",
     "audit_ia": "AUDIT-IA",
+    "partner_auditing": "Partner Auditing Cía. Ltda.",
 }
 
 

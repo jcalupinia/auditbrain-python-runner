@@ -108,7 +108,7 @@ HERRAMIENTAS = {
     "Seguros": "Cobertura de seguros de activos",
     "Proveedores y cuentas por pagar": "Proveedores y cuentas por pagar",
     "Préstamos y obligaciones financieras": "Préstamos y obligaciones financieras",
-    "Beneficios a empleados y nómina": "Beneficios sociales y nómina",
+    "Beneficios a empleados y nómina": "Pasivos Acumulados y Gastos de Nómina",
     "Provisiones y contingencias": "Provisiones y contingencias",
     "Impuestos": "Impuesto corriente y diferido",
     "Patrimonio": "Patrimonio",

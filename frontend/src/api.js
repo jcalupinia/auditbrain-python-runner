@@ -587,6 +587,26 @@ export async function cicloBajarLibro(pruebaId, formato = "xlsx", seccion = null
   if (!res.ok) await parse(res);
   return new Uint8Array(await res.arrayBuffer());
 }
+// Panel propio de la herramienta de nómina (bespoke 2.0): HTML con el encargo inyectado.
+// `fetchOpts` con timeout largo porque el panel es grande; devuelve bytes para armar el blob.
+export async function cicloBajarPanelNomina(pruebaId, fetchOpts = {}) {
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/panel-nomina`, { headers: authHeaders() }, fetchOpts);
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
+// Una de las 15 cédulas del motor de nómina (xlsx), generada al vuelo desde los archivos de la prueba.
+export async function cicloBajarCedulaNomina(pruebaId, nombre, fetchOpts = {}) {
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/cedula-nomina/${encodeURIComponent(nombre)}`,
+    { headers: authHeaders() }, fetchOpts);
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
+// Las 15 cédulas del motor de nómina en un ZIP.
+export async function cicloBajarCedulasNomina(pruebaId, fetchOpts = {}) {
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/cedulas-nomina`, { headers: authHeaders() }, fetchOpts);
+  if (!res.ok) await parse(res);
+  return new Uint8Array(await res.arrayBuffer());
+}
 // Papel de trabajo DA formulado de Efectivo y Equivalentes (fórmulas vivas): lo arma el servidor.
 export async function cicloBajarPapelBancos(pruebaId) {
   const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/papel-bancos`, { headers: authHeaders() });

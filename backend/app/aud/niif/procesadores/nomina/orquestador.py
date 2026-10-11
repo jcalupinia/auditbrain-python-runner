@@ -12,7 +12,7 @@ from backend.app.aud.niif.procesadores.nomina import motor, mayores, series, com
 
 _DIR = os.path.dirname(__file__)
 # generadores de referencia (archivo del paquete -> nombre de cédula de salida)
-LEGACY = ['mk_do45', 'mk_do67', 'mk_do8', 'mk_do9', 'mk_do10', 'mk_do12', 'mk_pa', 'mk_rq007', 'mk_vac', 'mk_rq004']
+LEGACY = ['mk_do3', 'mk_do31', 'mk_do45', 'mk_do67', 'mk_do8', 'mk_do9', 'mk_do10', 'mk_do12', 'mk_pa', 'mk_rq007', 'mk_vac', 'mk_rq004']
 
 
 def correr(rutas, ficha: dict | None = None) -> dict[str, bytes]:
@@ -40,8 +40,12 @@ def correr(rutas, ficha: dict | None = None) -> dict[str, bytes]:
 
     # 4) cédulas nuevas
     cedulas_nuevas.build_do2(rutas.anexo, f'{rutas.out}/DO-2_Cedula_Sumaria_Nomina.xlsx', ficha)
-    cedulas_nuevas.build_do3(R, f'{rutas.out}/DO-3_Resumen_Planillas_IESS.xlsx', ficha)
-    cedulas_nuevas.build_do31(R, rutas.rol, f'{rutas.out}/DO-3.1_Resumen_Roles_de_Pago.xlsx', ficha)
+    # DO-3: lo arma el generador de referencia ``mk_do3`` (en LEGACY), que calca la
+    # cédula de referencia leyendo el Consolidado crudo. ``cedulas_nuevas.build_do3``
+    # queda disponible pero ya no se invoca.
+    # DO-3.1: lo arma el generador de referencia ``mk_do31`` (en LEGACY), que calca la
+    # cédula de referencia (7 hojas) leyendo el rol crudo y el Consolidado.
+    # ``cedulas_nuevas.build_do31`` queda disponible pero ya no se invoca.
     cedulas_nuevas.build_do4(R, rutas.anexo, f'{rutas.out}/DO-4_Reproceso_Beneficios_Sociales.xlsx', ficha)
 
     # 5) generadores de referencia (in-process, aislados por carpeta de la prueba)

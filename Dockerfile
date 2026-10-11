@@ -29,6 +29,8 @@ RUN apt-get update && apt-get install -y \
     libharfbuzz0b \
     libharfbuzz-subset0 \
     fonts-dejavu-core \
+    # Nómina (RQ-005): comprobantes de pago del IESS en PDF → texto con `pdftotext -layout`
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiamos dependencias y las instalamos

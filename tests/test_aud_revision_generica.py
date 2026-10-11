@@ -12,7 +12,10 @@ from backend.app.aud.niif.ciclo import revision
 from backend.app.aud.niif.ciclo.revision import base
 from backend.app.aud.niif.procesadores import PROCESADORES
 
-CATALOGO = [pid for pid in PROCESADORES if pid != "planificacion_nia"]
+# El revisor genérico recalcula el run del camino genérico; las bespoke (nómina 2.0)
+# tienen su propia consola y quedan fuera, igual que la planificación.
+CATALOGO = [pid for pid in PROCESADORES
+            if pid != "planificacion_nia" and not PROCESADORES[pid].definicion().get("bespoke")]
 
 
 def _run(pid):
