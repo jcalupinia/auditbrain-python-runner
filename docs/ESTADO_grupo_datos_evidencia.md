@@ -17,8 +17,8 @@
 | 1.0 | Ingesta y normalización | Pendiente (el plan lo da por «ya verificado»; se confirmará que nada cambió) |
 | **1.1** | **Extractor de documentos narrativos** | ✅ **Verificado** |
 | **1.2** | **Resolución semántica por IA** | ✅ **Verificado** |
-| **1.3** | **Capa de Mapeo Universal** | ✅ **Verificado (esta entrega)** |
-| 1.4 | Piezas de soporte | Pendiente |
+| **1.3** | **Capa de Mapeo Universal** | ✅ **Verificado** |
+| **1.4** | **Piezas de soporte** | ✅ **Verificado (esta entrega)** |
 | 1.5 | Consolidación (3 huecos + veredicto) | Pendiente |
 
 ---
@@ -229,5 +229,34 @@ PR #351), no a su construcción. Sin bloqueantes; el plan debe reencuadrar el «
 
 ---
 
-_Las fichas 1.0 y 1.4–1.5 se agregan a este mismo archivo tras el visto bueno del
-socio, en el orden de la §3 del plan._
+## Ficha 1.4 — Piezas de soporte (repaso de cierre)
+Cinco módulos infraestructurales del grupo. Resumen por pieza; todas verificadas
+el 2026-10-11, **solo lectura**.
+
+| Pieza (`backend/app/ingesta/…`) | 1. ¿Qué hace? | 2. ¿Completo? | 3. ¿Conectado? | 4. ¿Probado? (M14 / M20) | 5. ¿Contrato? |
+|---|---|---|---|---|---|
+| **`classifier.py`** (178) | Clasificador determinista del tipo de documento → `ResultadoClasificacion`. | Sí | **Sí** — `orchestrator.py`, `narrativo.py` y endpoint `POST /ingesta/clasificar` (`api/ingesta.py:92`). | M14: sí (`test_ingesta_orquestador` 19 + `test_ingesta_api` 9). **M20: no rotulada.** | Emite `ResultadoClasificacion` con confianza; sin IA. ✔ |
+| **`confidence.py`** (66) | Niveles de confianza + umbrales (`clasificar_confianza`, `requiere_revision`). | Sí | **Sí (núcleo transversal)** — lo usan `contract.py`, `confidence_live.py`, `narrativo.py`, `mapeo/*`. | M14: sí (`test_ingesta_contrato` 26 cubre umbrales). **M20: no rotulada.** | Es el modelo de confianza del contrato; «la incertidumbre no se oculta». ✔ |
+| **`confidence_live.py`** (212) | Confidence Engine en vivo: `consolidar_confianza`, `cola_de_revision`, `ItemRevision`. | Sí | **Sí** — `orchestrator.py`, `narrativo.py`, `mapeo/aplicar.py`, API. | M14: sí (`test_ingesta_confianza_viva` 16). **M20: no rotulada.** | Arma la cola de revisión; no concluye nada. ✔ |
+| **`ocr_support.py`** (200) | Recupera texto de PDF escaneado (OCR), con degradación graciosa si no hay OCR. | Sí | **Sí** — `orchestrator.py`, `narrativo.py` (`_texto_de`). | M14: sí (`test_ingesta_ocr` 12). **M20: no rotulada.** | Devuelve texto + método; avisa si no hay OCR disponible. ✔ |
+| **`validador_sri.py`** (203) | Validador de coherencia SRI (cruces F-101/103/104) del portal cliente. | Sí | **Sí** — router `POST /client/validador-sri` incluido en `api/__init__.py:131-133`. | M14: sí (`test_ingesta_validador_sri` 10 + `test_client_validador_sri` 5). **M20: no rotulada.** | Reusa el motor; devuelve cruces/avisos, no conclusiones. ✔ |
+
+### 6. ¿Qué les falta para estar terminadas?
+- **Bloqueante:** ninguno. Las cinco están completas, conectadas y con M14 **verde**
+  (suites de soporte ejecutadas juntas: **97/97**).
+- **Recomendado (común a las cinco):** **prueba de mutación M20 rotulada** por pieza
+  (hoy solo la Capa de Mapeo tiene una formal). En especial conviene una que proteja
+  los **umbrales de `confidence.py`** (si se alteran `UMBRAL_ALTA/MEDIA/BAJA`, algo
+  debe fallar) por ser el núcleo del que dependen todos los motores.
+- **Opcional:** una prueba dedicada de clasificación por firma de contenido en
+  `classifier.py` separada del orquestador.
+
+**Veredicto de la ficha 1.4:** *Las cinco piezas de soporte están completas,
+conectadas y con M14 verde (97/97). Único faltante transversal: pruebas de mutación
+M20 rotuladas (recomendado), con prioridad en los umbrales de `confidence.py`. Sin
+bloqueantes.*
+
+---
+
+_Las fichas 1.0 y 1.5 (consolidación) se agregan a este mismo archivo tras el visto
+bueno del socio, en el orden de la §3 del plan._
