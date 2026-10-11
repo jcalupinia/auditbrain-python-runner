@@ -165,3 +165,43 @@ class TestMutacionResolutorM20:
         # → la prueba demuestra que la restricción es la que impide que la IA toque cifras.
         monkeypatch.setattr(sr, "_RESOLUBLE_TIPOS", frozenset({TipoDato.TEXTO, TipoDato.MONEDA}))
         assert sr.resoluble(monto) is True
+
+
+# --------------------------------------------------------------------------- #
+#  Hueco 2 — hook `ingerir_o_pendiente` enganchado al pipeline                 #
+# --------------------------------------------------------------------------- #
+class TestHookPendienteDeMapeo:
+    def _ds(self, *, con_datos: bool):
+        from backend.app.ingesta.contract import CampoExtraido, DatasetNormalizado, TipoDocumento
+
+        campos = []
+        if con_datos:
+            campos = [CampoExtraido(document_id="d", field="cas_1", confidence=NivelConfianza.HIGH)]
+        return DatasetNormalizado(
+            dataset_id="d", source_file="d", document_type=TipoDocumento.DESCONOCIDO, campos=campos,
+        )
+
+    def test_camino_feliz_intacto(self):
+        from backend.app.ingesta.mapeo import PENDIENTE_DE_MAPEO, ingerir_o_pendiente
+
+        ds = ingerir_o_pendiente("x.pdf", b"...", ingerir_fn=lambda *a, **k: self._ds(con_datos=True))
+        assert PENDIENTE_DE_MAPEO not in ds.warnings  # no se reencauza si hay datos
+
+    def test_dataset_vacio_se_marca_pendiente(self):
+        from backend.app.ingesta.mapeo import PENDIENTE_DE_MAPEO, ingerir_o_pendiente
+
+        ds = ingerir_o_pendiente("x.pdf", b"...", ingerir_fn=lambda *a, **k: self._ds(con_datos=False))
+        assert ds.review_required is True
+        assert PENDIENTE_DE_MAPEO in ds.warnings
+
+    def test_reenvia_parametros_a_la_ingesta(self):
+        from backend.app.ingesta.mapeo import ingerir_o_pendiente
+
+        visto = {}
+
+        def fake(filename, contenido, *, tipo_declarado=None, **kw):
+            visto.update(kw)
+            return self._ds(con_datos=True)
+
+        ingerir_o_pendiente("x.pdf", b"...", ingerir_fn=fake, ocr=False, consolidar=False)
+        assert visto == {"ocr": False, "consolidar": False}
