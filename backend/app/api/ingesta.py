@@ -34,6 +34,7 @@ from backend.app.ingesta import (
 from backend.app.ingesta.mapeo import (
     aplicar_mapeo,
     cola_revision_mapeo,
+    ingerir_o_pendiente,
     perfilar,
     preparar_mapeo,
     resolver_esquema,
@@ -112,10 +113,14 @@ async def ingerir_endpoint(
 ) -> IngerirResponse:
     """Ingiere el documento y devuelve el dataset normalizado + cola de revisión.
 
-    La IA (AI Semantic Resolver) NO se dispara aquí: es un paso aparte y opcional.
+    Usa el hook ``ingerir_o_pendiente`` (Capa de Mapeo): el camino feliz de los
+    parsers rígidos queda idéntico; si un documento tabular no es reconocido por
+    ningún parser (dataset vacío), se marca «pendiente de mapeo» (``review_required``)
+    para que el auditor lo mapee con la herramienta de Capa de Mapeo. No auto-mapea
+    ni avanza. La IA (AI Semantic Resolver) NO se dispara aquí.
     """
     contenido = await _leer(file)
-    ds = ingerir(
+    ds = ingerir_o_pendiente(
         file.filename or "documento",
         contenido,
         tipo_declarado=tipo_declarado,

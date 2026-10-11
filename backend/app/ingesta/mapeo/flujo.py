@@ -77,16 +77,18 @@ def ingerir_o_pendiente(
     *,
     tipo_declarado: Optional[str] = None,
     ingerir_fn: Optional[IngerirFn] = None,
+    **kwargs,
 ) -> DatasetNormalizado:
-    """Hook opt-in: intenta el parser rígido; si no reconoce la tabla, marca
-    el documento «pendiente de mapeo» (no auto-mapea, no avanza).
+    """Hook: intenta el parser rígido; si no reconoce la tabla, marca el
+    documento «pendiente de mapeo» (no auto-mapea, no avanza).
 
     El camino feliz de los parsers queda **idéntico**: si la ingesta devolvió
-    datos, se devuelve tal cual. Solo el caso vacío se reencauza.
+    datos, se devuelve tal cual. Solo el caso vacío se reencauza. Los parámetros
+    extra (``ocr``, ``consolidar``…) se reenvían a la ingesta sin alterarlos.
     """
     if ingerir_fn is None:
         from backend.app.ingesta.orchestrator import ingerir as ingerir_fn  # import perezoso
-    ds = ingerir_fn(filename, contenido, tipo_declarado=tipo_declarado)
+    ds = ingerir_fn(filename, contenido, tipo_declarado=tipo_declarado, **kwargs)
     if ds.campos or ds.rows:
         return ds  # camino feliz intacto
     if PENDIENTE_DE_MAPEO not in ds.warnings:

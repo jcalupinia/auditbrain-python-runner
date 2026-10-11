@@ -146,8 +146,11 @@ def extraer_kardex(contenido: bytes, filename: str) -> DatasetNormalizado:
 def extraer_ats(contenido: bytes, filename: str) -> DatasetNormalizado:
     from backend.app.ict.parsers.ats_xml import parse_ats
     r = parse_ats(contenido) or {}
+    # `parse_ats` hoy devuelve `pagos_exterior` (cabecera + pagos al exterior);
+    # NO produce `ventas`/`compras` por comprobante. Leer la clave real: antes se
+    # leía "compras" (inexistente) y el dataset ATS salía siempre con 0 filas.
     ds = _dataset_filas(
-        r.get("compras") or [], filename=filename, tipo=TipoDocumento.ATS,
+        r.get("pagos_exterior") or [], filename=filename, tipo=TipoDocumento.ATS,
         errores=r.get("errores"),
     )
     # Metadato de cabecera del ATS como campo (RUC informante / periodo).
