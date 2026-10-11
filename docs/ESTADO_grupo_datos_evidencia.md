@@ -272,43 +272,41 @@ cambios respecto de la verificación previa.
 
 ## 1.5 — Consolidación del BLOQUE 1
 
-### Estado de los tres huecos
+### Estado de los tres huecos — TODOS RESUELTOS
 
-- **Hueco 1 — Capa de Mapeo Universal → REENCUADRADO (no es hueco de código).**
-  Está **construida, conectada y probada** (Fases A3 + B, PR #349/#350; 21/21 con
-  M20). Lo que sigue **en pausa** es su **expansión** (más tipos) y su **integración
-  a otras herramientas**, por **decisión del socio** (PR #351). No hay nada que
-  «terminar» en el motor.
-- **Hueco 2 — «Desconectado» → CERRADO.** Todos los motores del grupo están
-  conectados: `narrativo`, `resolver` y `mapeo` con endpoints + herramienta de
-  frontend; `classifier`, `confidence_live`, `ocr_support` y `validador_sri`
-  invocados por el orquestador / la API / el portal. Lo único **no enganchado** es
-  el hook opt-in `ingerir_o_pendiente` hacia el orquestador — **deliberado** (para
-  no tocar lo probado).
-- **Hueco 3 — «Sin pruebas» → PARCIAL (único hueco real y accionable).** **M14 está
-  verde en todo el grupo.** La **prueba de mutación M20 formal** existe **solo** en
-  la Capa de Mapeo (`test_caso10`). Falta **M20 rotulada** en el resto (narrativo,
-  resolutor, clasificador y, sobre todo, los **umbrales de `confidence.py`**).
+- **Hueco 1 — Capa de Mapeo Universal → CERRADO FORMALMENTE (sin código, decisión del
+  socio 2026-10-11).** El motor está **construido, conectado y probado** (Fases A3 +
+  B, PR #349/#350; 21/21 con M20). Se declara **TERMINADO**; su **expansión** (más
+  tipos) y su **integración a otras herramientas** quedan **diferidas hasta que haya
+  una necesidad concreta** (coherente con PR #351 — el motor externo ya mapea el
+  mayor). No es un faltante del grupo.
+- **Hueco 2 — «Desconectado» → CERRADO.** Todos los motores ya estaban conectados
+  (endpoints + frontend + portal). Además, el hook `ingerir_o_pendiente` se
+  **enganchó al pipeline**: el endpoint `/ingesta/ingerir` lo usa, de modo que un
+  documento tabular no reconocido se marca «pendiente de mapeo» sin tocar
+  `orchestrator.py` y dejando el camino feliz idéntico (**PR #355**).
+- **Hueco 3 — «Sin pruebas» → CERRADO.** **M14 verde en todo el grupo.** La **prueba
+  de mutación M20** existía solo en la Capa de Mapeo; se agregaron **M20 rotuladas**
+  para los umbrales de `confidence.py`, el tope de confianza de la IA en `narrativo`
+  y en el `resolutor`, y la restricción «la IA no toca cifras» (**PR #355**).
 
-### Bug detectado (confirmado en código)
-`backend/app/ingesta/adapters.py:150` (`extraer_ats`) lee `r.get("compras")`, pero
+### Bug detectado (CORREGIDO en PR #355)
+`backend/app/ingesta/adapters.py:150` (`extraer_ats`) leía `r.get("compras")`, pero
 `backend/app/ict/parsers/ats_xml.py::parse_ats` **nunca** produce esa clave — devuelve
-`pagos_exterior` (`ats_xml.py:9,42`). → el dataset ATS sale **siempre con 0 filas de
-datos** (solo el campo de cabecera `ruc_informante`). Fix: leer `pagos_exterior`.
+`pagos_exterior` (`ats_xml.py:9,42`). → el dataset ATS salía **siempre con 0 filas de
+datos**. **Corregido:** ahora lee `pagos_exterior`, con test de regresión.
 
-### Veredicto del BLOQUE 1
-**Funcionalmente TERMINADO.** Los cinco motores del grupo + las cinco piezas de
-soporte están **completos, conectados y con M14 verde**. **No está «cerrado al
-100 %»** por **un único faltante transversal**: las **pruebas de mutación M20
-rotuladas** (Hueco 3), más el **bug del adaptador ATS**. Ambos se corrigen en la
-etapa de **cierre** (PR aparte). Los Huecos 1 y 2 **no son faltantes de código**
-(decisión de pausa / diseño), por lo que el bloque no depende de ellos para darse
-por terminado.
+### Veredicto del BLOQUE 1 → CERRADO
+**TERMINADO y CERRADO al 100 %.** Los cinco motores del grupo + las cinco piezas de
+soporte están **completos, conectados y con M14 verde**, y los **tres huecos están
+resueltos**:
+- Hueco 1 — cerrado formalmente (motor terminado; expansión diferida por decisión).
+- Hueco 2 — hook enganchado al pipeline (PR #355).
+- Hueco 3 — M20 rotuladas agregadas (PR #355), más el bug ATS corregido (PR #355).
 
-**Pendientes de cierre (ordenados):**
-1. 🔧 Bug ATS `adapters.py:150` (`compras` → `pagos_exterior`) + test de regresión. *(aditivo, seguro)*
-2. 🧪 M20 rotuladas para `confidence.py` (umbrales), `narrativo`, `resolutor` y `classifier`. *(aditivo, no toca motores)*
-3. ⏸️ Hueco 1 (expansión/integración de la Capa de Mapeo) y Hueco 2 (enganche del hook al orquestador): **requieren decisión del socio** porque revierten decisiones vigentes (pausa PR #351 / diseño). No se tocan sin tu orden.
+**Trabajo de cierre entregado:** PR #355 — `tests/test_ingesta_cierre_huecos.py`
+(bug ATS + M20 + hook), suites de ingesta completas en verde. Merge a cargo del
+socio (M23).
 
 ---
-*Fin de la etapa de VERIFICACIÓN del BLOQUE 1.*
+*Fin del BLOQUE 1 (verificación + cierre). Siguiente: BLOQUE 2 — Motor de Balances.*
