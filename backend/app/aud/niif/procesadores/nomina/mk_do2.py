@@ -205,7 +205,7 @@ ws['B4'] = 'Nombre del cliente:'; ws['C4'] = _cliente
 ws['F4'] = 'Período terminado:'; ws['H4'] = _periodo
 ws['B5'] = 'Preparado por:'; ws['C5'] = _prep
 ws['D5'] = 'Revisado:'; ws['E5'] = _rev
-ws['F5'] = 'Fecha:'; ws['G5'] = '[desde Ficha]'
+ws['F5'] = 'Fecha:'; ws['G5'] = '[Fecha]'
 ws['I5'] = 'Referencia de PT'; ws['J5'] = 'DO-2'
 for c in ('B4', 'F4', 'B5', 'D5', 'F5', 'I5'):
     ws[c].font = BF
