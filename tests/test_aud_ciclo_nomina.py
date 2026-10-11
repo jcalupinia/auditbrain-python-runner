@@ -1,0 +1,108 @@
+"""Fase 4 — herramienta bespoke de nómina en el Command Center: panel propio + endpoints.
+
+La cara es el panel (``assets/nomina_panel.tmpl.html``) con el encargo de la ficha inyectado;
+el motor son los generadores Python (``nomina_beneficios.correr_prueba`` → 15 cédulas), que se
+piden por endpoints bespoke. El flujo genérico de ``libro`` NO aplica a esta herramienta.
+
+La paridad al centavo del motor y las 15 cédulas en LibreOffice se verifican aparte (con un
+juego de datos ficticio completo, fuera de esta suite). Aquí se prueba el enganche.
+"""
+import re
+
+import pytest
+
+from tests.test_aud_ciclo_http import FICHA, _h, _staff_con_proyecto
+from backend.app.aud.niif.procesadores import nomina_beneficios as nb, nomina_panel_html as np
+
+BASE = "/api/v1/aud/ciclo"
+
+
+@pytest.fixture(autouse=True)
+def _requiere_plataforma(request):
+    """Las pruebas HTTP necesitan la plataforma ``/api/v1`` montada. En un contenedor sin
+    todas las dependencias, ``app.py`` monta solo el servicio legacy y esas rutas dan 404
+    (igual que el e2e del catálogo); ahí se saltan. En CI la plataforma sí está montada."""
+    if "client" in request.fixturenames:
+        c = request.getfixturevalue("client")
+        if c.post("/api/v1/auth/login", data={"username": "x", "password": "y"}).status_code == 404:
+            pytest.skip("Plataforma /api/v1 no montada en este entorno (faltan dependencias).")
+
+
+def _ficha_y_prueba_nomina(client, tok, pid, origen="proc:nomina_beneficios"):
+    assert client.put(f"{BASE}/proyectos/{pid}/ficha", headers=_h(tok), json=FICHA).status_code == 200
+    r = client.post(f"{BASE}/proyectos/{pid}/pruebas", headers=_h(tok), json={"origen": origen})
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+# --- plantilla del panel: sin datos de cliente embebidos (privacidad) --------
+
+def test_plantilla_del_panel_sin_datos_de_cliente():
+    import os
+    tmpl = open(np._TMPL, encoding="utf-8").read()
+    assert "__NOMINA_ENC__" in tmpl and "__NOMINA_API__" in tmpl
+    # Ningún xlsx embebido (los 5 modelos/cédulas se piden al motor) ni nombres reales.
+    assert "data:application/" not in tmpl and "UEsD" not in tmpl
+    for real in ("ALBIÑO", "QUITIAQUEZ", "ROBALINO", "1791859596001", "PROPHAR"):
+        assert real not in tmpl, real
+    assert os.path.getsize(np._TMPL) < 2_000_000
+
+
+def test_render_inyecta_el_encargo_de_la_ficha():
+    eng = {"client": "Comercial Andina de Ejemplo S.A.", "ruc": "1790000000001", "year": 2026,
+           "cutoff": "2026-12-31", "visit": "Final", "preparer": "JV", "reviewer": "Socio",
+           "framework": "NIIF para las PYMES", "edition": "2015", "activity": "Comercio"}
+    html = np.render(eng, 42).decode()
+    assert "__NOMINA_" not in html  # no quedan placeholders
+    enc = __import__("json").loads(re.search(r"let ENC=(\{.*?\});", html).group(1))
+    assert enc["cliente"] == "Comercial Andina de Ejemplo S.A." and enc["ruc"] == "1790000000001"
+    assert enc["corte"] == "31/12/2026" and enc["visita"] == "Final" and enc["firma"] == "audit"
+    api = __import__("json").loads(re.search(r"const NOMAPI=(\{.*?\});", html).group(1))
+    assert api["pruebaId"] == 42 and api["base"] == "/aud/ciclo"
+
+
+# --- endpoints bespoke -------------------------------------------------------
+
+def test_panel_nomina_sirve_html_con_el_encargo(client):
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    r = client.get(f"{BASE}/pruebas/{pr['id']}/panel-nomina", headers=_h(tok))
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    assert FICHA["client"] in r.text and FICHA["ruc"] in r.text
+    assert f'"pruebaId": {pr["id"]}' in r.text
+
+
+def test_cedulas_piden_datos_minimos(client):
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    # Sin archivos cargados: faltan los requerimientos mínimos → 400 con mensaje claro.
+    r = client.get(f"{BASE}/pruebas/{pr['id']}/cedula-nomina/{nb.CEDULAS[0]}", headers=_h(tok))
+    assert r.status_code == 400 and "RQ-002" in r.json()["detail"]
+    r = client.get(f"{BASE}/pruebas/{pr['id']}/cedulas-nomina", headers=_h(tok))
+    assert r.status_code == 400 and "RQ-002" in r.json()["detail"]
+
+
+def test_cedula_desconocida_da_404(client):
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    r = client.get(f"{BASE}/pruebas/{pr['id']}/cedula-nomina/NO_EXISTE.xlsx", headers=_h(tok))
+    assert r.status_code == 404
+
+
+def test_libro_generico_no_aplica_a_la_bespoke(client):
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    r = client.get(f"{BASE}/pruebas/{pr['id']}/libro?formato=html", headers=_h(tok))
+    assert r.status_code == 400 and "panel" in r.json()["detail"].lower()
+
+
+def test_panel_solo_para_la_herramienta_de_nomina(client):
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid, origen="proc:efectivo_equivalentes")
+    r = client.get(f"{BASE}/pruebas/{pr['id']}/panel-nomina", headers=_h(tok))
+    assert r.status_code == 400
+    # Y la de nómina no ofrece el papel formulado de bancos.
+    prn = _staff_con_proyecto(client)
+    tok2, pid2 = prn
+    pr2 = _ficha_y_prueba_nomina(client, tok2, pid2)
+    assert client.get(f"{BASE}/pruebas/{pr2['id']}/papel-bancos", headers=_h(tok2)).status_code == 400

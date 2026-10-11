@@ -93,6 +93,19 @@ def definicion() -> dict:
     }
 
 
+def validar_definicion(d: dict) -> dict:
+    """Validación mínima de la herramienta bespoke. NO usa el esquema genérico de plan
+    (datasets/CAMPOS/PRINCIPAL): el cálculo vive en el motor (``correr_prueba``) y la cara
+    es el panel propio. Solo se exige lo imprescindible para crear la prueba."""
+    if d.get("processor") != "nomina_beneficios":
+        raise ValueError("La definición no corresponde a la herramienta de nómina.")
+    if not str(d.get("name") or "").strip() or not str(d.get("area") or "").strip():
+        raise ValueError("Indique nombre y rubro de la herramienta de nómina.")
+    if not d.get("requests"):
+        raise ValueError("La herramienta de nómina necesita sus requerimientos (RQ-001..RQ-008).")
+    return d
+
+
 # ------------------------------------------------------------------ resolver
 def _logo_firma(ficha: dict) -> str:
     """Logo de la firma del encargo (oscuro, para encabezados sobre fondo claro)."""

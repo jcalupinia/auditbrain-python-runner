@@ -170,7 +170,10 @@ def _definicion_procesador(d: dict) -> dict:
         procesadores.de(d).validar_definicion(d)
     except ValueError as e:
         raise ReglaIncumplida(str(e))
-    datos._validar_plan(d)
+    # Las herramientas bespoke (p. ej. nómina 2.0) no usan el esquema genérico de plan
+    # (datasets/CAMPOS): su cálculo vive en el motor y su cara es el panel propio.
+    if not d.get("bespoke"):
+        datos._validar_plan(d)
     # Base legal tributaria sugerida por herramienta (viaja con la ficha): pre-llena
     # el recuadro «Tratamiento tributario revisado y su sustento» en la vista.
     from backend.app.aud.niif import base_legal
@@ -474,6 +477,58 @@ def _t(p: Prueba) -> dict:
     return {**reg, "state": p.estado, "definition": definicion}
 
 
+def correr_nomina(db: Session, p: Prueba) -> dict:
+    """Materializa los archivos fuente de la prueba en un directorio temporal y corre el
+    motor de nómina 2.0 (``nomina_beneficios.correr_prueba``). Devuelve
+    ``{nombre_cédula: bytes}`` con las 15 cédulas. Lanza ``ReglaIncumplida`` si faltan los
+    requerimientos mínimos (RQ-002/003/004/006).
+
+    A diferencia del flujo genérico (que lee ``reg['datasets']`` ya mapeados), el motor de
+    nómina lee los archivos CRUDOS del disco, así que hay que volcarlos a ``home`` con su
+    ``requerimiento``/``componente``/``nombre`` para que ``resolver`` los reconozca."""
+    import os
+    import shutil
+    import tempfile
+
+    from backend.app.aud.niif.procesadores import nomina_beneficios as nb
+
+    home = tempfile.mkdtemp(prefix="nomina_")
+    try:
+        out = os.path.join(home, "out")
+        os.makedirs(out, exist_ok=True)
+        arch = []
+        for a in archivos(db, p.id):
+            if a.clase != "source" or a.estado == "rechazado":
+                continue
+            dd = os.path.join(home, "in", a.requerimiento)
+            os.makedirs(dd, exist_ok=True)
+            dest = os.path.join(dd, a.nombre)
+            with open(dest, "wb") as fh:
+                fh.write(almacen.leer(a.ruta))
+            arch.append({"requerimiento": a.requerimiento, "componente": a.componente or "",
+                         "nombre": a.nombre, "ruta": dest})
+        if not nb.datos_minimos(arch):
+            raise ReglaIncumplida(
+                "Cargue el anexo (RQ-002), el Consolidado del IESS (RQ-003), los mayores (RQ-004) "
+                "y el rol de pagos (RQ-006) antes de generar las cédulas de nómina.")
+        ficha = (p.registro or {}).get("engagement") or {}
+        return nb.correr_prueba(arch, ficha, home, out)
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+
+
+def _run_bespoke(db: Session, p: Prueba) -> dict:
+    """«Procesar» una herramienta bespoke (su cálculo no pasa por el flujo genérico de
+    ``libro``): corre el motor para validar que los datos procesan y guarda un marcador del
+    ``run`` (los nombres de las cédulas). Las cédulas se regeneran al descargarlas desde el
+    panel, como el papel genérico (que tampoco se persiste). Hoy la única bespoke es la
+    nómina 2.0."""
+    cedulas = correr_nomina(db, p)
+    return {"bespoke": True, "processor": (p.definicion or {}).get("processor"),
+            "cedulas": sorted(cedulas), "hojas": [], "exceptions": [], "totals": {},
+            "detalle": {}, "primary": None}
+
+
 def _run_procesador(db: Session, p: Prueba, reg: dict, proc) -> dict:
     """Ejecuta el procesador especializado de la prueba con los mismos insumos y
     parámetros que usa ``execute`` (marco, edición, registros del encargo, versión
@@ -483,6 +538,11 @@ def _run_procesador(db: Session, p: Prueba, reg: dict, proc) -> dict:
     Lo comparten ``execute`` (ejecución normal) y ``set_visit`` (que re-ejecuta para
     que el papel —Excel/Word/PDF— refleje la visita corregida, ya que el ``run`` se
     «hornea» al ejecutar y ``libro.xlsx`` pinta el ``run`` almacenado)."""
+    # Herramienta bespoke (p. ej. nómina 2.0): no usa el flujo genérico; su motor arma las
+    # cédulas aparte. Se devuelve un marcador del run (las cédulas se bajan desde el panel).
+    if (p.definicion or {}).get("bespoke"):
+        return _run_bespoke(db, p)
+
     from backend.app.aud.niif.procesadores import datos_cliente
 
     # Procesador especializado: el cálculo solo existe en Python.
@@ -637,6 +697,29 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             return a, sheet
 
         proc = procesadores.de(p.definicion)
+        if proc and (p.definicion or {}).get("bespoke"):
+            # Herramienta bespoke (nómina 2.0): el motor lee los archivos crudos; no hay mapeo de
+            # columnas a datasets. map_validate solo confirma los requerimientos mínimos y pasa a
+            # DOCUMENTACION_RECIBIDA. El cálculo y las cédulas se hacen al «Procesar»/descargar.
+            arch = [{"requerimiento": a.requerimiento, "ruta": a.ruta}
+                    for a in archivos(db, p.id) if a.clase == "source" and a.estado != "rechazado"]
+            faltan = not proc.datos_minimos(arch)
+            errores = ([{"row": None, "message":
+                         "Cargue el anexo (RQ-002), el Consolidado del IESS (RQ-003), los mayores "
+                         "(RQ-004) y el rol de pagos (RQ-006) antes de procesar."}] if faltan else [])
+            reg["datasets"] = {}
+            reg["rows"] = []
+            reg["mapping"] = None
+            reg["mappings"] = []
+            reg["validation"] = {"records": len(arch), "errors": errores, "warnings": [], "ok": not faltan}
+            reg["run"] = None
+            p.estado = "DOCUMENTACION_RECIBIDA"
+            p.registro = reg
+            p.revision += 1
+            _evento(db, p, accion, anterior, actor, str(datos.get("comment") or ""))
+            db.commit()
+            db.refresh(p)
+            return p
         if proc:
             conjuntos = datos.get("datasets") if isinstance(datos.get("datasets"), dict) else {}
             por_ds = {r["dataset"]: r for r in reg["requests"] if r.get("dataset")}
