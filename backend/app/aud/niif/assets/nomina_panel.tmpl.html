@@ -681,7 +681,7 @@ const POP07=[["1700000011", "ANDES VILLACIS MARIA FERNANDA", 1240.0, 470.0], ["1
 const MDL={};
 const XS={pct:10,key:5,st:2,mk:{}};
 let xKind='';
-function nomDL(nombre){try{if(window.parent&&window.parent!==window){window.parent.postMessage({type:'auditbrain:nomina-descargar',cedula:nombre},'*');toast('Preparando '+nombre+'\u2026');return;}}catch(e){}if(NOMAPI&&NOMAPI.base&&NOMAPI.pruebaId){const a=document.createElement('a');a.href=NOMAPI.base+'/pruebas/'+NOMAPI.pruebaId+'/cedula-nomina/'+encodeURIComponent(nombre);a.download=nombre;document.body.appendChild(a);a.click();a.remove();return;}toast('La descarga se genera desde el Command Center.');}
+function nomDL(nombre){var t=(window.opener&&window.opener!==window)?window.opener:((window.parent&&window.parent!==window)?window.parent:null);if(t){try{t.postMessage({type:'auditbrain:nomina-descargar',cedula:nombre},'*');toast('Preparando '+nombre+'\u2026');return;}catch(e){}}toast('La descarga se genera desde el Command Center.');}
 function dlMdl(k){const n=MDLMAP[k];if(n)nomDL(n);}
 document.addEventListener('click',e=>{const m=e.target.closest('[data-mdl]');if(m){dlMdl(m.dataset.mdl);}});
 const xN=v=>Number(v||0).toLocaleString('es-EC',{minimumFractionDigits:2,maximumFractionDigits:2});

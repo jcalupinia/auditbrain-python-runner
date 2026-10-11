@@ -212,6 +212,44 @@ export async function producir(prueba, { mayor = "", param = {}, tasas = {}, buc
   return p;
 }
 
+// Produce una herramienta BESPOKE (nómina 2.0): el motor lee los archivos CRUDOS, así que NO
+// hay mapeo de columnas a datasets. Recorre la misma máquina de estados que `producir` pero
+// `map_validate` va sin datasets (el servidor solo confirma los requerimientos mínimos) y no se
+// arma el navegador. Las cédulas se bajan del panel (endpoints cedula-nomina), no de `libro`.
+export async function producirBespoke(prueba) {
+  let p = await api.cicloLeerPrueba(prueba.id);
+  const d = p.definicion;
+  if (PROCESADA.includes(p.estado))
+    p = await paso(p, "return_to_data", { comment: "Reproceso de la nómina con la evidencia vigente." });
+  if (ANTES_DEL_REQUERIMIENTO.includes(p.estado)) p = await prepararBaseTecnica(p);
+  for (let i = 0; i < 10; i++) {
+    if (CON_SUBIDA.includes(p.estado)) {
+      if ((p.huecos || []).length) throw new Error(`Faltan documentos: ${p.huecos.join(" · ")}`);
+      p = await paso(p, "map_validate", {});
+      if (!p.registro.validation?.ok)
+        throw new Error(`La información tiene errores: ${erroresLegibles(p.registro.validation, 5).join(" · ")}`);
+      const nombres = (p.archivos || []).filter((a) => a.estado !== "rechazado").map((a) => a.nombre);
+      p = await paso(p, "validate", {
+        evidenceReviewed: true,
+        evidenceReview: `Nómina procesada con ${nombres.length} archivo(s): ${nombres.join(", ")}.`,
+        ledger: "0", tolerance: "0",
+        acceptance: "Cédulas de nómina generadas por el motor; conciliación y diferencias en DO-12.",
+      });
+    } else if (p.estado === "DOCUMENTACION_VALIDADA") {
+      p = await paso(p, "configure", {
+        basis: `Metodología de la herramienta «${d.name}», corte ${p.registro.engagement.cutoff}.`,
+        buckets: [],
+      });
+    } else if (p.estado === "PRUEBA_CONFIGURADA") {
+      p = await paso(p, "approve_methodology");
+    } else if (p.estado === "METODOLOGIA_APROBADA") {
+      p = await paso(p, "execute");
+    } else break;
+  }
+  if (p.estado === "PRUEBA_EJECUTADA") p = await paso(p, "analyze");
+  return p;
+}
+
 // Envía a revisión del auditor (usa el análisis preliminar que arma el servidor y la conclusión del preparador).
 export async function enviar(prueba, { conclusion }) {
   let p = await api.cicloLeerPrueba(prueba.id);

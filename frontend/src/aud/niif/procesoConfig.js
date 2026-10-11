@@ -501,32 +501,42 @@ const PROVISIONES = {
   ],
 };
 
+// --- Pasivos Acumulados y Gastos de Nómina (bespoke 2.0) ---
+// Herramienta bespoke: su «cara» es el panel propio (servido por el backend en
+// `panel-nomina`) y su motor son los generadores Python (15 cédulas). `panel: true`
+// hace que VistaProceso abra el PANEL (no `libro.html`) y descargue las cédulas por
+// los endpoints `cedula-nomina` / `cedulas-nomina`. La parte actuarial salió del
+// catálogo. Cada tarjeta de ejecución con `cedula` baja esa cédula del motor; la
+// tarjeta `panel: true` abre el panel; `cedulasZip: true` baja las 15 en un ZIP.
 const NOMINA = {
   processor: "nomina_beneficios",
   icono: "people", color: "purple",
-  eyebrow: "NÓMINA Y BENEFICIOS A EMPLEADOS",
-  titulo: "Nómina y Beneficios a Empleados",
-  subtitulo: "Recálculo de nómina, aportes IESS, beneficios sociales y obligaciones post-empleo (NIC 19)",
+  panel: true,
+  eyebrow: "PASIVOS ACUMULADOS Y GASTOS DE NÓMINA",
+  titulo: "Pasivos Acumulados y Gastos de Nómina",
+  subtitulo: "Recálculo de aportes IESS, décimos, vacaciones y fondos de reserva sobre el 100% de la población; conciliación del rol y los mayores con el Consolidado del IESS y los comprobantes de pago",
   principales: [
-    { id: "RQ-001", titulo: "Anexo de Empleados del Ejercicio", icono: "people", color: "purple", tipos: ".xlsx / .csv" },
-    { id: "RQ-002", titulo: "Resumen del Informe Actuarial", icono: "calc", color: "blue", tipos: ".xlsx / .csv" },
-    { id: "RQ-003", titulo: "Roles de Pago y Contratos", icono: "doc", color: "teal", tipos: ".xlsx / .pdf" },
-    { id: "RQ-004", titulo: "Planillas y Pagos del IESS", icono: "bank", color: "green", tipos: ".pdf / .xlsx" },
-    { id: "RQ-005", titulo: "Informe Actuarial Completo y Censo", icono: "pdf", color: "red", tipos: ".pdf / .xlsx" },
-    { id: "RQ-006", titulo: "Mayores de Nómina y Pasivos Laborales", icono: "book", color: "gold", tipos: ".xlsx" },
+    { id: "RQ-002", titulo: "Anexo de Nómina (saldos por cuenta)", icono: "table", color: "blue", tipos: ".xlsx" },
+    { id: "RQ-003", titulo: "Consolidado de Planillas del IESS (Sierra/Costa) + Exclusiones", icono: "bank", color: "green", tipos: ".xls / .xlsx" },
+    { id: "RQ-006", titulo: "Rol de Pagos (normal y pasantes)", icono: "doc", color: "teal", tipos: ".xlsx" },
+    { id: "RQ-004", titulo: "Mayores de Nómina (gasto, IESS y beneficios)", icono: "book", color: "gold", tipos: ".xlsx" },
+    { id: "RQ-005", titulo: "Comprobantes de Pago del IESS", icono: "pdf", color: "red", tipos: ".pdf / .zip" },
+    { id: "RQ-001", titulo: "Cuestionario Laboral IESS–MDT", icono: "shield", color: "purple", tipos: ".xlsx / .pdf" },
+    { id: "RQ-007", titulo: "Solicitudes de Acumulación de Décimos (muestra)", icono: "list", color: "gold", tipos: ".xlsx / .pdf" },
+    { id: "RQ-008", titulo: "Kárdex de Vacaciones por Trabajador", icono: "calendar", color: "teal", tipos: ".xlsx" },
   ],
   ejecuciones: [
-    { clave: "procedimiento", titulo: "Procedimiento de Nómina y Beneficios", subtitulo: "Papeles de trabajo y conclusiones.", icono: "doc", color: "blue", relacionados: "todos" },
-    { clave: "recalculo_nomina", titulo: "Empleados y Recálculo de Nómina", subtitulo: "Recálculo de bruto y neto por empleado.", icono: "table", color: "purple", relacionados: ["RQ-001", "RQ-003"], seccion: "sec-06_Recalculo_nomina" },
-    { clave: "iess", titulo: "Aportes IESS y Planillas", subtitulo: "Cotejo de aportes y planillas del IESS.", icono: "bank", color: "green", relacionados: ["RQ-004"], seccion: "sec-07_IESS" },
-    { clave: "decimos", titulo: "Décimo Tercero y Décimo Cuarto", subtitulo: "Recálculo de décimos y su provisión.", icono: "coins", color: "gold", relacionados: ["RQ-001", "RQ-003"], seccion: "sec-08_Decimo_tercero" },
-    { clave: "vacaciones", titulo: "Vacaciones", subtitulo: "Provisión y pago de vacaciones.", icono: "calendar", color: "teal", relacionados: ["RQ-007", "RQ-001"], seccion: "sec-10_Vacaciones" },
-    { clave: "fondo_reserva", titulo: "Fondo de Reserva", subtitulo: "Recálculo del fondo de reserva.", icono: "box", color: "blue", relacionados: ["RQ-004", "RQ-001"], seccion: "sec-11_Fondo_reserva" },
-    { clave: "dbo_actuarial", titulo: "Jubilación Patronal y Desahucio: DBO", subtitulo: "Obligación por beneficios definidos.", icono: "calc", color: "red", relacionados: ["RQ-002", "RQ-005"], seccion: "sec-12_DBO_actuarial" },
-    { clave: "resultados_ori", titulo: "Costo Post-Empleo: Resultados y ORI", subtitulo: "Gasto en resultados y remediciones en ORI.", icono: "pie", color: "purple", relacionados: ["RQ-005", "RQ-002"], seccion: "sec-13_Resultados_ORI" },
-    { clave: "censo_actuarial", titulo: "Censo Actuarial y Desahucio Legal", subtitulo: "Validación del censo enviado al actuario.", icono: "people", color: "gold", relacionados: ["RQ-005"], seccion: "sec-14_Censo_actuarial" },
-    { clave: "conciliacion_gl", titulo: "Conciliación Nómina–Mayor", subtitulo: "Cuadre de nómina contra el mayor contable.", icono: "refresh", color: "green", relacionados: ["RQ-006", "RQ-001"], seccion: "sec-15_Conciliacion_GL" },
-    { clave: "ajustes", titulo: "Ajustes Propuestos", subtitulo: "Asientos de ajuste sobre nómina y pasivos.", icono: "gears", color: "blue", relacionados: ["RQ-006"], seccion: "sec-16_Ajustes" },
+    { clave: "panel", titulo: "Abrir panel de nómina", subtitulo: "La cara de la herramienta: control interno laboral (DO-1), programa y pruebas.", icono: "dashboard", color: "purple", relacionados: "todos", panel: true },
+    { clave: "do2", titulo: "Sumaria de Nómina (DO-2)", subtitulo: "Anexo vs mayor vs EEFF.", icono: "table", color: "green", relacionados: ["RQ-002", "RQ-004"], cedula: "DO-2_Cedula_Sumaria_Nomina.xlsx" },
+    { clave: "do3", titulo: "Resumen de Planillas IESS (DO-3)", subtitulo: "Consolidado mensual y recálculo de aportes.", icono: "bank", color: "gold", relacionados: ["RQ-003"], cedula: "DO-3_Resumen_Planillas_IESS.xlsx" },
+    { clave: "do31", titulo: "Resumen de Roles de Pago (DO-3.1)", subtitulo: "Fuente base: conceptos por trabajador y mes.", icono: "doc", color: "teal", relacionados: ["RQ-006", "RQ-003"], cedula: "DO-3.1_Resumen_Roles_de_Pago.xlsx" },
+    { clave: "do4", titulo: "Reproceso de Beneficios Sociales (DO-4)", subtitulo: "Décimos, vacaciones y fondos de reserva.", icono: "coins", color: "red", relacionados: ["RQ-003", "RQ-006"], cedula: "DO-4_Reproceso_Beneficios_Sociales.xlsx" },
+    { clave: "do8", titulo: "Base Imponible IESS vs Libros (DO-8)", subtitulo: "Base IESS vs conceptos remunerativos y base gravada del rol.", icono: "calc", color: "purple", relacionados: ["RQ-003", "RQ-004", "RQ-006"], cedula: "DO-8_Base_Imponible_IESS_vs_Libros.xlsx" },
+    { clave: "do9", titulo: "IESS por Pagar vs Comprobantes (DO-9)", subtitulo: "Aportes, fondos de reserva y préstamos: libros vs comprobantes.", icono: "pdf", color: "gold", relacionados: ["RQ-004", "RQ-005", "RQ-006"], cedula: "DO-9_IESS_por_Pagar_Comprobantes.xlsx" },
+    { clave: "do10", titulo: "Roles de Pago vs Libros (DO-10)", subtitulo: "Conceptos del rol por mes vs gasto en libros.", icono: "refresh", color: "green", relacionados: ["RQ-004", "RQ-005", "RQ-006"], cedula: "DO-10_Roles_vs_Libros.xlsx" },
+    { clave: "do12", titulo: "Hallazgos y Ajustes (DO-12)", subtitulo: "Hallazgos del encargo y asientos de ajuste.", icono: "gears", color: "blue", relacionados: "todos", cedula: "DO-12_Hallazgos_y_Ajustes.xlsx" },
+    { clave: "vac", titulo: "Calculadora de Vacaciones No Gozadas", subtitulo: "Liquidación hipotética al corte por trabajador.", icono: "calendar", color: "teal", relacionados: ["RQ-008"], cedula: "VAC_Calculadora_Vacaciones_No_Gozadas.xlsx" },
+    { clave: "cedulas", titulo: "Descargar las 15 cédulas (ZIP)", subtitulo: "Todo el papel de trabajo de nómina.", icono: "doc", color: "blue", relacionados: "todos", cedulasZip: true },
   ],
 };
 
