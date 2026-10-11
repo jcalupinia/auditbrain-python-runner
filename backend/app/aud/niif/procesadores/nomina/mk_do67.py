@@ -131,12 +131,7 @@ COMENT = {'D13': 'Diferencia menor.', 'D14': 'Sobreprovisión menor (ver DO-7: e
 r = 10; group_rows = {}
 for k, titulo, *_ in GROUPS:
     first = r
-    # Un concepto sin cuentas en el mayor del cliente (p. ej. aporte patronal de
-    # pasantes cuando NO hay pasantes) rinde una fila placeholder, para que el grupo
-    # tenga al menos una fila (first==last): así el merge y los SUM del bloque son
-    # válidos y no se invierte el rango. Con datos completos nunca se usa.
-    filas_k = accounts[k] or [("", "(sin cuentas en el mayor)", 0.0)]
-    for cod, cta, val in filas_k:
+    for cod, cta, val in accounts[k]:
         enA = cod in ANEXO
         cell(w6, f'B{r}', cod, AR, box=True); cell(w6, f'C{r}', cta, AR, box=True); cell(w6, f'D{r}', ANEXO[cod] if enA else val, BLUE, N2, box=True)
         for col in 'EFGH': w6[f'{col}{r}'].border = BOX

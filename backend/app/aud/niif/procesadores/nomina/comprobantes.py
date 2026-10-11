@@ -6,17 +6,6 @@ import re, subprocess, glob, os
 import pandas as pd
 
 
-COLUMNAS = ['archivo', 'tipo', 'comprobante', 'concepto', 'emitido', 'vigencia', 'periodo', 'anio', 'mes',
-            'valor', 'intereses', 'seguro_tp', 'honorarios', 'gastos_adm', 'subtotal', 'notas_credito',
-            'total', 'impreso', 'paginas']
-
-
-def vacio() -> pd.DataFrame:
-    """DataFrame vacío con las columnas de ``parse``: para cuando no se cargaron
-    comprobantes (RQ-005 es opcional). DO-9 se arma mostrando «sin comprobantes»."""
-    return pd.DataFrame(columns=COLUMNAS)
-
-
 def _num(pat, t):
     m = re.search(pat + r'\s+(-?[\d,]*\.\d+)', t)
     return float(m.group(1).replace(',', '')) if m else None
@@ -45,4 +34,4 @@ def parse(carpeta: str) -> pd.DataFrame:
             gastos_adm=_num(r'Gastos Administrativos\(\+\)', t), subtotal=_num(r'Subtotal\(=\)', t),
             notas_credito=_num(r'Notas de Crédito\(-\)', t), total=_num(r'Total\(=\)', t),
             impreso=g(r'\n\s+(\w+ \d+ del \d{4} \d{2}:\d{2})'), paginas=t.count('\f') or 1))
-    return pd.DataFrame(rows, columns=COLUMNAS)
+    return pd.DataFrame(rows)
