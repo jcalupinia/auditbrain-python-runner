@@ -26,6 +26,8 @@ from backend.app.ingesta import (
     clasificar_documento,
     cola_de_revision,
     ingerir,
+    resoluble,
+    resolver_dataset,
 )
 
 router = APIRouter(
@@ -46,6 +48,13 @@ class TiposResponse(BaseModel):
 class IngerirResponse(BaseModel):
     dataset: DatasetNormalizado
     cola_revision: list[ItemRevision]
+
+
+class ResolverResponse(BaseModel):
+    dataset: DatasetNormalizado
+    cola_revision: list[ItemRevision]
+    resolubles: int   # campos de texto dudosos candidatos a IA
+    resueltos: int    # cuántos cambiaron a método IA
 
 
 async def _leer(file: UploadFile) -> bytes:
@@ -105,3 +114,30 @@ async def ingerir_endpoint(
         consolidar=consolidar,
     )
     return IngerirResponse(dataset=ds, cola_revision=cola_de_revision([ds]))
+
+
+@router.post("/resolver", response_model=ResolverResponse)
+async def resolver_endpoint(
+    file: UploadFile = File(...),
+    tipo_declarado: Optional[str] = Form(default=None),
+    ocr: bool = Form(default=True),
+) -> ResolverResponse:
+    """Resolución semántica por IA (Fase 6) como paso explícito y opcional.
+
+    A diferencia de ``/ingerir`` (que NO usa IA), aquí el auditor pide que la IA
+    desambigüe los campos de TEXTO que quedaron en la cola de revisión. Reglas
+    duras del resolutor: el LLM no calcula (no toca números ni fechas), tope de
+    confianza MEDIUM, disclaimer y degradación graciosa. Si no hay campos de
+    texto dudosos, no hace nada (``resolubles=0``).
+    """
+    contenido = await _leer(file)
+    ds = ingerir(file.filename or "documento", contenido, tipo_declarado=tipo_declarado, ocr=ocr)
+    resolubles = sum(1 for c in ds.campos if resoluble(c))
+    resolver_dataset(ds)  # usa el proveedor compartido (local-first); nunca lanza
+    resueltos = sum(1 for c in ds.campos if c.extraction_method.value == "ia")
+    return ResolverResponse(
+        dataset=ds,
+        cola_revision=cola_de_revision([ds]),
+        resolubles=resolubles,
+        resueltos=resueltos,
+    )

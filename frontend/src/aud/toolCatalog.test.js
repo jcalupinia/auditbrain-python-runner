@@ -21,6 +21,12 @@ describe("Motor de ingesta", () => {
     expect(CATEGORIES[0].tools[0].id).toBe("AUD.INGESTA.MOTOR");
     expect(abrePruebasEncargo("AUD.INGESTA.MOTOR")).toBe(false);
   });
+
+  it("incluye la Resolución semántica por IA como herramienta aparte", () => {
+    const ids = (CATEGORIES[0].tools || []).map((t) => t.id);
+    expect(ids).toContain("AUD.INGESTA.RESOLVER");
+    expect(abrePruebasEncargo("AUD.INGESTA.RESOLVER")).toBe(false);
+  });
 });
 
 describe("Motor de auditoría analítica", () => {

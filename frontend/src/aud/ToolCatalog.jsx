@@ -8,6 +8,7 @@ import MotorBalancesTool from "./MotorBalancesTool.jsx";
 import VnrTool from "./vnr/VnrTool.jsx";
 import ConfirmacionesTool from "./confirmaciones/ConfirmacionesTool.jsx";
 import MotorIngestaTool from "./ingesta/MotorIngestaTool.jsx";
+import ResolutorSemanticoTool from "./ingesta/ResolutorSemanticoTool.jsx";
 
 const PruebasEncargo = lazy(() => import("./niif/PruebasEncargo.jsx"));
 const MotorAnaliticoTool = lazy(() => import("./motorAnalitico/MotorAnaliticoTool.jsx"));
@@ -68,6 +69,17 @@ export default function ToolCatalog({ projectId }) {
           {STRINGS.back_to_catalog}
         </button>
         <MotorIngestaTool />
+      </div>
+    );
+  }
+
+  if (activeTool === "AUD.INGESTA.RESOLVER") {
+    return (
+      <div className="aud-tool-wrap">
+        <button className="link aud-back" onClick={() => setActiveTool(null)}>
+          {STRINGS.back_to_catalog}
+        </button>
+        <ResolutorSemanticoTool />
       </div>
     );
   }
