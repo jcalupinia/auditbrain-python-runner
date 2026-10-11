@@ -205,6 +205,16 @@ export async function getJobArtifactJson(jobId, name) {
   return resp.json();
 }
 
+// Validador de coherencia SRI (chequeo previo al ICT). Sube F-101 (1) y los
+// F-103/F-104 mensuales; devuelve el reporte de cruces (no genera el ICT).
+export const validarCoherenciaSri = (f101, f103List = [], f104List = []) => {
+  const fd = new FormData();
+  fd.append("f101", f101);
+  for (const f of f103List) fd.append("f103", f);
+  for (const f of f104List) fd.append("f104", f);
+  return request(`/client/validador-sri/coherencia`, { method: "POST", body: fd });
+};
+
 // Plan de cuentas oficial (Super Cías + SRI) para los selectores del editor.
 export const getFlujoCatalogos = () => request(`/client/tools/flujo/catalogos`);
 

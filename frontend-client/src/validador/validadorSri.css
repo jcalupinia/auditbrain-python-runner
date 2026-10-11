@@ -1,0 +1,84 @@
+/* Validador de coherencia SRI — estilos propios del portal cliente.
+   Reusa los tokens de tema (themes.css) y las clases pc-* del shell. */
+
+.vs-drop {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 4px 0 14px;
+}
+.vs-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+}
+.vs-slot-t {
+  font-size: 13px;
+  font-weight: 600;
+}
+.vs-slot-d {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.vs-slot input[type="file"] {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.vs-count {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.vs-resumen {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  margin-bottom: 14px;
+}
+.vs-resumen.dif { border-color: var(--danger); color: var(--danger); }
+.vs-resumen.falta { border-color: var(--warn); color: var(--warn); }
+.vs-resumen.ok { border-color: var(--accent); color: var(--accent); }
+
+.vs-check {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft, var(--line));
+}
+.vs-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.vs-ok { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.vs-dif { background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+.vs-falta { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.vs-info { background: color-mix(in srgb, var(--text-soft) 18%, transparent); color: var(--text-soft); border-color: color-mix(in srgb, var(--text-soft) 40%, transparent); }
+
+.vs-check-txt { flex: 1 1 auto; }
+.vs-check-t { font-size: 13px; font-weight: 600; }
+.vs-check-d { font-size: 12px; color: var(--text-soft); margin-top: 2px; }
+.vs-nums { font-size: 12px; color: var(--text-soft); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.vs-cas { font-size: 11px; color: var(--text-soft); opacity: 0.8; }
+
+.vs-disclaimer {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-soft);
+  border-top: 1px solid var(--line-soft, var(--line));
+  padding-top: 10px;
+  margin-top: 8px;
+}
