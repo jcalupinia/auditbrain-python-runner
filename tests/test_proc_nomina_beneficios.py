@@ -59,6 +59,16 @@ def test_resolver_mapea_los_requerimientos():
     assert r.logo  # logo de la firma del encargo
 
 
+def test_logo_por_firma_del_encargo():
+    # Decisión del dueño: mantener ambas firmas; la cédula usa el logo de la firma de la ficha.
+    from backend.app.aud.niif.procesadores import marca
+    assert m._logo_firma({"firm": "Partner Auditing"}).endswith("logo_partner_auditing.png")
+    assert m._logo_firma({"firm": "AuditConsulting"}).endswith("logo_auditconsulting_oscuro.png")
+    assert m._logo_firma({}).endswith("logo_auditconsulting_oscuro.png")
+    # El asset de la segunda firma existe y es una imagen válida.
+    assert (marca.ASSETS / marca.ARCHIVOS["partner_auditing"]).exists()
+
+
 def test_datos_minimos():
     base = [{"requerimiento": q, "ruta": f"/x/{q}.xlsx"} for q in ("RQ-002", "RQ-003", "RQ-004", "RQ-006")]
     assert m.datos_minimos(base) is True

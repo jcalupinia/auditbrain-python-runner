@@ -108,9 +108,12 @@ def validar_definicion(d: dict) -> dict:
 
 # ------------------------------------------------------------------ resolver
 def _logo_firma(ficha: dict) -> str:
-    """Logo de la firma del encargo (oscuro, para encabezados sobre fondo claro)."""
+    """Logo de la firma del encargo para las cédulas (fondo claro). Elige según la firma de
+    la ficha: «Partner Auditing» o, por defecto, AuditConsulting (decisión del dueño: ambas)."""
+    f = str((ficha or {}).get("firm") or (ficha or {}).get("firma") or "").strip().lower()
+    clave = "partner_auditing" if "partner" in f else "auditconsulting_oscuro"
     try:
-        return os.path.join(marca.ASSETS, marca.ARCHIVOS["auditconsulting_oscuro"])
+        return os.path.join(marca.ASSETS, marca.ARCHIVOS[clave])
     except Exception:
         return ""
 
