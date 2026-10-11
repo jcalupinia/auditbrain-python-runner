@@ -81,8 +81,8 @@ pars = [('Cliente', _R.CTX.cliente, None, BLUE),
         ('Máximo de días adicionales por año', 15, '0', BLUE),
         ('Divisor de valoración (remuneración mensual / días)', 30, '0', BLUE),
         ('Tope de acumulación en años (criterio del socio: 5; 0 = sin tope)', 5, '0', BLUE),
-        ('Saldo vacaciones por pagar en libros al corte (5BS.21204.003)', 130720.39, N2, BLUE),
-        ('Saldo vacaciones por pagar en libros al cierre anterior', 120035.57, N2, BLUE),
+        ('Saldo vacaciones por pagar en libros al corte (5BS.21204.003)', _R.CIFRAS['vac_libros'], N2, BLUE),
+        ('Saldo vacaciones por pagar en libros al cierre anterior', _R.CIFRAS['sal_ini_vac'], N2, BLUE),
         ('Base del valor día', 'Remuneración de corte', None, BLUE)]
 for i, (k, v, f, fo) in enumerate(pars):
     r = 4 + i

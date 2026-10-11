@@ -204,7 +204,7 @@ ctl = [('Sueldos: cuentas = mensual = DO-2', f'={D8}!C{subt["SUE"]}', f'={IM}!C1
        ('Vacaciones tomadas = rol DO-3.1', f'={IM}!H18', _R.CIFRAS['vac_tomadas'], 0.01),
        ('Base gravada rol = DO-3.1', f'={IM}!L18', _R.CIFRAS['rol_base'], 0.01),
        ('Cruce mensual empleados = diferencia bloque A', f'={D8}!O22', f'=-{D8}!C{dif_e}', 0.01),
-       ('Papel anterior reconciliado (249,46)', f'={D8}!C{cc0+4}', 249.46, 0.01)]
+       ('Papel anterior reconciliado = diferencia de empleados', f'={D8}!C{cc0+4}', f'={D8}!C{dif_e}', 0.01)]
 for i, (t, a, b, tol) in enumerate(ctl):
     rr = 5 + i
     cell(wc, f'B{rr}', t, AR, box=True); cell(wc, f'C{rr}', a, GREEN, N2, box=True); cell(wc, f'D{rr}', b, GREEN, N2, box=True)

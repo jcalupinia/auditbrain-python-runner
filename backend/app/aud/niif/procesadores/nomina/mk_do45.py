@@ -85,9 +85,10 @@ cell(wl, 'B2', 'SALDOS Y PROVISIONES SEGÚN LIBROS — Anexo RQ-002 y Mayor de p
 cell(wl, 'B3', 'Saldos ESF y saldo inicial: Anexo de nómina RQ-002 (5BS.21204). Provisiones mensuales: créditos por provisión del Mayor de pasivos RQ-004 '
                '(concepto DECIMO 13 / DECIMO 14 S / VACACIONES).', IT)
 th(wl, 5, 2, ['Código', 'Cuenta', 'Saldo ESF 31-dic-2025', 'Saldo inicial 31-dic-2024', 'Fuente'])
-esf = [('5BS.21204.001', 'Décimo Tercer Sueldo', 14478.17, 14218.92, 'RQ-002 Anexo de nómina'),
-       ('5BS.21204.002', 'Décimo Cuarto Quito', 24695.21, 25591.83, 'RQ-002 Anexo de nómina'),
-       ('5BS.21204.003', 'Vacaciones', 130720.39, 120035.57, 'RQ-002 Anexo de nómina')]
+# Saldos del Anexo RQ-002 (MY.ANEXO[cta] = (saldo inicial con signo, saldo ESF con signo)); se toma el valor absoluto.
+esf = [(cta, nom, round(abs(MY.ANEXO[cta][1]), 2), round(abs(MY.ANEXO[cta][0]), 2), 'RQ-002 Anexo de nómina')
+       for cta, nom in [('5BS.21204.001', 'Décimo Tercer Sueldo'), ('5BS.21204.002', 'Décimo Cuarto Quito'),
+                        ('5BS.21204.003', 'Vacaciones')]]
 for i, (a, b, s, si, f) in enumerate(esf):
     r = 6 + i
     cell(wl, f'B{r}', a, AR, box=True); cell(wl, f'C{r}', b, AR, box=True)
@@ -155,7 +156,7 @@ notas = ['Fuente (verde = vínculo a otro papel de trabajo):',
 for k, t in enumerate(notas):
     cell(wi, f'B{19+k}', t, IT)
 cell(wi, 'B26', 'Pasivo según DO-4 Reproceso v3 (control de cuadre)', ARB)
-for k, (b, v) in enumerate([('Décimo tercero', 14456.79), ('Décimo cuarto', 24601.89), ('Vacaciones', 105906.73)]):
+for k, (b, v) in enumerate([('Décimo tercero', _R.CIFRAS['pasivo_d13_rep']), ('Décimo cuarto', _R.CIFRAS['pasivo_d14_rep']), ('Vacaciones', _R.CIFRAS['vac_reproc'])]):
     cell(wi, f'B{27+k}', b, AR, box=True); cell(wi, f'C{27+k}', v, GREEN, N2, box=True)
 wi.column_dimensions['A'].width = 2; wi.column_dimensions['B'].width = 14
 for j in range(9): wi.column_dimensions[chr(67 + j)].width = 17
@@ -228,7 +229,7 @@ for r, t, f in txt:
     cell(w4, f'B{r}', t, f)
     if f is AR: w4.merge_cells(f'B{r}:L{r}'); w4[f'B{r}'].alignment = Alignment(wrap_text=True, vertical='top'); w4.row_dimensions[r].height = 28
 cell(w4, 'B38', '=IF(ABS(K11)>ABS(D11)*0.05,"Vacaciones: el pasivo en libros excede el recálculo en "&TEXT(K11,"#,##0.00")&" ("&TEXT(L11,"0.0%")&"). '
-                'Provisión del cliente ≈5,25% de la base vs 1/24 (4,17%): evaluar ajuste. D13 y D14: diferencias menores.","Diferencias dentro de lo razonable.")', AR)
+                'Provisión del cliente a una tasa superior a 1/24 (4,17%): evaluar ajuste. D13 y D14: diferencias menores.","Diferencias dentro de lo razonable.")', AR)
 w4.merge_cells('B38:L39'); w4['B38'].alignment = Alignment(wrap_text=True, vertical='top'); w4['B38'].border = BOX
 for col, wd in zip('ABCDEFGHIJKL', [2, 16, 24, 14, 15, 14, 14, 11, 12, 14, 15, 8]): w4.column_dimensions[col].width = wd
 

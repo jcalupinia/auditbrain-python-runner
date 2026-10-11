@@ -125,9 +125,12 @@ w6 = wb.create_sheet('DO6 Cruce Global Gasto', 0)
 header(w6, 'Beneficios sociales gasto — Cruce global', 'DO-6', 8)
 banner(w6, 8, 'Fuente de libros: Anexo de nómina RQ-002 (azul) y, para las cuentas que el anexo no trae (vacaciones), Mayor de gastos RQ-004 (azul subrayado en la columna de comentario). El mayor coincide con el anexo en las 143 cuentas comunes.')
 th(w6, 9, 2, ['Código', 'Cuenta', 'Según ESF', 'Según Auditoría', 'Diferencia', '%', 'Comentario'])
-COMENT = {'D13': 'Diferencia menor.', 'D14': 'Sobreprovisión menor (ver DO-7: enero 614,44).',
+_nf = lambda v: f"{v:,.2f}".translate(str.maketrans({',': '.', '.': ','}))
+# D14: diferencia gasto − devengado de enero (mayor RQ-004 vs reproceso), derivada de los datos.
+_d14_ene_exc = round(MY.gasto_mes('D14')[0] - float(g.loc[1.0, 'd14b']), 2)
+COMENT = {'D13': 'Diferencia menor.', 'D14': f'Sobreprovisión menor (ver DO-7: enero {_nf(_d14_ene_exc)}).',
           'APO': 'Diferencia de base rol vs IESS (DO-3.1).', 'FR': 'Incluye FR de representantes legales excluidos (ver análisis).',
-          'VAC': 'Provisión ≈5,25% de la base vs 1/24 (4,17%).', 'PAS': 'Cuadra.'}
+          'VAC': 'Provisión superior a 1/24 (4,17%).', 'PAS': 'Cuadra.'}
 r = 10; group_rows = {}
 for k, titulo, *_ in GROUPS:
     first = r
@@ -233,7 +236,7 @@ texts(w7, [(65, 'Objetivo:', RU),
            (74, 'a)  Recálculo de auditoría.', ARB), (76, 'Comentario de auditoría:', RED)], 'K')
 w7.merge_cells('B77:K78'); w7['B77'].border = BOX
 cell(w7, 'B77', 'Aporte pasantes: con el Consolidado IESS ordenado por mes, cada mes cuadra con libros (el papel anterior tenía la columna de auditoría desordenada). '
-                'D14: la mayor diferencia es enero (614,44). Vacaciones: exceso sistemático mensual por tasa de provisión.', AR)
+                f'D14: la mayor diferencia es enero ({_nf(_d14_ene_exc)}). Vacaciones: exceso sistemático mensual por tasa de provisión.', AR)
 w7['B77'].alignment = Alignment(wrap_text=True, vertical='top')
 for col, wd in zip('ABCDEFGHIJK', [2, 13, 15, 15, 14, 12, 12, 13, 15, 15, 14]): w7.column_dimensions[col].width = wd
 

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from backend.app.aud.niif.procesadores.nomina import rutas as _R
+from backend.app.aud.niif.procesadores.nomina import motor as _MOTOR
 _S = _R.SUJETOS; _C = _R.CIFRAS
 _n = lambda v: f"{v:,.2f}".translate(str.maketrans({',': '.', '.': ','}))
 """DO-0 Programa / Procedimiento de Auditoría de Nómina — recopila todos los procedimientos ejecutados (DO-1 a DO-10) y los pendientes (DO-12)."""
@@ -58,7 +59,7 @@ add('Evaluación de Control Interno Laboral', 'DO-1', 'Cumplimiento',
     ['Aplicar el cuestionario laboral IESS/MDT consolidado 2026.1 (72 ítems, 10 bloques) con el responsable de nómina.',
      'Calificar cada ítem (Sí / No / Parcial / No aplica) y documentar la evidencia revisada.',
      'Determinar el nivel de riesgo por bloque y las observaciones para la carta de control interno (sección laboral y de gobierno corporativo).',
-     'Verificar en el Bloque F el cupo mínimo de personas con discapacidad (4% de la nómina; DO-4 informa 5,84 personas a diciembre).'],
+     'Verificar en el Bloque F el cupo mínimo de personas con discapacidad (4% de la nómina).'],
     'RQ-001 Cuestionario laboral', 'Código del Trabajo; Ley de Seguridad Social; acuerdos MDT vigentes al corte 05-oct-2026',
     'Panel en ejecución: 0/72 evaluados al cierre de esta versión.', 'Según calificación', 'En ejecución')
 add('Sumaria de Nómina', 'DO-2', 'Existencia · Integridad · Presentación',
@@ -244,9 +245,9 @@ for col, w in zip('ABCDEFG', [9, 30, 40, 22, 30, 42, 14]): wq.column_dimensions[
 wh = wb.create_sheet('Hallazgos')
 header(wh, 'HALLAZGOS IDENTIFICADOS — insumo para la DO-12', 9, 'DO-0')
 th(wh, 8, 1, ['N.º', 'Hallazgo', 'Ref. PT', 'Importe', 'Naturaleza', 'Estado', 'Acción requerida', 'Responsable', 'Fecha'], 30)
-H = [('Provisión de vacaciones en exceso: el cliente provisiona ≈5,25% de la base vs 1/24 (4,17%). Sin kárdex por trabajador el pasivo no está soportado (DO-4V).', 'DO-4C / DO-6 / DO-4V', 24813.65, 'Ajuste contable', 'Obtener kárdex (RQ-008) y recalcular con la calculadora DO-4V'),
+H = [('Provisión de vacaciones en exceso: el cliente provisiona una tasa superior a 1/24 (4,17%). Sin kárdex por trabajador el pasivo no está soportado (DO-4V).', 'DO-4C / DO-6 / DO-4V', _C['vac_exceso'], 'Ajuste contable', 'Obtener kárdex (RQ-008) y recalcular con la calculadora DO-4V'),
      ('Fondos de reserva pagados en rol a representantes legales sin derecho (' + _S.get('excluidos','') + ').', 'DO-4 V11 / DO-6', _C['excluido_fr'], 'Ajuste / reclasificación', 'Confirmar naturaleza del vínculo (mandato) y tratamiento'),
-     ('Base gravada del rol excede la reportada al IESS: posible subdeclaración de aportes.', 'DO-3.1 / DO-8', _C['rol_menos_iess'], 'Cumplimiento IESS', 'Revisar conceptos por trabajador; cuantificar aportes omitidos (≈203,73 personal y 195,95 patronal)'),
+     ('Base gravada del rol excede la reportada al IESS: posible subdeclaración de aportes.', 'DO-3.1 / DO-8', _C['rol_menos_iess'], 'Cumplimiento IESS', 'Revisar conceptos por trabajador y cuantificar los aportes omitidos (parte personal y parte patronal)'),
      ('Sueldos según rol exceden el gasto en libros (nómina regular; liquidaciones cuadran con el mayor).', 'DO-10', _C['sue_exceso'], 'Por determinar', 'Solicitar el reporte de nómina por centro de costo'),
      ('Pasantías: aporte sobre SBU y estipendio conformes a la Ley de Pasantías (art. 7); ' + _S.get('pasante_exceso','') + ' exceden seis meses: riesgo de relación de dependencia.', 'DO-8', None, 'Cumplimiento / contingencia laboral', 'Criterio legal (sentencia 16-16-IN/22) y regularizar la modalidad'),
      ('Código de relación 06 reportado al IESS en meses de pasantía (' + _S.get('cod06','') + ').', 'DO-3 / DO-3.1', None, 'Cumplimiento IESS', 'Solicitar corrección del código de relación'),
@@ -274,7 +275,7 @@ N = [('Décimo tercera remuneración', 'Código del Trabajo, art. 111', 'Base ap
      ('Décimo cuarta remuneración', 'Código del Trabajo, art. 113', 'SBU/360 × días; Sierra/Amazonía agosto–julio (pago 15-ago); Costa/Galápagos marzo–febrero (pago 15-mar); cálculo por bloques regionales.', 'D14 (D14-10)'),
      ('Vacaciones', 'Código del Trabajo, arts. 69, 71, 75 y 76; NIC 19; NIC 8', '15 días anuales; +1 por año excedente de cinco años (desde el 6.º), máx. 15; el empleador elige conceder o pagar los adicionales. Valor = 1/24 de lo percibido en el año (con horas extras, sin décimos). Acumulación legal hasta 3 años para gozar en el 4.º (art. 75); tope de la calculadora 5 años (criterio del socio). Años anteriores contra resultados acumulados (NIC 8).', 'VAC, RL-05'),
      ('Fondos de reserva', 'Código del Trabajo, art. 196; Ley para el Pago Mensual del Fondo de Reserva (RO 644, 29-jul-2009)', '8,33% después del primer año (desde el mes 13); mes de aniversario proporcional. Regla: pago mensual en rol; acumulación en el IESS a solicitud del trabajador.', 'FR (FR-08, FR-09)'),
-     ('Materia gravada / aportes', 'Ley de Seguridad Social, art. 11; resoluciones IESS', 'Base imponible = remuneraciones; tasas personal, patronal y CCC; SBU 2025 = 470,00.', '—'),
+     ('Materia gravada / aportes', 'Ley de Seguridad Social, art. 11; resoluciones IESS', f'Base imponible = remuneraciones; tasas personal, patronal y CCC; SBU {_R.CTX.ejercicio} = {_n(_MOTOR.SBU_2025)} (constante legal del motor, confirmar vigencia al corte).', '—'),
      ('Pasantías', 'Ley de Pasantías en el Sector Empresarial, arts. 4, 5 y 7 (reforma RO 234-S, 20-ene-2023); sentencia CC 16-16-IN/22', 'Relación civil, sin beneficios del Código del Trabajo; estipendio ≥ 1/3 del SBU; afiliación obligatoria con aporte íntegro de la empresa sobre el SBU vigente; máximo 6 meses sin generar relación de dependencia. La sentencia declaró inconstitucional la reducción del estipendio con efectos diferidos (plazo vencido en ene-2024 sin nueva ley): confirmar criterio legal.', 'RL-03, PAS-01 a PAS-05'),
      ('Representantes legales', 'Código del Trabajo, art. 308 (mandatario); Ley de Seguridad Social, art. 2; IESS código 109', 'Mandatario, no empleado: sin D13, D14, FR ni vacaciones del Código del Trabajo por ese vínculo; afiliación con código 109 (sin relación de dependencia), aporte 17,6% a cargo de la empresa sobre lo percibido. Si figuran con código 06, el auditor los excluye por beneficio y se observa la afiliación.', 'EX-01 a EX-05'),
      ('Rol como fuente', 'Decisión metodológica del socio', 'El rol «normal» es la fuente base: mensualización, liquidaciones, goces y fechas de ingreso; pasivo solo de activos.', 'RL-01 a RL-06'),
