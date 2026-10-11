@@ -16,8 +16,8 @@
 |---|---|---|
 | 1.0 | Ingesta y normalización | Pendiente (el plan lo da por «ya verificado»; se confirmará que nada cambió) |
 | **1.1** | **Extractor de documentos narrativos** | ✅ **Verificado** |
-| **1.2** | **Resolución semántica por IA** | ✅ **Verificado (esta entrega)** |
-| 1.3 | Capa de Mapeo Universal | Pendiente (en pausa; solo verificar) |
+| **1.2** | **Resolución semántica por IA** | ✅ **Verificado** |
+| **1.3** | **Capa de Mapeo Universal** | ✅ **Verificado (esta entrega)** |
 | 1.4 | Piezas de soporte | Pendiente |
 | 1.5 | Consolidación (3 huecos + veredicto) | Pendiente |
 
@@ -160,5 +160,74 @@ mutación rotulada. Sin bloqueantes.*
 
 ---
 
-_Las fichas 1.0 y 1.3–1.5 se agregan a este mismo archivo tras el visto bueno del
+## Ficha 1.3 — Capa de Mapeo Universal
+**Carpeta:** `backend/app/ingesta/mapeo/` (`esquemas.py`, `perfilador.py`,
+`proponer.py`, `aplicar.py`, `flujo.py`, `__init__.py`)
+
+> ⚠️ **Reencuadre honesto (M01): el plan quedó desactualizado.** El plan trata a
+> este motor como «hueco sin construir / en pausa». **No lo está:** su
+> construcción base se terminó y se **mergeó** (Fase A3 = librería, PR #349; Fase B
+> = endpoints + pantalla, PR #350). Lo que sigue **en pausa/archivado** por
+> decisión del socio (PR #351, `docs/INGESTA_MAPEO_MOTOR_ANALITICO_FACTIBILIDAD.md`)
+> es su **expansión** (más tipos: gastos/costos/ingresos, kardex…) y su
+> **conexión a otras herramientas** — no el motor en sí.
+
+### 1. ¿Qué hace?
+*Field-mapping* determinista: acepta un mayor, asiento de diario, balance, ventas
+o compras **venga como venga el formato** del cliente y normaliza las columnas al
+**esquema canónico** del motor. La máquina **propone** el mapeo columna→campo; el
+auditor **confirma** antes de normalizar. **Sin IA.** `esquemas.py`, `perfilador.py`,
+`proponer.py`, `aplicar.py`, `flujo.py`.
+
+### 2. ¿Está completo?
+**Sí para su alcance base (5 esquemas).** Construido y mergeado: perfilado de la
+tabla + detección de encabezado (`perfilador.py`), propuesta con score y confianza
+(`proponer.py`), aplicación con `DatasetNormalizado` (`aplicar.py`), flujo en dos
+tiempos + hook opt-in (`flujo.py`). **En pausa (confirmado), por decisión del socio
+—no es un faltante del motor—:** (a) ampliar a más tipos y (b) conectar su salida a
+otras herramientas (PR #351).
+
+### 3. ¿Está conectado?
+**Como herramienta independiente: SÍ.** Endpoints `POST /ingesta/mapeo/preparar` y
+`POST /ingesta/mapeo/aplicar` (`backend/app/api/ingesta.py:280,326`); frontend
+`frontend/src/aud/ingesta/CapaMapeoTool.jsx`, catálogo `AUD.INGESTA.MAPEO`
+(`catalog.js:51`), ruta en `ToolCatalog.jsx:100`.
+**Como paso del pipeline de ingesta: NO (deliberado).** El hook `ingerir_o_pendiente`
+(`mapeo/flujo.py:74`) es **opt-in** y **ningún** caller lo invoca; `orchestrator.py`
+**no importa** `mapeo` (intacto). → Disponible como herramienta ✔; no enganchada al
+orquestador (por diseño, para no tocar lo probado).
+
+### 4. ¿Está probado?
+- **M14: SÍ.** `tests/test_ingesta_mapeo.py` (11) + `tests/test_ingesta_mapeo_api.py`
+  (10) = **21/21 verdes** (ejecutadas el 2026-10-11).
+- **M20 (mutación): SÍ, formal y rotulada.** `test_caso10_mutacion_sinonimo_rompe_el_caso2`
+  (`tests/test_ingesta_mapeo.py:216`) quita un sinónimo del esquema y el caso 2
+  **cambia de veredicto** → prueba de que el sinónimo importa. **Es el único motor
+  del grupo con una prueba de mutación declarada como tal.**
+
+### 5. ¿Respeta el contrato?
+**Sí.** `aplicar_mapeo` devuelve `DatasetNormalizado` con **evidencia por celda**
+(hoja·fila·celda), **sello SHA-256** y `quality_score` honesto; aplica **M22**
+(campo obligatorio vacío → `None`, **nunca cero**). «La IA no calcula cifras»: **no
+aplica** porque el motor es **100 % determinista** (no usa IA).
+
+### 6. ¿Qué le falta para estar terminado?
+- **Bloqueante:** ninguno (base completa, conectada como herramienta, M14 + M20
+  verdes).
+- **Confirmación que pedía el plan:** la **expansión** y la **integración al
+  pipeline** siguen **en pausa por decisión del socio** (PR #351). Aquí **no se
+  construye nada**.
+- **Recomendado (solo si en el futuro se decide integrarla al pipeline):** activar
+  el hook opt-in `ingerir_o_pendiente` (hoy inerte) y dejarlo documentado.
+- **Acción sobre el plan (no sobre el código):** actualizar el «Hueco 1» — M4 no es
+  un hueco sin construir; es una herramienta **terminada** cuya expansión está en
+  pausa.
+
+**Veredicto de la ficha 1.3:** *Base COMPLETA, conectada como herramienta y probada
+(21/21, M20 incluida). La «pausa» aplica solo a su expansión/integración (decisión
+PR #351), no a su construcción. Sin bloqueantes; el plan debe reencuadrar el «Hueco 1».*
+
+---
+
+_Las fichas 1.0 y 1.4–1.5 se agregan a este mismo archivo tras el visto bueno del
 socio, en el orden de la §3 del plan._
