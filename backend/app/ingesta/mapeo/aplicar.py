@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from backend.app.ingesta.confidence import NivelConfianza
+from backend.app.ingesta.confidence import NivelConfianza, requiere_revision
 from backend.app.ingesta.confidence_live import consolidar_confianza
 from backend.app.ingesta.contract import (
     CampoExtraido,
@@ -110,6 +110,12 @@ def aplicar_mapeo(
         rows.append(registro)
 
     nombres_col = {c.indice: c.nombre_crudo for c in perfil.columnas}
+    # Calidad honesta del dataset mapeado: fracción de campos que NO requieren
+    # revisión (todo HIGH ⇒ 1.0). Sin esto, quality_score quedaría en 0.0 por
+    # defecto y el dataset entero se marcaría a revisión aun estando limpio.
+    quality = round(
+        sum(1 for c in campos if not requiere_revision(c.confidence)) / len(campos), 4
+    ) if campos else 0.0
     ds = DatasetNormalizado(
         dataset_id=source_file,
         source_file=source_file,
@@ -121,6 +127,7 @@ def aplicar_mapeo(
         rows=rows,
         row_count=len(rows),
         campos=campos,
+        quality_score=quality,
         extraction_method=MetodoExtraccion.TABLA,
     )
     consolidar_confianza(ds)

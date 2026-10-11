@@ -33,6 +33,12 @@ describe("Motor de ingesta", () => {
     expect(ids).toContain("AUD.INGESTA.RESOLVER");
     expect(abrePruebasEncargo("AUD.INGESTA.RESOLVER")).toBe(false);
   });
+
+  it("incluye la Capa de Mapeo Universal como herramienta aparte", () => {
+    const ids = (CATEGORIES[0].tools || []).map((t) => t.id);
+    expect(ids).toContain("AUD.INGESTA.MAPEO");
+    expect(abrePruebasEncargo("AUD.INGESTA.MAPEO")).toBe(false);
+  });
 });
 
 describe("Motor de auditoría analítica", () => {
