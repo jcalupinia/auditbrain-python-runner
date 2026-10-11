@@ -14,12 +14,12 @@
 
 | Paso | Motor | Estado de la ficha |
 |---|---|---|
-| 1.0 | Ingesta y normalización | Pendiente (el plan lo da por «ya verificado»; se confirmará que nada cambió) |
+| 1.0 | Ingesta y normalización | ✅ Confirmado sin cambios (ver ficha 1.0) |
 | **1.1** | **Extractor de documentos narrativos** | ✅ **Verificado** |
 | **1.2** | **Resolución semántica por IA** | ✅ **Verificado** |
 | **1.3** | **Capa de Mapeo Universal** | ✅ **Verificado** |
 | **1.4** | **Piezas de soporte** | ✅ **Verificado (esta entrega)** |
-| 1.5 | Consolidación (3 huecos + veredicto) | Pendiente |
+| **1.5** | **Consolidación (3 huecos + veredicto)** | ✅ **Verificado (esta entrega)** |
 
 ---
 
@@ -258,5 +258,57 @@ bloqueantes.*
 
 ---
 
-_Las fichas 1.0 y 1.5 (consolidación) se agregan a este mismo archivo tras el visto
-bueno del socio, en el orden de la §3 del plan._
+## Ficha 1.0 — Ingesta y normalización (confirmación)
+**Archivos:** `orchestrator.py`, `normalizer.py`, `contract.py`, `adapters.py`.
+
+El plan lo da por «ya verificado»; se **confirma que sigue operativo**: las suites
+`tests/test_ingesta_orquestador.py` (19), `tests/test_ingesta_api.py` (9) y
+`tests/test_ingesta_contrato.py` (26) corren **en verde**, y ejercitan orquestador,
+normalizador, contrato (`DatasetNormalizado`/`Evidencia`/`Sello`) y adaptadores.
+**Salvedad:** un bug puntual en `adapters.py` (ver §1.5, «Bug detectado»). Sin otros
+cambios respecto de la verificación previa.
+
+---
+
+## 1.5 — Consolidación del BLOQUE 1
+
+### Estado de los tres huecos
+
+- **Hueco 1 — Capa de Mapeo Universal → REENCUADRADO (no es hueco de código).**
+  Está **construida, conectada y probada** (Fases A3 + B, PR #349/#350; 21/21 con
+  M20). Lo que sigue **en pausa** es su **expansión** (más tipos) y su **integración
+  a otras herramientas**, por **decisión del socio** (PR #351). No hay nada que
+  «terminar» en el motor.
+- **Hueco 2 — «Desconectado» → CERRADO.** Todos los motores del grupo están
+  conectados: `narrativo`, `resolver` y `mapeo` con endpoints + herramienta de
+  frontend; `classifier`, `confidence_live`, `ocr_support` y `validador_sri`
+  invocados por el orquestador / la API / el portal. Lo único **no enganchado** es
+  el hook opt-in `ingerir_o_pendiente` hacia el orquestador — **deliberado** (para
+  no tocar lo probado).
+- **Hueco 3 — «Sin pruebas» → PARCIAL (único hueco real y accionable).** **M14 está
+  verde en todo el grupo.** La **prueba de mutación M20 formal** existe **solo** en
+  la Capa de Mapeo (`test_caso10`). Falta **M20 rotulada** en el resto (narrativo,
+  resolutor, clasificador y, sobre todo, los **umbrales de `confidence.py`**).
+
+### Bug detectado (confirmado en código)
+`backend/app/ingesta/adapters.py:150` (`extraer_ats`) lee `r.get("compras")`, pero
+`backend/app/ict/parsers/ats_xml.py::parse_ats` **nunca** produce esa clave — devuelve
+`pagos_exterior` (`ats_xml.py:9,42`). → el dataset ATS sale **siempre con 0 filas de
+datos** (solo el campo de cabecera `ruc_informante`). Fix: leer `pagos_exterior`.
+
+### Veredicto del BLOQUE 1
+**Funcionalmente TERMINADO.** Los cinco motores del grupo + las cinco piezas de
+soporte están **completos, conectados y con M14 verde**. **No está «cerrado al
+100 %»** por **un único faltante transversal**: las **pruebas de mutación M20
+rotuladas** (Hueco 3), más el **bug del adaptador ATS**. Ambos se corrigen en la
+etapa de **cierre** (PR aparte). Los Huecos 1 y 2 **no son faltantes de código**
+(decisión de pausa / diseño), por lo que el bloque no depende de ellos para darse
+por terminado.
+
+**Pendientes de cierre (ordenados):**
+1. 🔧 Bug ATS `adapters.py:150` (`compras` → `pagos_exterior`) + test de regresión. *(aditivo, seguro)*
+2. 🧪 M20 rotuladas para `confidence.py` (umbrales), `narrativo`, `resolutor` y `classifier`. *(aditivo, no toca motores)*
+3. ⏸️ Hueco 1 (expansión/integración de la Capa de Mapeo) y Hueco 2 (enganche del hook al orquestador): **requieren decisión del socio** porque revierten decisiones vigentes (pausa PR #351 / diseño). No se tocan sin tu orden.
+
+---
+*Fin de la etapa de VERIFICACIÓN del BLOQUE 1.*
