@@ -25,11 +25,13 @@ def correr(rutas, ficha: dict | None = None) -> dict[str, bytes]:
     mayores.cargar(rutas)
     R = motor.correr(rutas)
 
-    # 2) comprobantes RQ-005 (85 PDF) -> pickle (antes de las cifras, que los usan)
+    # 2) comprobantes RQ-005 (PDF) -> pickle (antes de las cifras, que los usan).
+    # RQ-005 es OPCIONAL: si no se cargaron, se escribe un pickle VACÍO con las columnas
+    # esperadas para que DO-9 se arme («sin comprobantes») en vez de crashear.
     comp = None
     if rutas.comprobantes_dir and os.path.isdir(rutas.comprobantes_dir):
         comp = comprobantes.parse(rutas.comprobantes_dir)
-        comp.to_pickle(f'{rutas.home}/comprobantes.pkl')
+    (comp if comp is not None else comprobantes.vacio()).to_pickle(f'{rutas.home}/comprobantes.pkl')
 
     # 3) sujetos y cifras de los hallazgos/controles (derivados de los datos)
     rutas_mod.SUJETOS = hallazgos.sujetos(R, rutas)

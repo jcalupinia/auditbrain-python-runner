@@ -110,7 +110,7 @@ SALDOS = [('5BS.21203.001', 'Aporte patronal por pagar'), ('5BS.21203.002', 'Apo
 srow = {}
 for i, (cod, nom) in enumerate(SALDOS):
     r = 23 + i; srow[cod] = r
-    cell(wi, f'B{r}', cod, AR, box=True); cell(wi, f'C{r}', nom, AR, box=True); cell(wi, f'D{r}', ANEXO[cod], BLUE, N2, box=True)
+    cell(wi, f'B{r}', cod, AR, box=True); cell(wi, f'C{r}', nom, AR, box=True); cell(wi, f'D{r}', ANEXO.get(cod, 0.0), BLUE, N2, box=True)
 cell(wi, 'B30', 'Rol de diciembre (DO-3.1, pestaña «normal») — líquido a recibir', ARB)
 cell(wi, 'B31', 'Empleados y jubilados', AR, box=True); cell(wi, 'D31', 163774.65, GREEN, N2, box=True)
 cell(wi, 'B32', 'Estipendio de pasantes (Mayor de gastos RQ-004, diciembre)', AR, box=True); cell(wi, 'D32', MY.gasto_mes('EST')[11], BLUE, N2, box=True)
@@ -241,10 +241,10 @@ NOM = {'5BS.21203.001': 'Aporte patronal', '5BS.21203.002': 'Aporte individual',
 for i, cta in enumerate(NOM):
     r = 6 + i; x = _I[_I.cta == cta]
     cell(wm, f'B{r}', cta, AR, box=True); cell(wm, f'C{r}', NOM[cta], AR, box=True)
-    cell(wm, f'D{r}', MY.ANEXO[cta][0], BLUE, N2, box=True)
+    cell(wm, f'D{r}', MY.ANEXO.get(cta, (0.0, 0.0))[0], BLUE, N2, box=True)
     for col, sb in zip('EFGHIJ', ['PROVISION', 'FINIQUITOS', 'AJUSTES', 'PAGO IESS', 'NC', 'OTROS PAGOS']):
         cell(wm, f'{col}{r}', round(float(x[x['sub'] == sb].Importe.sum()), 2), BLUE, N2, box=True)
-    cell(wm, f'K{r}', f'=SUM(D{r}:J{r})', ARB, N2, box=True); cell(wm, f'L{r}', MY.ANEXO[cta][1], BLUE, N2, box=True)
+    cell(wm, f'K{r}', f'=SUM(D{r}:J{r})', ARB, N2, box=True); cell(wm, f'L{r}', MY.ANEXO.get(cta, (0.0, 0.0))[1], BLUE, N2, box=True)
     cell(wm, f'M{r}', f'=ROUND(K{r}-L{r},2)', ARB, N2, box=True)
 cell(wm, 'B11', 'TOTAL', WH, fill=NAVY, box=True); cell(wm, 'C11', '', WH, fill=NAVY, box=True)
 for col in 'DEFGHIJKLM': cell(wm, f'{col}11', f'=SUM({col}6:{col}10)', WH, N2, NAVY, box=True)
