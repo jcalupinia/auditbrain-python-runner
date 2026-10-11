@@ -118,4 +118,29 @@ def _montar_ingesta(router: APIRouter) -> bool:
 #: ¿Quedó el Motor de Ingesta montado? Lo puede consultar el healthcheck.
 ingesta_montado = _montar_ingesta(api_router)
 
-__all__ = ["api_router", "forge_montado", "ingesta_montado"]
+
+def _montar_validador_sri(router: APIRouter) -> bool:
+    """Monta el Validador de coherencia SRI del portal cliente de forma AISLADA.
+
+    Herramienta nueva (Fase 9) que consume el Motor de Ingesta. Igual que Forge
+    e Ingesta, se monta con import contenido: si algo revienta, ``/api/v1``
+    arranca SIN el validador (auth, portal, ICT y AUD intactos) en vez de no
+    arrancar. No toca el flujo ICT.
+    """
+    try:
+        from backend.app.client_portal import validador_sri as validador_sri_module
+
+        router.include_router(validador_sri_module.router)
+    except Exception:  # noqa: BLE001 - aislar el validador es justo el objetivo
+        _log.exception(
+            "Validador SRI no se pudo montar; /api/v1 arranca SIN él "
+            "(auth, portal, ICT y AUD quedan intactos)."
+        )
+        return False
+    return True
+
+
+#: ¿Quedó el Validador de coherencia SRI montado?
+validador_sri_montado = _montar_validador_sri(api_router)
+
+__all__ = ["api_router", "forge_montado", "ingesta_montado", "validador_sri_montado"]

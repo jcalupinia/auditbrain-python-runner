@@ -102,6 +102,21 @@ TOOLS: dict[str, ToolConfig] = {
         enabled=True,
     ),
 
+    "VALIDADOR_SRI": ToolConfig(
+        code="VALIDADOR_SRI",
+        label="Validador de coherencia SRI · chequeo previo al ICT",
+        description=(
+            "Antes de generar el ICT, sube tus F-101, F-103 y F-104 y revisa el "
+            "cruce entre ellos: ventas del Renta vs base del IVA, completitud de "
+            "los 12 meses y pagos al exterior que exigen ATS. Es un chequeo "
+            "informativo; no genera el ICT."
+        ),
+        category="TRIBUTARIAS",
+        slots={},  # vacío — dashboard propio en /tools/VALIDADOR_SRI vía /client/validador-sri/*
+        processor=None,  # flujo propio, no pipeline genérico
+        enabled=True,
+    ),
+
     # =========================================================
     # DESARROLLO
     # =========================================================
