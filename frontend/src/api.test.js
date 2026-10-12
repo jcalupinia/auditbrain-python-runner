@@ -259,3 +259,20 @@ describe("sriVivoUrl (vista en vivo del robot por MJPEG)", () => {
     expect(url).toBe("https://motor.test/motor/sri/vivo?permiso=a%20b%26c%3Dd");
   });
 });
+
+describe("opcionesAccion (acciones pesadas: timeout largo + sin reintentos)", () => {
+  it("execute/refrescar/set_visit y las de IA van con 600s y 0 reintentos", () => {
+    for (const a of ["execute", "refrescar", "set_visit", "extraer_ia", "map_validate"]) {
+      expect(api.opcionesAccion(a)).toEqual({ timeoutMs: 600000, retries: 0 });
+      expect(api.ACCIONES_LARGAS.has(a)).toBe(true);
+    }
+  });
+
+  it("las acciones livianas conservan el default (reintentos para el arranque en frío)", () => {
+    for (const a of ["research", "generate_program", "generate_request", "save_program",
+                     "approve_program", "configure", "approve_methodology", "validate"]) {
+      expect(api.opcionesAccion(a)).toEqual({});
+      expect(api.ACCIONES_LARGAS.has(a)).toBe(false);
+    }
+  });
+});

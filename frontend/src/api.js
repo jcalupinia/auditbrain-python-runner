@@ -513,18 +513,31 @@ export async function cicloCrearPrueba(projectId, origen, tributario) {
 export async function cicloLeerPrueba(id) {
   return parse(await apiFetch(`${CICLO}/pruebas/${id}`, { headers: authHeaders() }));
 }
+// Acciones LARGAS: corren el procesador/motor en el backend o invocan el LLM, así
+// que tardan mucho más que una acción de formulario:
+//   - `execute` / `refrescar` / `set_visit` → ejecutan el procesador (en nómina:
+//     motor + recálculo LibreOffice, 30-90 s con datos reales).
+//   - `extraer_ia` / `map_validate` → llaman al servidor de IA (auto-extracción).
+// Con el default de apiFetch (60 s por intento + 4 reintentos) el cliente ABORTABA
+// a los 60 s y RE-POSTeaba el trabajo pesado hasta 4 veces; cada reintento
+// arrancaba OTRO motor + LibreOffice en la MISMA instancia, multiplicando la carga
+// hasta el OOM (se caía para todos). Es el mismo patrón del #366 en las descargas,
+// pero en las acciones. A estas se les da una ventana amplia (600 s) y SIN
+// reintentos: re-POSTear un cálculo o una llamada de IA larga nunca es correcto
+// (o ya terminó en el servidor, o solo duplica la carga). Las acciones livianas
+// (research, generate_*, save/approve, configure…) conservan el default, que
+// cubre el arranque en frío de Render con reintentos.
+export const ACCIONES_LARGAS = new Set([
+  "execute", "refrescar", "set_visit", "extraer_ia", "map_validate",
+]);
+
+export function opcionesAccion(accion) {
+  return ACCIONES_LARGAS.has(accion) ? { timeoutMs: 600000, retries: 0 } : {};
+}
+
 export async function cicloAccion(id, accion, revision, datos = {}) {
-  // Acciones que invocan al LLM: la extracción por IA de un documento y el
-  // Procesar (map_validate), que auto-extrae los PDF/Word pendientes. El servidor
-  // de IA local tarda por documento, y uno pesado (el informe/las notas = 5
-  // llamadas) se alarga; con el default de 60s el cliente abortaba («No se pudo
-  // conectar con el servidor»). Se les da una ventana amplia (600s) y SIN
-  // reintentos (no re-POSTear un trabajo largo del modelo). El backend hace
-  // failover a la nube si el local va lento; y si la nube está sin saldo, termina
-  // en el local (más lento). Esta ventana cubre ese peor caso (sondeo + local).
-  const invocaLLM = accion === "extraer_ia" || accion === "map_validate";
-  const opts = invocaLLM ? { timeoutMs: 600000, retries: 0 } : {};
-  return parse(await apiFetch(`${CICLO}/pruebas/${id}/acciones`, jsonPost("POST", { accion, revision, datos }), opts));
+  return parse(await apiFetch(`${CICLO}/pruebas/${id}/acciones`,
+    jsonPost("POST", { accion, revision, datos }), opcionesAccion(accion)));
 }
 // E7: evidencia. El archivo va por formulario multiparte; el servidor lo guarda
 // en su disco y devuelve su huella.

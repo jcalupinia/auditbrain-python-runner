@@ -26,3 +26,4 @@ frontend/_hotel.json
 
 # Papeles de muestra regenerables (python scripts/papeles_muestra.py <carpeta>)
 docs/niif/papeles_muestra/
+.vite/
