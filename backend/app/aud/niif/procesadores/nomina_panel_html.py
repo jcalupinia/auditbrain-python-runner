@@ -216,6 +216,51 @@ def construir_mdl(carpeta_cedulas: str | None) -> dict:
     return mdl
 
 
+def derivar_nt(carpeta_cedulas: str | None) -> int | None:
+    """Número de «trabajadores activos al corte» tomado del MOTOR, para el valor por defecto
+    del cuestionario de control interno DO-1 (su aplicabilidad depende del Nº de trabajadores:
+    ítems 33 ≥25, 36/41 ≥50, 44 1–10, 45/48/49 >10, 46/47 ≥10).
+
+    Fuente: la fila «Trabajadores activos al corte (población 100%)» del RESUMEN de la cédula
+    VAC (hoja «VAC Calculadora»): etiqueta en la columna A (merged A:D) y valor recalculado en
+    la columna E, filas 9..20. Esa celda es ``=COUNTA(B30:B…)`` sobre el 100% de la población
+    activa al corte (ver ``nomina/mk_vac.py`` línea 130). Es la fuente más defendible: el mismo
+    conteo que el motor usa para valorar vacaciones no gozadas.
+
+    LÍMITE HONESTO: es el conteo de trabajadores ACTIVOS AL CORTE, no el total de personas que
+    pasaron por el rol durante el año (ese sería mayor). Para los umbrales IESS/MDT del DO-1 el
+    número al corte es el pertinente. El auditor puede sobrescribirlo a mano en el panel.
+
+    Devuelve un entero > 0, o ``None`` si la prueba no está procesada, no hay cédula VAC, o el
+    valor aún no está recalculado por LibreOffice (celda sin valor en caché). Con ``None`` el
+    panel se comporta como hoy: el auditor digita el número manualmente.
+    """
+    if not (carpeta_cedulas and os.path.isdir(carpeta_cedulas)):
+        return None
+    import openpyxl
+
+    vac = _buscar_cedula(carpeta_cedulas, "VAC_")
+    if not vac:
+        return None
+    try:
+        wv = openpyxl.load_workbook(vac, data_only=True)
+        if "VAC Calculadora" not in wv.sheetnames:
+            return None
+        ws = wv["VAC Calculadora"]
+        for r in range(9, 21):
+            etiqueta = str(ws.cell(r, 1).value or "")
+            if etiqueta.startswith("Trabajadores activos al corte"):
+                valor = ws.cell(r, 5).value
+                try:
+                    n = int(round(float(valor)))
+                except (TypeError, ValueError):
+                    return None
+                return n if n > 0 else None
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/ciclo",
            carpeta_cedulas: str | None = None, extras: dict | None = None) -> bytes:
     """HTML del panel con el encargo inyectado. ``prueba_id`` enlaza los botones al motor.
@@ -228,6 +273,11 @@ def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/cic
     ``extras``: ``{'prog': prog.json, 'do12': do12.json}`` que el motor dejó en ``home`` (los
     pasa el endpoint vía ``servicio.correr_nomina(..., con_extras=True)``). Alimentan las
     ventanas Programa (DO-0) y Hallazgos/Ajustes (DO-12).
+
+    El placeholder ``__NOMINA_NT__`` lleva el Nº de trabajadores activos al corte derivado del
+    motor (``derivar_nt``): el cuestionario DO-1 lo usa como valor por defecto de ``S.nt`` para
+    resolver la aplicabilidad de los ítems por umbral sin que el auditor lo digite (``null`` sin
+    procesar; el auditor siempre puede sobrescribirlo).
 
     Sin ``extras`` ni ``carpeta_cedulas`` (prueba no procesada) el panel inyecta estructuras
     VACÍAS y las ventanas muestran «PENDIENTE DE PROCESAR», como el visor."""
@@ -245,6 +295,9 @@ def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/cic
     # La población del muestreo DO-4 V08 sale del motor (MDL.m07.pob, cédula RQ-007).
     # Sin cédula procesada → lista vacía: la ventana muestra «PENDIENTE DE PROCESAR».
     pop07 = (mdl.get("m07") or {}).get("pob", [])
+    # Nº de trabajadores activos al corte tomado del motor (cédula VAC). Valor por defecto del
+    # cuestionario DO-1 para que la aplicabilidad (autoNA/eff) se resuelva sola; None sin procesar.
+    nt = derivar_nt(carpeta_cedulas)
     html = (tmpl
             .replace("__NOMINA_ENC__", json.dumps(enc, ensure_ascii=False))
             .replace("__NOMINA_API__", json.dumps(api, ensure_ascii=False))
@@ -252,5 +305,6 @@ def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/cic
             .replace("__NOMINA_PROG__", json.dumps(prog, ensure_ascii=False))
             .replace("__NOMINA_MDL__", json.dumps(mdl, ensure_ascii=False))
             .replace("__NOMINA_POP07__", json.dumps(pop07, ensure_ascii=False))
+            .replace("__NOMINA_NT__", json.dumps(nt))
             .replace("__NOMINA_VISOR__", json.dumps(datos_visor)))
     return html.encode("utf-8")

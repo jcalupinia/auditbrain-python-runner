@@ -212,6 +212,56 @@ def test_construir_mdl_vacio_sin_carpeta():
     assert np.construir_mdl(None) == {}
 
 
+# --- Nº de trabajadores del motor para el cuestionario DO-1 (punto 1) ---------
+#
+# THR del panel (nomina_panel.tmpl.html): la aplicabilidad de los ítems del DO-1 por umbral
+# depende del Nº de trabajadores. Se replica aquí para comprobar que el número del motor los
+# resuelve solos, sin que el auditor lo digite.
+THR = {33: lambda n: n >= 25, 36: lambda n: n >= 50, 41: lambda n: n >= 50,
+       44: lambda n: 1 <= n <= 10, 45: lambda n: n > 10, 46: lambda n: n >= 10,
+       47: lambda n: n >= 10, 48: lambda n: n > 10, 49: lambda n: n > 10}
+
+
+def test_derivar_nt_desde_la_cedula_vac_del_motor(tmp_path):
+    """derivar_nt lee «Trabajadores activos al corte» (E9) de la cédula VAC recalculada."""
+    # El fixture pone E9 = 100 en la fila «Trabajadores activos al corte (población 100%)».
+    assert np.derivar_nt(_carpeta_con_vac(tmp_path)) == 100
+
+
+def test_derivar_nt_none_sin_carpeta():
+    assert np.derivar_nt(None) is None
+
+
+def test_render_inyecta_nt_del_motor_y_resuelve_umbrales(tmp_path):
+    """Con cédulas procesadas, render inyecta __NOMINA_NT__ con el número del motor (> 0) y ese
+    número resuelve solo la aplicabilidad de los ítems por umbral (autoNA/eff del panel)."""
+    import re
+
+    carpeta = _carpeta_con_vac(tmp_path)  # E9 = 100 trabajadores activos
+    html = np.render({"client": "Empresa de Ejemplo S.A.", "firm": "AuditConsulting",
+                      "year": 2026}, 9, carpeta_cedulas=carpeta).decode()
+    assert "__NOMINA_NT__" not in html  # placeholder reemplazado
+    nt = int(re.search(r"const NT_MOTOR=(\d+);", html).group(1))
+    assert nt == 100 and nt > 0
+    # Con 100 trabajadores: los umbrales ≥25/≥50/≥10/>10 aplican; el de 1–10 (ítem 44) no.
+    assert THR[33](nt) and THR[36](nt) and THR[41](nt)
+    assert THR[46](nt) and THR[47](nt) and THR[45](nt) and THR[48](nt) and THR[49](nt)
+    assert not THR[44](nt)
+    bajo = html.lower()
+    for t in TERMINOS_PILOTO:
+        assert t not in bajo, t
+
+
+def test_render_nt_null_sin_procesar():
+    """Sin cédulas (prueba no procesada), __NOMINA_NT__ queda en null: el panel se comporta como
+    hoy (el auditor digita el número a mano)."""
+    import re
+
+    html = np.render({"client": "Empresa de Ejemplo S.A.", "firm": "AuditConsulting"},
+                     1, carpeta_cedulas=None).decode()
+    assert re.search(r"const NT_MOTOR=null;", html)
+
+
 def _carpeta_con_rq007(tmp_path, n=12, selecc=4):
     """Carpeta con una cédula RQ-007 ficticia (valores literales, legible sin LibreOffice):
     hoja «Ficha» con los parámetros, «Parámetros» con los totales y «Población» con n filas,
