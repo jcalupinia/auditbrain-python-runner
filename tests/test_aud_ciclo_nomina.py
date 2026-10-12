@@ -212,6 +212,82 @@ def test_construir_mdl_vacio_sin_carpeta():
     assert np.construir_mdl(None) == {}
 
 
+def _carpeta_con_rq007(tmp_path, n=12, selecc=4):
+    """Carpeta con una cédula RQ-007 ficticia (valores literales, legible sin LibreOffice):
+    hoja «Ficha» con los parámetros, «Parámetros» con los totales y «Población» con n filas,
+    de las cuales `selecc` quedan marcadas en la muestra (M="Sí"). Datos neutros: nada del piloto."""
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    wf = wb.active
+    wf.title = "Ficha"
+    wf.cell(10, 3, 0.10)   # C10 tamaño de muestra (fracción)
+    wf.cell(11, 3, 5)      # C11 partidas clave
+    wf.cell(12, 3, 2)      # C12 arranque sistemático
+
+    wq = wb.create_sheet("Parámetros")
+    wq.cell(4, 3, 147)     # C4 Población N
+    wq.cell(5, 3, 146)     # C5 acumulan también D14
+    wq.cell(6, 3, 15)      # C6 tamaño de muestra n
+    wq.cell(10, 3, 14.20)  # C10 intervalo
+
+    wp = wb.create_sheet("Población")
+    wp.cell(4, 2, "N°"); wp.cell(4, 3, "Cédula"); wp.cell(4, 4, "Nombre")
+    wp.cell(4, 5, "D13 acumulado"); wp.cell(4, 6, "D14 acumulado")
+    for i in range(n):
+        r = 5 + i
+        wp.cell(r, 2, i + 1)
+        wp.cell(r, 3, f"170000000{i:02d}")
+        wp.cell(r, 4, f"Trabajador de Ejemplo {i + 1}")
+        wp.cell(r, 5, round(1000.0 + i * 10, 2))        # D13
+        wp.cell(r, 6, 0.0 if i % 5 == 0 else 470.0)     # D14 (algunos sin D14)
+        wp.cell(r, 10, "Sí" if i < 2 else "No")          # J ¿Clave?
+        wp.cell(r, 13, "Sí" if i < selecc else "No")     # M ¿Seleccionado?
+    # Fila TOTAL (sin cédula ni importe): no debe contar como población.
+    wp.cell(5 + n, 4, "TOTAL")
+    wb.save(str(tmp_path / "RQ-007_Muestreo_Solicitudes_Decimos.xlsx"))
+    return str(tmp_path)
+
+
+def test_construir_mdl_muestreo_desde_la_cedula_rq007(tmp_path):
+    """La ventana de Muestreo (DO-4 V08) se alimenta de la cédula RQ-007: población, parámetros,
+    totales y las filas de la muestra con su marca de selección."""
+    mdl = np.construir_mdl(_carpeta_con_rq007(tmp_path, n=12, selecc=4))
+    assert "m07" in mdl
+    m = mdl["m07"]
+    # Población: 12 filas [cédula, nombre, d13, d14] con d13/d14 numéricos (sin la fila TOTAL).
+    assert len(m["pob"]) == 12
+    assert all(isinstance(row[2], (int, float)) and isinstance(row[3], (int, float)) for row in m["pob"])
+    # Parámetros de la Ficha (porcentaje entero, clave, arranque).
+    assert m["par"] == {"pct": 10, "key": 5, "st": 2}
+    # Totales de Parámetros: 147 / 146 / 15 / intervalo 14,20.
+    assert m["tot"] == {"N": 147, "d14": 146, "n": 15, "itv": 14.20}
+    # Muestra: las 4 filas marcadas (M="Sí") con su tipo de selección.
+    assert len(m["mue"]) == 4
+    assert all(row[4] in ("Clave (mayor D13)", "Sistemática") for row in m["mue"])
+    assert [row[4] for row in m["mue"][:2]] == ["Clave (mayor D13)", "Clave (mayor D13)"]
+
+
+def test_render_muestreo_inyecta_pop07_desde_el_motor(tmp_path):
+    """render inyecta __NOMINA_POP07__ con la población del motor; sin cédula → lista vacía."""
+    import json
+    import re
+
+    carpeta = _carpeta_con_rq007(tmp_path, n=8, selecc=3)
+    html = np.render({"client": "Empresa de Ejemplo S.A.", "firm": "AuditConsulting",
+                      "year": 2026}, 5, carpeta_cedulas=carpeta).decode()
+    assert "__NOMINA_POP07__" not in html  # placeholder reemplazado
+    pop = json.loads(re.search(r"const POP07=(\[.*?\]);", html).group(1))
+    assert len(pop) == 8 and pop[0][0].startswith("170000000")
+    bajo = html.lower()
+    for t in TERMINOS_PILOTO:
+        assert t not in bajo, t
+    # Sin cédula procesada: POP07 queda vacío → la ventana muestra «PENDIENTE DE PROCESAR».
+    vacio = np.render({"client": "Empresa de Ejemplo S.A.", "firm": "AuditConsulting"},
+                      1, carpeta_cedulas=None).decode()
+    assert re.search(r"const POP07=\[\];", vacio)
+
+
 def test_render_con_motor_llena_ventanas_y_sin_datos_del_piloto(tmp_path):
     """HTML completo: PROG y MDL inyectados desde el motor, sin términos del piloto."""
     import json

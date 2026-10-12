@@ -148,6 +148,57 @@ def construir_mdl(carpeta_cedulas: str | None) -> dict:
                 mdl["vacx"] = {"resumen": resumen, "estado": estado, "clase": clase}
         except Exception:  # noqa: BLE001
             pass
+    m07 = _buscar_cedula(carpeta_cedulas, "RQ-007_")
+    if m07:
+        try:
+            wv = openpyxl.load_workbook(m07, data_only=True)
+            pob, mue = [], []
+            if "Población" in wv.sheetnames:
+                wp = wv["Población"]
+                # Encabezado en la fila 4; datos desde la 5. Col C=cédula, D=nombre,
+                # E=D13, F=D14, J=¿Clave?, M=¿Seleccionado?. Paramos al llegar al TOTAL (D sin cédula).
+                for r in range(5, wp.max_row + 1):
+                    ced = wp.cell(r, 3).value
+                    if ced in (None, ""):
+                        continue
+                    nom = wp.cell(r, 4).value
+                    d13 = wp.cell(r, 5).value
+                    d14 = wp.cell(r, 6).value
+                    try:
+                        d13 = round(float(d13), 2)
+                    except (TypeError, ValueError):
+                        continue  # fila sin importe (p. ej. la fila TOTAL): no es población
+                    try:
+                        d14 = round(float(d14), 2)
+                    except (TypeError, ValueError):
+                        d14 = 0.0
+                    pob.append([str(ced), str(nom or ""), d13, d14])
+                    if str(wp.cell(r, 13).value or "").strip() == "Sí":
+                        tipo = ("Clave (mayor D13)"
+                                if str(wp.cell(r, 10).value or "").strip() == "Sí"
+                                else "Sistemática")
+                        mue.append([str(ced), str(nom or ""), d13, d14, tipo])
+            par = {}
+            if "Ficha" in wv.sheetnames:
+                f = wv["Ficha"]
+                pct = f.cell(10, 3).value  # C10: tamaño de muestra (fracción, p. ej. 0.10)
+                if isinstance(pct, (int, float)):
+                    par["pct"] = int(round(pct * 100)) if pct <= 1 else int(round(pct))
+                for clave, fila in (("key", 11), ("st", 12)):
+                    v = f.cell(fila, 3).value
+                    if isinstance(v, (int, float)):
+                        par[clave] = int(v)
+            tot = {}
+            if "Parámetros" in wv.sheetnames:
+                q = wv["Parámetros"]
+                for clave, fila in (("N", 4), ("d14", 5), ("n", 6), ("itv", 10)):
+                    v = q.cell(fila, 3).value  # C4/C5/C6/C10
+                    if isinstance(v, (int, float)):
+                        tot[clave] = round(float(v), 2) if clave == "itv" else int(v)
+            if pob:
+                mdl["m07"] = {"pob": pob, "par": par, "tot": tot, "mue": mue}
+        except Exception:  # noqa: BLE001
+            pass
     k08 = _buscar_cedula(carpeta_cedulas, "RQ-008_")
     if k08:
         try:
@@ -191,11 +242,15 @@ def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/cic
         datos_visor = visor.empaquetar(carpeta_cedulas)
     prog = construir_prog(extras)
     mdl = construir_mdl(carpeta_cedulas)
+    # La población del muestreo DO-4 V08 sale del motor (MDL.m07.pob, cédula RQ-007).
+    # Sin cédula procesada → lista vacía: la ventana muestra «PENDIENTE DE PROCESAR».
+    pop07 = (mdl.get("m07") or {}).get("pob", [])
     html = (tmpl
             .replace("__NOMINA_ENC__", json.dumps(enc, ensure_ascii=False))
             .replace("__NOMINA_API__", json.dumps(api, ensure_ascii=False))
             .replace("__NOMINA_MARCA__", json.dumps(marca_panel(engagement)))
             .replace("__NOMINA_PROG__", json.dumps(prog, ensure_ascii=False))
             .replace("__NOMINA_MDL__", json.dumps(mdl, ensure_ascii=False))
+            .replace("__NOMINA_POP07__", json.dumps(pop07, ensure_ascii=False))
             .replace("__NOMINA_VISOR__", json.dumps(datos_visor)))
     return html.encode("utf-8")

@@ -766,9 +766,11 @@ $('#pPrint').onclick=()=>{const w=window.open('','_blank');if(!w){toast('Permita
  w.document.write('<!doctype html><meta charset="utf-8"><title>DO-0 Programa de auditoría</title><style>'+css+'</style>'+h);w.document.close();w.focus();w.print();};
 
 /* ===== v1.20 · DO-4 V08 muestreo y DO-4V vacaciones ===== */
-const POP07=[["1700000011", "ANDES VILLACIS MARIA FERNANDA", 1240.0, 470.0], ["1700000029", "BAZANTES MORA LUIS ALBERTO", 980.5, 470.0], ["1700000037", "CEVALLOS PROANO DIANA CAROLINA", 1510.75, 470.0], ["1700000045", "DELGADO NARANJO JORGE PATRICIO", 760.0, 470.0], ["1700000052", "ESPIN CARRERA VERONICA ELIZABETH", 2100.0, 470.0], ["1700000060", "FLORES ZAMBRANO CARLOS ANDRES", 845.25, 0.0], ["1700000078", "GUERRERO PAEZ ANA LUCIA", 1320.0, 470.0], ["1700000086", "HIDALGO SALAZAR DAVID SEBASTIAN", 690.0, 470.0], ["1700000094", "IZA TOAPANTA GABRIELA ESTEFANIA", 1875.4, 470.0], ["1700000102", "JARAMILLO VACA PABLO ESTEBAN", 1050.0, 0.0]];
+/* Población del muestreo = la del motor (cédula RQ-007, hoja «Población»), inyectada por el
+   render en MDL.m07.pob. Sin procesar → [] y la ventana muestra «PENDIENTE DE PROCESAR». */
+const POP07=__NOMINA_POP07__;
 const MDL=__NOMINA_MDL__;
-const XS={pct:10,key:5,st:2,mk:{}};
+const XS={pct:(MDL.m07&&MDL.m07.par&&+MDL.m07.par.pct)||10,key:(MDL.m07&&MDL.m07.par&&MDL.m07.par.key!=null)?+MDL.m07.par.key:5,st:(MDL.m07&&MDL.m07.par&&+MDL.m07.par.st)||2,mk:{}};
 let xKind='';
 function nomDL(nombre){var t=(window.opener&&window.opener!==window)?window.opener:((window.parent&&window.parent!==window)?window.parent:null);if(t){try{t.postMessage({type:'auditbrain:nomina-descargar',cedula:nombre},'*');toast('Preparando '+nombre+'\u2026');return;}catch(e){}}toast('La descarga se genera desde el Command Center.');}
 function dlMdl(k){const n=MDLMAP[k];if(n)nomDL(n);}
@@ -780,7 +782,10 @@ function sample07(){const N=POP07.length,pct=Math.max(1,Math.min(100,+XS.pct||10
  const pos=[];for(let j=1;j<=m;j++)pos.push(Math.min(rem,Math.round(Math.min(+XS.st||1,itv)+(j-1)*itv)));
  let k=0;const out=[];POP07.forEach((p,i)=>{const isK=rank[i]<=key;let sel=isK;if(!isK){k++;sel=pos.includes(k);}if(sel)out.push({p,tipo:isK?'Clave (mayor D13)':'Sistemática'});});
  return {N,n,key,m,itv,out,d14:POP07.filter(p=>p[3]>0).length};}
-function bodyM07(){const S7=sample07();let ex13=0,ex14=0,pend=0;
+function bodyM07(){
+ if(!POP07.length){$('#xmid').textContent='Pendiente de procesar';
+  return '<div class="xc pd">PENDIENTE DE PROCESAR — ejecute «Procesar» para construir el muestreo de solicitudes de décimos (DO-4 V08) con la población real del motor (cédula RQ-007, hoja «Población»).</div>';}
+ const S7=sample07();let ex13=0,ex14=0,pend=0;
  const rows=S7.out.map((o,i)=>{const id=o.p[0],a=XS.mk[id+'|13']||'',b=XS.mk[id+'|14']||(o.p[3]>0?'':'N/A');if(a==='No')ex13++;if(b==='No')ex14++;if(!a)pend++;if(!b)pend++;
   const sel=(f,v,opts)=>'<select data-mk="'+id+'|'+f+'" aria-label="Solicitud D'+f+' '+pEsc(o.p[1])+'">'+['',...opts].map(x=>'<option'+(x===v?' selected':'')+'>'+x+'</option>').join('')+'</select>';
   return '<tr><td class="c">'+(i+1)+'</td><td>'+id+'</td><td>'+pEsc(o.p[1])+'</td><td class="n">'+xN(o.p[2])+'</td><td class="n">'+xN(o.p[3])+'</td><td>'+o.tipo+'</td><td class="c">'+sel(13,a,['Sí','No'])+'</td><td class="c">'+sel(14,b,['Sí','No','N/A'])+'</td><td class="c">'+((a==='No'||b==='No')?'<b style="color:#e5605a">‡</b>':(a==='Sí'?'✓':''))+'</td></tr>';}).join('');
@@ -926,20 +931,6 @@ function enlazarVisor(){
    s.onclick=ev=>{ev.stopPropagation();openV(m[0],m[1]);};t.appendChild(s);}
  });
 }
-/* Con datos del motor, la población del muestreo DO-4 V08 sale de la cédula RQ-007 (hoja «Población»),
-   no de la población de ejemplo de la plantilla. */
-function visNum(t){const s=String(t||'').replace(/\./g,'').replace(',','.');const n=parseFloat(s);return isNaN(n)?0:n;}
-function visPoblacion07(){
- const L=VIS&&VIS.libros.find(l=>l.c==='DO-4 V08');if(!L)return;const H=L.h.find(h=>/poblaci/i.test(h.n));if(!H)return;
- let hdr=-1,ci={};
- for(let k=0;k<H.r.length&&hdr<0;k++){const f=H.r[k]||[];const ix=f.findIndex(c=>c&&/^c[ée]dula$/i.test(String(c[0]).trim()));
-  if(ix>=0){hdr=k;f.forEach((c,j)=>{if(!c)return;const t=String(c[0]).toLowerCase();if(/^c[ée]dula$/.test(t))ci.ced=j;else if(t==='nombre')ci.nom=j;else if(/d13 acum/.test(t))ci.d13=j;else if(/d14 acum/.test(t))ci.d14=j;});}}
- if(hdr<0||ci.ced==null)return;const out=[];
- for(let k=hdr+1;k<H.r.length;k++){const f=H.r[k]||[];const ced=f[ci.ced];if(!ced||!String(ced[0]).trim())continue;
-  out.push([String(ced[0]),f[ci.nom]?String(f[ci.nom][0]):'',visNum(f[ci.d13]&&f[ci.d13][0]),visNum(f[ci.d14]&&f[ci.d14][0])]);}
- if(out.length){POP07.length=0;out.forEach(x=>POP07.push(x));}
-}
-if(VISOR_GZ){visCargar().then(()=>{visPoblacion07();}).catch(()=>{});}
 const _renderPanelBase=renderPanel;
 renderPanel=function(){_renderPanelBase.apply(this,arguments);enlazarVisor();};
 enlazarVisor();
