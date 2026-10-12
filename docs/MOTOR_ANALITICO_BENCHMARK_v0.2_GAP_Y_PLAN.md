@@ -11,6 +11,27 @@
 > Supersede a `motor-auditoria-analitica/docs/BENCHMARK_GAP_MATRIX_v1.md`
 > (2026-09-24), hoy desactualizado respecto del código.
 
+> **Actualización 2026-10-12 — HITO 0 ejecutado y corrección de este doc.**
+> Al ejecutar el HITO 0 se verificó archivo:línea contra `main` del motor y se
+> encontró que **tres de los cinco ítems ya estaban resueltos** cuando este doc
+> se escribió (el relevamiento quedó desactualizado en esos puntos):
+> - **0.1 `/motor/muestreo`** y **0.2 `/motor/trabajos/{id}/papel`**: **ya
+>   existen** en `servicio/app.py:1157` y `:1138` (motor PR #19, 2026-10-02), con
+>   sus helpers `muestreo_servicio.py` / `papel_muestreo.py` / `papel_bases.py`.
+>   **No había 404 que cerrar.**
+> - **0.4 VTA-010**: **ya trae `nia=`** (`taac_ventas.py:624`). El catálogo está
+>   completo (38/38 con norma NIA).
+> - **0.3** (reglas huérfanas) sí estaba pendiente y **se resolvió**: PRV-006,
+>   GAS-004 y GAS-005 recibieron caller en `demo.correr_reglas`
+>   (motor PR #20); el demo pasó de 441 → 445 excepciones, con test de regresión
+>   que garantiza que las 38 del catálogo tengan caller.
+> - **0.5** `paginas.js`: `bases`/`sri`/`muestras` marcadas `operativa:true`
+>   (plataforma PR #359).
+> - El contador **«38 pruebas»** queda honesto (38 catalogadas = 38 ejecutables).
+>
+> Las tablas y hallazgos abajo se corrigen en consecuencia (marcados «↻ 2026-10-12»).
+> PRs: `motor-auditoria-analitica#20`, `auditbrain-python-runner#359`.
+
 ## 0. Veredicto en una página
 
 El motor es **excepcionalmente fuerte en su núcleo**: analítica determinista
@@ -27,10 +48,11 @@ orden de impacto:
    de trabajos es un `dict` en memoria con `--workers 1` que **se pierde al
    reiniciar**. De esto dependen scheduler, reintentos, historial y monitoreo
    continuo.
-2. **Cableado end-to-end incompleto** — hay **lógica lista que el usuario no puede
-   usar**: 2 endpoints que el frontend llama pero el servicio no expone (→ 404),
-   3 reglas catalogadas sin ruta de ejecución, y secciones con UI+lógica marcadas
-   «en construcción».
+2. **Cableado end-to-end** — *↻ 2026-10-12: resuelto en HITO 0.* Los 2 endpoints
+   (`/motor/muestreo`, `/motor/trabajos/{id}/papel`) **sí existían** en `main`; las
+   **3 reglas** catalogadas sin ruta de ejecución (PRV-006, GAS-004, GAS-005)
+   **ya tienen caller**; `bases`/`sri`/`muestras` quedaron marcadas operativas.
+   Sigue pendiente lo que de verdad falta: secciones nuevas (`reportes`, `niif`).
 3. **Ingesta (§11)** — solo entra xlsx/csv/tsv + XML-SRI; falta **ZIP** (lotes de
    XML del SRI), PDF/DOCX, IESS/bancos. (Conectores a BD/API: fuera por decisión.)
 4. **Capas de 3.ª/4.ª generación** — ML no supervisado (§15 N2), citación
@@ -60,7 +82,7 @@ Estados: ✅ Cubierta · 🟡 Parcial · 🔴 No cubierta · ⭐ Superior · ⚪
 | **Decimal en montos materiales** | ✅ | `nucleo.py:27,46-81` (float solo en estadística no monetaria) |
 | sort/index como primitiva de 1.ª clase | 🟡 | interno (`primitivas.py:492`); falta verbo `ordenar()` |
 | relate multi-tabla encadenable | 🟡 | se cubre con JOIN; no hay RELATE sin materializar |
-| **fuzzy duplicates** | 🔴 | no existe; falta `duplicados_difusos()` |
+| **fuzzy duplicates** | ✅ | *↻ 2026-10-12:* **sí existe** (`motor/similitud.py`, `rapidfuzz`), expuesto por HTTP (`test_analitica_duplicados_difusos_por_http` pasa) |
 | **top/bottom** | 🔴 | no existe verbo dedicado |
 | **regresión básica (OLS)** | 🔴 | no existe |
 
@@ -93,7 +115,7 @@ Estados: ✅ Cubierta · 🟡 Parcial · 🔴 No cubierta · ⭐ Superior · ⚪
 | objetivo, inputs, parámetros, cálculo, excepciones, evidencia | ✅ | `nucleo.py:226-306`, `suficiencia.py:31` |
 | versión + sello (hash ruleset/parámetros) | ✅ | `nucleo.py:237,209`, `exportar_excepciones.py:152,191` |
 | tests unitarios | ✅ | `tests/test_taac*.py` |
-| **norma NIA** | 🟡 | 37/38; **VTA-010 sin `nia=`** (`taac_ventas.py:613`) |
+| **norma NIA** | ✅ | *↻ 2026-10-12:* 38/38; VTA-010 **ya trae `nia=`** (`taac_ventas.py:624`) |
 | **conclusión en el paquete** | 🔴 (por diseño) | el motor no concluye; la firma el auditor |
 | **tests de aceptación por regla (golden)** | 🟡 | hay aceptación agregada (demo), no golden por regla |
 
@@ -115,7 +137,7 @@ Estados: ✅ Cubierta · 🟡 Parcial · 🔴 No cubierta · ⭐ Superior · ⚪
 | matching exacto (clave de acceso SRI) | ✅ | `sri.py:1-13` |
 | structured extraction | 🟡 | limitado a F101/F103 |
 | **layout / bbox** | 🔴 | se descarta la geometría |
-| **matching fuzzy/semántico** | 🔴 | `rapidfuzz` declarado, sin uso |
+| **matching fuzzy/semántico** | 🟡 | *↻ 2026-10-12:* `rapidfuzz` **sí se usa** (dedup difuso, `motor/similitud.py`); falta matching semántico/embeddings para evidencia documental |
 | **citación por página/coordenada** | 🟡 | archivo sí; página/bbox no |
 
 ### §17 Agentes y LLM · §19 IA local
@@ -148,33 +170,38 @@ Estados: ✅ Cubierta · 🟡 Parcial · 🔴 No cubierta · ⭐ Superior · ⚪
 | **cifrado en reposo** (si se persiste) | 🔴 | jobs efímeros hoy |
 | RBAC real (segregación en el encargo) | 🟡 | roles validados; en NIIF «todo ADMIN» |
 | REST + descubribilidad de operaciones | ✅ | `servicio/app.py:278-337` |
-| **endpoints `/motor/muestreo` y `/trabajos/{id}/papel`** | 🔴 | el frontend los llama; **no existen → 404** |
+| **endpoints `/motor/muestreo` y `/trabajos/{id}/papel`** | ✅ | *↻ 2026-10-12:* **ya existen** (`servicio/app.py:1157` y `:1138`, motor PR #19); no hay 404 |
 | **webhooks / eventos push** | 🔴 | solo polling |
 
 ---
 
 ## 2. Estado por SECCIÓN del tool (lo que hay que «terminar»)
 
-La UI define 10 páginas (`frontend/src/aud/motorAnalitico/paginas.js`); solo
-`mayores` está `operativa:true`.
+La UI define 10 páginas (`frontend/src/aud/motorAnalitico/paginas.js`). *↻
+2026-10-12:* además de `mayores`, ahora `bases`, `sri` y `muestras` están
+`operativa:true` (plataforma PR #359), por tener UI+lógica real sobre endpoints
+vivos del motor.
 
 | # | Sección | Estado real | Qué falta para terminarla |
 |---|---|---|---|
 | 1 | **Mayores y diarios** | ✅ OPERATIVA. Corren 8 AST + GAS-006 (`programa.py:38-53`); barreras de cuadre previas | Cablear CON/VTA/PRV/GAS al camino «mayor» (o unificar con el de plantilla); ingesta ERP |
 | 2 | **Estados financieros** | UI real, pero depende del **Motor de balances** (otro servicio), no del motor forense | Es BLOQUE 2; fuera de este motor |
-| 3 | **Bases de datos** (ventas/compras/gastos/proveedores) | Reglas CON/GAS/VTA/PRV **existen y corren** por el camino plantilla (`trabajos.py:131`) | **Falta endpoint de papel** (`/trabajos/{id}/papel` → 404); marcar operativa; 3 reglas huérfanas |
-| 4 | **Cumplimiento SRI** | Mucho backend (parseo `sri.py`, robot de descarga, cruces `app.py:380-762`), UI extensa | Unir descarga→parseo→reglas en un encargo; declarar operatividad |
+| 3 | **Bases de datos** (ventas/compras/gastos/proveedores) | ✅ *↻ 2026-10-12:* reglas CON/GAS/VTA/PRV corren por plantilla; endpoint de papel `/motor/trabajos/{id}/papel` **existe**; 3 reglas huérfanas **cableadas**; marcada operativa | Ingesta ERP; unificar con el camino mayor |
+| 4 | **Cumplimiento SRI** | Mucho backend (parseo `sri.py`, robot de descarga, cruces `app.py:380-762`), UI extensa; *↻ 2026-10-12:* marcada operativa | Unir descarga→parseo→reglas en un solo encargo (HITO 2) |
 | 5 | **Políticas contables NIIF** | 🔴 solo tarjeta `<EnConstruccion>` | Backend completo (es construcción nueva) |
-| 6 | **Selección de muestras** | Backend de cálculo **existe** (MUS/NIA 530, atributos, variables) | **Falta endpoint `/motor/muestreo`** (→ 404) + papel |
+| 6 | **Selección de muestras** | ✅ *↻ 2026-10-12:* backend de cálculo (MUS/NIA 530, atributos, variables) + endpoint `/motor/muestreo` **existen**; marcada operativa | — |
 | 7 | **Reportes** | 🔴 solo tarjeta; el sellado existe a nivel motor | Endpoint de reporte + UI |
 
-**Hallazgos de coherencia (quick wins, alto impacto al usuario):**
-- `/motor/muestreo` y `/motor/trabajos/{id}/papel` **no existen** pero el frontend
-  los llama → **404** en Muestras y en el papel de Bases de datos.
-- **PRV-006, GAS-004, GAS-005** catalogadas pero **sin caller** → nunca corren; la
-  UI dice «38 pruebas» (`MotorAnaliticoTool.jsx:74`) cuando **35** son ejecutables.
-- **VTA-010** sin `nia=`.
-- `bases`, `sri`, `muestras` marcadas `operativa:false` pese a tener UI+lógica real.
+**Hallazgos de coherencia (quick wins) — ↻ 2026-10-12: TODOS RESUELTOS en HITO 0:**
+- ~~`/motor/muestreo` y `/motor/trabajos/{id}/papel` no existen → 404.~~ **Falso al
+  2026-10-11**: ya existían en `main` (motor PR #19, `servicio/app.py:1157` y `:1138`).
+  El doc quedó desactualizado; no había 404.
+- ~~PRV-006, GAS-004, GAS-005 sin caller → «38» vs 35 ejecutables.~~ **Cableadas**
+  en `demo.correr_reglas` (motor PR #20): 38 catalogadas = 38 ejecutables; el
+  contador «38 pruebas» (`MotorAnaliticoTool.jsx:74`) queda honesto.
+- ~~VTA-010 sin `nia=`.~~ **Falso al 2026-10-11**: ya traía `nia=` (`taac_ventas.py:624`).
+- ~~`bases`, `sri`, `muestras` `operativa:false`.~~ Marcadas `operativa:true`
+  (plataforma PR #359).
 
 ---
 
@@ -185,17 +212,23 @@ pruebas (M14) + mutación donde aplique (M20), datos ficticios (M35), PR en
 borrador, **compuerta del socio (M23)**. El motor sigue **sin LLM** (decisión de
 diseño que el benchmark valida).
 
-### HITO 0 — Coherencia y cableado de lo que YA existe *(bajo costo, alto impacto)*
-0.1 Crear endpoint **`/motor/muestreo`** (+ papel) — la lógica ya está en
-   `muestreo.py`/`muestreo_metodos.py`; solo falta exponerla. Cierra el 404 de la
-   sección Muestras.
-0.2 Crear endpoint **`/motor/trabajos/{id}/papel`** (xlsx/html) — cierra el 404 de
-   Bases de datos; reutiliza `exportar_excepciones` (REP-006/REP-013).
-0.3 Dar **ruta de ejecución** a PRV-006, GAS-004, GAS-005 (o retirarlas del
-   catálogo). Alinear el contador «38 pruebas» con lo ejecutable.
-0.4 Añadir `nia=` a **VTA-010**.
-0.5 Corregir `paginas.js`: marcar `bases`, `sri`, `muestras` según su estado real.
-*Criterio:* sin 404 desde el frontend; «N pruebas» = N ejecutables; UI coherente.
+### HITO 0 — Coherencia y cableado de lo que YA existe ✅ *(HECHO 2026-10-12)*
+PRs: `motor-auditoria-analitica#20`, `auditbrain-python-runner#359`.
+- 0.1 Endpoint **`/motor/muestreo`** (+ papel) — ✅ **ya existía** en `main`
+  (`servicio/app.py:1157`, motor PR #19). No había 404.
+- 0.2 Endpoint **`/motor/trabajos/{id}/papel`** (xlsx/html) — ✅ **ya existía**
+  (`servicio/app.py:1138`). No había 404.
+- 0.3 **Ruta de ejecución** a PRV-006, GAS-004, GAS-005 — ✅ **cableadas** en
+  `demo.correr_reglas` (motor PR #20) sobre la población de gastos; test de
+  regresión `tests/test_correr_reglas_cobertura.py` garantiza que ninguna regla
+  del catálogo quede sin caller. Contador «38 pruebas» honesto (38 = 38).
+- 0.4 `nia=` a **VTA-010** — ✅ **ya lo tenía** (`taac_ventas.py:624`).
+- 0.5 `paginas.js`: `bases`, `sri`, `muestras` marcadas `operativa:true`
+  (plataforma PR #359) + test `paginas.test.js`.
+*Criterio cumplido:* sin 404 desde el frontend; «N pruebas» = N ejecutables; UI
+coherente. Verificación: motor `716 passed, 8 skipped`; frontend `53 passed`.
+*Nota:* el relevamiento del 2026-10-11 marcó 0.1/0.2/0.4 como pendientes cuando ya
+estaban en `main`; el único trabajo de código real fue 0.3 (+ coherencia de UI).
 
 ### HITO 1 — Fundación de orquestación/persistencia (§18) *(el más importante)*
 1.1 **Store de trabajos persistente** (Postgres/Redis) en lugar del `dict` en
@@ -252,7 +285,7 @@ diseño que el benchmark valida).
 ## 4. Secuencia recomendada y dependencias
 
 ```
-HITO 0 (coherencia/404)  ── independiente, hacer YA
+HITO 0 (coherencia/404)  ── ✅ HECHO (2026-10-12; PRs motor#20, plataforma#359)
 HITO 1 (persistencia)    ── fundación; habilita scheduler/retries/historial
 HITO 2 (secciones datos) ── depende de HITO 0 (papel/endpoints) y se apoya en HITO 1
 HITO 3 (§13/§15-N1)      ── independiente; aditivo sobre primitivas
@@ -263,9 +296,8 @@ HITO 7 (IA local/API)    ── tras HITO 1
 HITO 8 (reportes/NIIF)   ── último; se apoya en todo lo anterior
 ```
 
-**Arranque sugerido:** HITO 0 (cierra 404 y coherencia, se nota de inmediato) en
-paralelo con el diseño del HITO 1 (persistencia). Cada hito se cierra con su PR y
-tu aprobación (M23).
+**Arranque sugerido:** HITO 0 ✅ hecho. Sigue el **HITO 1** (persistencia), el gap
+más caro y fundación del resto. Cada hito se cierra con su PR y tu aprobación (M23).
 
 ---
 
