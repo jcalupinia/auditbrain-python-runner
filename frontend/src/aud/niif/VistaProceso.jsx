@@ -5,6 +5,7 @@ import { Ejecucion } from "./CicloEjecucion";
 import { Revision } from "./CicloRevision";
 import { ChipDocumento, MapeoManual, VistaTrabajo } from "./CicloVista";
 import { PENDIENTE_MAPEO, prepararBaseTecnica, producir, producirBespoke, revisarColumnas } from "./cicloOrquestacion";
+import { despacharMensajeNomina } from "./nominaPanelBridge";
 import {
   avanceCarga,
   estaProcesada,
@@ -236,6 +237,11 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   const [revisando, setRevisando] = useState(false);
   const manualMapsRef = useRef({});
   const detalleRef = useRef(null);
+  // Ventana del panel de nómina abierta (pestaña nueva con blob URL): se guarda para poder
+  // regenerarlo en la MISMA ventana tras procesar/encerar. El ref de procesar siempre apunta a
+  // la versión fresca de la función (evita el closure viejo del listener de `message`).
+  const panelNominaWinRef = useRef(null);
+  const procesarNominaRef = useRef(null);
 
   // Requerimientos: los del registro si ya se generaron; si no, los de la definición
   // (para pintar las tarjetas antes de preparar la base técnica).
@@ -285,6 +291,7 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
         // Bespoke: el motor lee los archivos crudos; no hay mapeo de columnas.
         await producirBespoke(prueba);
         setAviso("Nómina procesada: ya puede abrir el panel y descargar las cédulas.");
+        await refrescarPanelNomina(); // si el panel está abierto, lo actualiza con los datos nuevos.
         return;
       }
       const param = { ...(d.parametros || {}), ...(reg.parameters || {}) };
@@ -352,6 +359,7 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
       await onAccion("erase", { confirmClient: cliente, downloadConfirmed: true });
       setEncerando(false);
       setCliente("");
+      if (esPanel) await refrescarPanelNomina(); // quedará «PENDIENTE DE PROCESAR».
     } catch (e) {
       setError(e.message || String(e));
     }
@@ -470,13 +478,9 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   // --- Herramienta bespoke (nómina 2.0): panel propio + descargas de cédulas del motor ---
   // Abre el panel (la cara) en una PESTAÑA NUEVA con blob URL (como el tablero). Sus botones
   // de descarga postMessage a ESTA vista (su `window.opener`), que baja la cédula con auth.
-  async function abrirPanelNomina() {
-    const win = window.open("", "_blank");
-    if (!win) {
-      setError("El navegador bloqueó la ventana nueva. Habilitá las ventanas emergentes (pop-ups) para este sitio y volvé a intentar.");
-      return;
-    }
-    win.document.write(_placeholderTablero());
+  // Genera el panel HTML y lo carga en la ventana `win` (ya abierta con el placeholder). Se
+  // reutiliza al abrir el panel y al refrescarlo tras procesar/encerar.
+  async function cargarPanelEn(win) {
     try {
       const bytes = await api.cicloBajarPanelNomina(prueba.id, { timeoutMs: 120000, retries: 1 });
       if (win.closed) return;
@@ -488,6 +492,47 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
       setError(e.message || String(e));
     }
   }
+
+  async function abrirPanelNomina() {
+    const win = window.open("", "_blank");
+    if (!win) {
+      setError("El navegador bloqueó la ventana nueva. Habilitá las ventanas emergentes (pop-ups) para este sitio y volvé a intentar.");
+      return;
+    }
+    win.document.write(_placeholderTablero());
+    panelNominaWinRef.current = win; // se guarda para poder refrescarlo en la misma pestaña.
+    await cargarPanelEn(win);
+  }
+
+  // Regenera el panel en la MISMA ventana que quedó abierta (guardada en el ref) para que
+  // muestre los datos nuevos. Si la ventana se cerró, no hace nada: el blob URL no se puede
+  // reabrir sin un clic del usuario (limitación conocida; vuelve a pulsar «Abrir panel»).
+  async function refrescarPanelNomina() {
+    const win = panelNominaWinRef.current;
+    if (!win || win.closed) return;
+    try { win.document.open(); win.document.write(_placeholderTablero()); win.document.close(); } catch { /* el doc blob puede no permitir write: se navega igual */ }
+    await cargarPanelEn(win);
+  }
+
+  // Procesa la nómina con el motor bespoke a pedido del panel y, al terminar, refresca el panel
+  // (éxito o error: así el botón «Procesar» del panel no queda colgado en «Procesando…»).
+  async function procesarNominaDesdePanel() {
+    if (!esPanel || !prueba.id) return;
+    setTrabajando(true);
+    setError("");
+    setAviso("");
+    try {
+      await producirBespoke(prueba);
+      setAviso("Nómina procesada: el panel se actualizó con los datos nuevos.");
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setTrabajando(false);
+      await onRecargar();
+      await refrescarPanelNomina();
+    }
+  }
+  procesarNominaRef.current = procesarNominaDesdePanel;
 
   async function bajarCedulaNomina(nombre) {
     try {
@@ -506,13 +551,20 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
     }
   }
 
-  // El panel de nómina (pestaña nueva) pide descargar una cédula por postMessage a su opener.
+  // El panel de nómina (pestaña nueva) postea acciones por postMessage a su opener: descargar una
+  // cédula, procesar (motor real) o encerar. Solo vale con `esPanel` y una prueba identificada.
+  // El despacho vive en nominaPanelBridge (puro, testeado); aquí se conectan los handlers reales.
   useEffect(() => {
     if (!esPanel) return undefined;
     const onMensaje = (e) => {
-      const msg = e && e.data;
-      if (!msg || msg.type !== "auditbrain:nomina-descargar" || !msg.cedula) return;
-      bajarCedulaNomina(String(msg.cedula));
+      if (!prueba.id) return;
+      despacharMensajeNomina(e && e.data, {
+        descargar: (cedula) => bajarCedulaNomina(cedula),
+        // Ref: evita el closure viejo del listener y usa la última versión de la función.
+        procesar: () => { if (procesarNominaRef.current) procesarNominaRef.current(); },
+        // No se borra en silencio: dispara la confirmación humana del Command Center (NIA 230).
+        encerar: () => setEncerando(true),
+      });
     };
     window.addEventListener("message", onMensaje);
     return () => window.removeEventListener("message", onMensaje);

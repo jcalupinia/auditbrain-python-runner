@@ -547,8 +547,12 @@ document.addEventListener('click',e=>{
  if(e.target.closest('[data-open]')){openM();return;}
 });
 $('#upAny').onchange=e=>{const fs=[...e.target.files];if(!fs.length||!upTarget)return;(FILES[upTarget]=FILES[upTarget]||[]).push(...fs.map(f=>({name:f.name,size:f.size})));encArm=false;renderPanel();toast(fs.length+' archivo(s) cargado(s)');};
-$('#bProc').onclick=()=>toast('Requerimientos cubiertos. El motor de procesamiento (Python) se conecta en la integración con Claude Code.');
-$('#bEnc').onclick=()=>{if(!encArm){encArm=true;renderPanel();return;}for(const k in FILES)delete FILES[k];encArm=false;renderPanel();toast('Información de la sesión encerada');};
+/* Procesar: acciona el motor REAL vía el Command Center (opener). Da feedback y se deshabilita
+   mientras tanto; al terminar, el Command Center regenera el panel (vuelve a quedar habilitado). */
+$('#bProc').onclick=()=>{if(nomSend('auditbrain:nomina-procesar')){const b=$('#bProc');b.disabled=true;const t=b.querySelector('b');if(t)t.textContent='Procesando…';toast('Procesando la nómina en el Command Center…');}else{toast('El procesamiento se acciona desde el Command Center.');}};
+/* Encerar: NO borra en silencio. Dispara la confirmación del Command Center (el humano confirma
+   con el nombre del cliente). Suelto (sin opener) conserva el borrado local de la sesión. */
+$('#bEnc').onclick=()=>{if(nomSend('auditbrain:nomina-encerar')){toast('Confirme el encerado en el Command Center…');return;}if(!encArm){encArm=true;renderPanel();return;}for(const k in FILES)delete FILES[k];encArm=false;renderPanel();toast('Información de la sesión encerada');};
 $('#cliBtn').onclick=()=>{const s=$('#encSec'),o=s.hidden;s.hidden=!o;$('#cliBtn').setAttribute('aria-expanded',String(o));};
 
 /* Modal */
@@ -772,6 +776,9 @@ const POP07=__NOMINA_POP07__;
 const MDL=__NOMINA_MDL__;
 const XS={pct:(MDL.m07&&MDL.m07.par&&+MDL.m07.par.pct)||10,key:(MDL.m07&&MDL.m07.par&&MDL.m07.par.key!=null)?+MDL.m07.par.key:5,st:(MDL.m07&&MDL.m07.par&&+MDL.m07.par.st)||2,mk:{}};
 let xKind='';
+/* Puente al Command Center (opener): postea una acci\u00f3n del panel. Mismo patr\u00f3n que nomDL.
+   Devuelve true si hab\u00eda un opener/parent al que avisar (false = panel abierto suelto). */
+function nomSend(type){var t=(window.opener&&window.opener!==window)?window.opener:((window.parent&&window.parent!==window)?window.parent:null);if(t){try{t.postMessage({type:type},'*');return true;}catch(e){}}return false;}
 function nomDL(nombre){var t=(window.opener&&window.opener!==window)?window.opener:((window.parent&&window.parent!==window)?window.parent:null);if(t){try{t.postMessage({type:'auditbrain:nomina-descargar',cedula:nombre},'*');toast('Preparando '+nombre+'\u2026');return;}catch(e){}}toast('La descarga se genera desde el Command Center.');}
 function dlMdl(k){const n=MDLMAP[k];if(n)nomDL(n);}
 document.addEventListener('click',e=>{const m=e.target.closest('[data-mdl]');if(m){dlMdl(m.dataset.mdl);}});
