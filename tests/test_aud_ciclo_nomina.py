@@ -262,6 +262,17 @@ def test_render_nt_null_sin_procesar():
     assert re.search(r"const NT_MOTOR=null;", html)
 
 
+def test_panel_trae_deficiencias_ci_do1():
+    """DO-1 → carta de control interno: la ventana de Hallazgos trae la pestaña «Deficiencias CI
+    (DO-1)» que lista las observaciones del cuestionario (ítems No/Parcial) como deficiencias de
+    control, junto a los hallazgos cuantificados del DO-12. Es lógica del panel (no toca el motor)."""
+    html = np.render({"client": "Empresa de Ejemplo S.A.", "firm": "AuditConsulting"}, 7).decode()
+    assert "Deficiencias CI (DO-1)" in html          # etiqueta de la pestaña
+    assert "function pCI(" in html and "function parseObs(" in html
+    # El texto de cada deficiencia sale del cuestionario DO-1 (obsText/obsList), no del motor.
+    assert "obsList()" in html and "carta de control interno" in html
+
+
 def test_render_precarga_do1_guardado():
     """render inyecta __NOMINA_DO1__ con el estado guardado del cuestionario (fuente de verdad);
     sin estado queda en null y el panel cae a su borrador local (localStorage)."""

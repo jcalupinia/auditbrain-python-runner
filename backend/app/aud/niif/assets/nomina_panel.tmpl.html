@@ -779,15 +779,36 @@ const PTABS=[['Programa',()=>pProg()],
  ['Hallazgos (DO-12)',()=>'<div class="pg">'+PROG.h12.map(h=>'<details><summary><span class="ref">H-'+h[0]+'</span><span class="tt">'+pEsc(h[1])+'</span><span class="es '+(h[8]==='Ajuste contable'||h[8]==='Reclasificación'?'pv':'nx')+'">'+pEsc(h[8])+'</span><span class="es">'+pNum(h[6])+'</span></summary><div class="bd"><div class="kv">'
    +[['Condición',h[2]],['Criterio',h[3]],['Causa',h[4]],['Efecto',h[5]],['Referencia',h[7]],['Recomendación',h[9]]].map(([k,v])=>'<b>'+k+'</b><span>'+pEsc(v)+'</span>').join('')+'</div></div></details>').join('')+'</div>'],
  ['Ajustes propuestos',()=>pTable(['Asiento','Cuenta','Descripción','Debe','Haber','Hallazgo'],PROG.aj,[3,4])+'<h4 style="margin:14px 0 6px">Efecto en saldos (DO-2)</h4>'+pTable(['Rubro','Saldo en libros','Ajuste','Saldo auditado','Ref.'],PROG.efe,[1,2,3])],
- ['Normativa',()=>pTable(['Tema','Fuente','Regla aplicada','Código interno'],PROG.norm)]];
+ ['Normativa',()=>pTable(['Tema','Fuente','Regla aplicada','Código interno'],PROG.norm)],
+ /* DO-1 → carta de control interno: las observaciones del cuestionario de control interno
+    laboral (ítems «No»/«Parcial», obsList()) se presentan aquí como deficiencias de control,
+    junto a los hallazgos cuantificados del DO-12. Alimentan la carta de control interno. */
+ ['Deficiencias CI (DO-1)',()=>pCI()]];
+/* Parte el texto de la carta (obsText) en Condición/Criterio/Efecto/Recomendación para la
+   grilla kv; si el auditor lo reescribió y no reconoce las etiquetas, muestra el texto crudo. */
+function parseObs(txt){
+ const campos=[],etq=['Condición','Criterio','Efecto','Recomendación'];const lineas=String(txt||'').split('\n');
+ lineas.forEach(l=>{const m=l.match(/^\s*(Condición|Criterio|Efecto|Recomendación)\s*:\s*(.*)$/);if(m)campos.push([m[1],m[2]]);});
+ return campos.length?campos:null;
+}
+function pCI(){
+ const ob=obsList();
+ if(!ob.length)return '<div class="vload">Sin deficiencias de control interno: ningún ítem del cuestionario DO-1 quedó en «No» o «Parcial». Las observaciones del DO-1 (ítems incumplidos) se listan aquí y alimentan la carta de control interno.</div>';
+ return '<div class="pg"><p class="tiny" style="margin:0 0 10px">Observaciones del cuestionario de control interno laboral (DO-1 · RQ-001): cada ítem en «No»/«Parcial» es una deficiencia de control que se traslada a la carta de control interno. Edítelas desde «Evaluación de Control Interno Laboral».</p>'
+  +ob.map(it=>{const a=eff(it),campos=parseObs(obsText(it));
+   const cuerpo=campos?('<div class="kv">'+campos.map(([k,v])=>'<b>'+pEsc(k)+'</b><span>'+pEsc(v)+'</span>').join('')+'</div>')
+     :('<pre style="white-space:pre-wrap;margin:0;font:inherit">'+pEsc(obsText(it))+'</pre>');
+   return '<details><summary><span class="ref">CI-'+it.n+'</span><span class="tt">'+pEsc(it.req.split(/[:.;]/)[0])+'</span><span class="es '+(it.riesgo==='Alto'?'nx':'pv')+'">Riesgo '+pEsc(it.riesgo)+'</span><span class="es">'+pEsc(a)+'</span></summary><div class="bd">'+cuerpo+'</div></details>';}).join('')+'</div>';
+}
 function renderP(){
  $('#pLogo').src=logo();$('#pCli').textContent=ENC.cliente+' · Ejercicio '+ENC.ejercicio+' · alcance 100% de la población';
  $('#ptabs').innerHTML=PTABS.map((t,i)=>'<button role="tab" class="'+(i===pTab?'on':'')+'" data-pt="'+i+'">'+t[0]+'</button>').join('');
  if(!PROG.prog.length){$('#pb').innerHTML='<div class="vload">PENDIENTE DE PROCESAR — ejecute «Procesar» para generar el programa (DO-0), los hallazgos y los ajustes (DO-12) desde el motor.</div>';$('#pmid').textContent='Pendiente de procesar';$('#pExp').style.display='none';return;}
  $('#pb').innerHTML=PTABS[pTab][1]();
  const n=PROG.prog.length,t=PROG.prog.filter(p=>p.est.startsWith('Terminada')).length;
- $('#pmid').textContent=t+' de '+n+' pruebas terminadas · '+PROG.h12.length+' hallazgos';
- $('#pExp').style.display=(pTab===0||pTab===2)?'':'none';
+ const ci=obsList().length;
+ $('#pmid').textContent=t+' de '+n+' pruebas terminadas · '+PROG.h12.length+' hallazgos'+(ci?' · '+ci+' deficiencias de control (DO-1)':'');
+ $('#pExp').style.display=(pTab===0||pTab===2||pTab===5)?'':'none';
 }
 function openP(t){if(typeof t==='number')pTab=t;$('#ovP').classList.add('on');document.body.style.overflow='hidden';renderP();}
 function closeP(){$('#ovP').classList.remove('on');document.body.style.overflow='';}
@@ -795,12 +816,14 @@ $('#pClose').onclick=closeP;$('#pClose2').onclick=closeP;
 $('#ptabs').onclick=e=>{const b=e.target.closest('[data-pt]');if(b){pTab=+b.dataset.pt;renderP();$('#pb').scrollTop=0;}};
 $('#pExp').onclick=()=>{const ds=[...document.querySelectorAll('#pb details')],all=ds.every(d=>d.open);ds.forEach(d=>d.open=!all);$('#pExp').textContent=all?'Desplegar todo':'Contraer todo';};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#ovP').classList.contains('on'))closeP();});
-$('#pXlsx').onclick=()=>{nomDL(pTab>=2&&pTab<=3?'DO-12_Hallazgos_y_Ajustes.xlsx':'DO-0_Programa_Auditoria_Nomina.xlsx');};
+$('#pXlsx').onclick=()=>{if(pTab===5){toast('Las deficiencias del DO-1 se exportan desde «Evaluación de Control Interno Laboral» (HTML / Word / PDF).');return;}nomDL(pTab>=2&&pTab<=3?'DO-12_Hallazgos_y_Ajustes.xlsx':'DO-0_Programa_Auditoria_Nomina.xlsx');};
 $('#pPrint').onclick=()=>{const w=window.open('','_blank');if(!w){toast('Permita ventanas emergentes para imprimir');return;}
  const css='body{font:12px Arial;color:#111;margin:24px}h1{font-size:16px}h2{font-size:13px;margin:18px 0 6px;color:#0f2341}table{width:100%;border-collapse:collapse;margin-bottom:8px}th{background:#0f2341;color:#fff;text-align:left;padding:4px}td{border:1px solid #ccc;padding:4px;vertical-align:top}.kv td:first-child{width:140px;font-weight:bold;background:#eef2f8}';
  let h='<h1>Programa de auditoría de nómina (DO-0) — '+pEsc(ENC.cliente)+' — Ejercicio '+pEsc(ENC.ejercicio)+'</h1>';
  PROG.prog.forEach(p=>{h+='<h2>'+pEsc(p.ref)+' · '+pEsc(p.t)+' — '+pEsc(p.est)+'</h2><table class="kv">'+[['Objetivo',p.obj],['Aserciones',p.aser],['Insumos',p.ins],['Criterio',p.crit],['Resultado',p.res],['Hallazgo',p.hall]].map(([k,v])=>'<tr><td>'+k+'</td><td>'+pEsc(v)+'</td></tr>').join('')+'</table><table><tr><th>Paso</th><th>Procedimiento</th></tr>'+p.pasos.map(x=>'<tr><td>'+x[0]+'</td><td>'+pEsc(x[1])+'</td></tr>').join('')+'</table>';});
  h+='<h2>DO-12 Hallazgos</h2>'+PROG.h12.map(x=>'<table class="kv"><tr><td>H-'+x[0]+'</td><td><b>'+pEsc(x[1])+'</b> ('+pEsc(x[8])+' · '+pNum(x[6])+')</td></tr>'+[['Condición',x[2]],['Criterio',x[3]],['Causa',x[4]],['Efecto',x[5]],['Recomendación',x[9]]].map(([k,v])=>'<tr><td>'+k+'</td><td>'+pEsc(v)+'</td></tr>').join('')+'</table>').join('')+'<h2>Ajustes propuestos</h2>'+pTable(['Asiento','Cuenta','Descripción','Debe','Haber','Hallazgo'],PROG.aj,[3,4]);
+ const ob=obsList();
+ if(ob.length)h+='<h2>Deficiencias de control interno (DO-1 → carta de control interno)</h2>'+ob.map(it=>'<table class="kv"><tr><td>CI-'+it.n+'</td><td><b>'+pEsc(it.req.split(/[:.;]/)[0])+'</b> (Riesgo '+pEsc(it.riesgo)+' · '+pEsc(eff(it))+')</td></tr>'+(parseObs(obsText(it))||[['Observación',obsText(it)]]).map(([k,v])=>'<tr><td>'+pEsc(k)+'</td><td>'+pEsc(v)+'</td></tr>').join('')+'</table>').join('');
  w.document.write('<!doctype html><meta charset="utf-8"><title>DO-0 Programa de auditoría</title><style>'+css+'</style>'+h);w.document.close();w.focus();w.print();};
 
 /* ===== v1.20 · DO-4 V08 muestreo y DO-4V vacaciones ===== */
