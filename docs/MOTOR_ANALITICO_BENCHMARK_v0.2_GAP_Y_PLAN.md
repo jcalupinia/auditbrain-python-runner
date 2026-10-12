@@ -44,10 +44,12 @@ deliberadamente SIN LLM** («Python calcula, el LLM no recalcula»).
 Lo que falta para igualar el benchmark se concentra en **cuatro frentes**, en
 orden de impacto:
 
-1. **Fundación de orquestación/persistencia (§18)** — el gap más caro: el almacén
-   de trabajos es un `dict` en memoria con `--workers 1` que **se pierde al
-   reiniciar**. De esto dependen scheduler, reintentos, historial y monitoreo
-   continuo.
+1. **Fundación de orquestación/persistencia (§18)** — *↻ 2026-10-12: resuelto en
+   HITO 1.* El store de trabajos ahora es persistente (Postgres vía `DATABASE_URL`,
+   motor #21), con idempotencia (#21), cancelación (#22) y scheduler por cron (#23);
+   reintentos e historial ya existían. Default sigue en memoria sin la env.
+   Pendiente aparte: persistir las fuentes subidas (raw zone) y repartir la
+   ejecución entre procesos.
 2. **Cableado end-to-end** — *↻ 2026-10-12: resuelto en HITO 0.* Los 2 endpoints
    (`/motor/muestreo`, `/motor/trabajos/{id}/papel`) **sí existían** en `main`; las
    **3 reglas** catalogadas sin ruta de ejecución (PRV-006, GAS-004, GAS-005)
@@ -156,8 +158,8 @@ Estados: ✅ Cubierta · 🟡 Parcial · 🔴 No cubierta · ⭐ Superior · ⚪
 |---|---|---|
 | jobs asíncronos (202 + polling) | ✅ | `servicio/app.py:835,879` |
 | logs estructurados, aislamiento por encargo | ✅🟡 | `app.py:171`, `trabajos.py:110` |
-| **store de trabajos persistente** | 🔴 | `trabajos.py:76` `dict` en memoria, `--workers 1`, se pierde al reiniciar |
-| **scheduler, retries, idempotencia, cancelación, colas por prioridad** | 🔴 | no existen |
+| **store de trabajos persistente** | ✅ | *↻ 2026-10-12 (HITO 1.1, motor #21):* `servicio/store.py` `StoreSQL` (Postgres vía `DATABASE_URL`); sobrevive a reinicios. Default sigue en memoria sin la env |
+| **scheduler, retries, idempotencia, cancelación** | ✅ | *↻ 2026-10-12 (HITO 1, #21/#22/#23):* retries (previo), idempotencia (#21), cancelación (#22), scheduler `/motor/continuo/tick` por cron (#23). Colas por prioridad: no (fuera de alcance) |
 | límites CPU/mem por job | 🟡 | hay `MAX_BYTES`, rate-limit, `MAX_PENDIENTES` |
 
 ### §20 Seguridad y trazabilidad · §7 API
@@ -167,7 +169,7 @@ Estados: ✅ Cubierta · 🟡 Parcial · 🔴 No cubierta · ⭐ Superior · ⚪
 | hash de archivos, sello REP-013, versión reglas/parámetros | ✅ | `exportar_excepciones.py:125-191` |
 | secretos por env, clave SRI no registrada | ✅ | `token.py:37`, `app.py:454` |
 | **audit log append-only persistente del encargo** | 🟡 | solo Forge; overrides en memoria |
-| **cifrado en reposo** (si se persiste) | 🔴 | jobs efímeros hoy |
+| **cifrado en reposo** (si se persiste) | 🟡 | *↻ 2026-10-12:* con `DATABASE_URL` los trabajos se persisten (HITO 1.1); el cifrado en reposo queda a cargo del Postgres gestionado (infra), aún no verificado en el repo |
 | RBAC real (segregación en el encargo) | 🟡 | roles validados; en NIIF «todo ADMIN» |
 | REST + descubribilidad de operaciones | ✅ | `servicio/app.py:278-337` |
 | **endpoints `/motor/muestreo` y `/trabajos/{id}/papel`** | ✅ | *↻ 2026-10-12:* **ya existen** (`servicio/app.py:1157` y `:1138`, motor PR #19); no hay 404 |
@@ -230,13 +232,32 @@ coherente. Verificación: motor `716 passed, 8 skipped`; frontend `53 passed`.
 *Nota:* el relevamiento del 2026-10-11 marcó 0.1/0.2/0.4 como pendientes cuando ya
 estaban en `main`; el único trabajo de código real fue 0.3 (+ coherencia de UI).
 
-### HITO 1 — Fundación de orquestación/persistencia (§18) *(el más importante)*
-1.1 **Store de trabajos persistente** (Postgres/Redis) en lugar del `dict` en
-   memoria (`trabajos.py:76`); sobrevive a reinicios y `--workers > 1`.
-1.2 **Idempotencia** (key = `sha256(datos)+parámetros`), **reintentos**, **cancelación**.
-1.3 **Historial de corridas** y comparación contra corrida previa (base de monitoreo continuo).
-1.4 **Scheduler** (APScheduler/Render Cron) para ejecuciones programadas.
-*Criterio:* un job sobrevive a redeploy; re-ejecución idempotente; historial consultable.
+### HITO 1 — Fundación de orquestación/persistencia (§18) ✅ *(HECHO 2026-10-12)*
+PRs del motor: #21 (store + idempotencia), #22 (cancelación), #23 (scheduler).
+Al ejecutarlo se verificó que **1.2-reintentos y 1.3 ya existían** en `main`.
+- 1.1 **Store de trabajos persistente** — ✅ `servicio/store.py`: interfaz
+  `StoreTrabajos` + `StoreEnMemoria` (default) y `StoreSQL` (SQLAlchemy, SQLite en
+  pruebas / **Postgres en prod vía `DATABASE_URL`**). Un trabajo sobrevive a un
+  redeploy y lo ven todos los procesos. (#21)
+- 1.2 **Idempotencia** — ✅ `crear()` reutiliza una corrida `listo` idéntica previa
+  (clave = encargo + origen + sha del contenido + parámetros + versión del
+  catálogo); **reintentos** ✅ (ya existían, backoff 1s/2s/4s); **cancelación** ✅
+  `POST /motor/trabajos/{id}/cancelar` (en cola se cancela de verdad; procesando
+  termina en `cancelado` en el próximo punto seguro). (#21, #22)
+- 1.3 **Historial de corridas + comparación** — ✅ ya existía
+  (`servicio/historial.py` SQLite sellado REP-013 + `continuo.py`).
+- 1.4 **Scheduler** — ✅ `POST /motor/continuo/tick` (barrido de monitores
+  vencidos) disparado por un cron externo (Render Cron / systemd timer), autenticado
+  con `MOTOR_CRON_SECRET`. Evalúa las fuentes server-reachable (hoy `demo`); las de
+  `mayor`/`plantilla` siguen con el heartbeat del navegador. (#23)
+*Criterio cumplido:* un job sobrevive a redeploy; re-ejecución idempotente;
+historial consultable. Suite del motor: 749 passed, 8 skipped.
+*Activación en prod (Render):* setear `DATABASE_URL` (Postgres) y `MOTOR_CRON_SECRET`
++ un cron al tick. Sin esas variables el servicio sigue idéntico.
+*Pendientes del §18 como decisión aparte (no en estos PRs):* persistir las fuentes
+subidas (raw zone cifrada) para monitores de `mayor`/`plantilla` desatendidos
+(toca privacidad), y el reparto de la ejecución entre procesos (hoy el registro se
+comparte, pero la ejecución vive en el proceso que creó el trabajo).
 
 ### HITO 2 — Completar las secciones de datos (§13/§14 de entrega)
 2.1 **Bases de datos operativa end-to-end**: papel por base (ventas/compras/gastos/
@@ -286,7 +307,7 @@ estaban en `main`; el único trabajo de código real fue 0.3 (+ coherencia de UI
 
 ```
 HITO 0 (coherencia/404)  ── ✅ HECHO (2026-10-12; PRs motor#20, plataforma#359)
-HITO 1 (persistencia)    ── fundación; habilita scheduler/retries/historial
+HITO 1 (persistencia)    ── ✅ HECHO (2026-10-12; PRs motor#21/#22/#23)
 HITO 2 (secciones datos) ── depende de HITO 0 (papel/endpoints) y se apoya en HITO 1
 HITO 3 (§13/§15-N1)      ── independiente; aditivo sobre primitivas
 HITO 4 (ingesta)         ── independiente; ZIP es el de mayor retorno diario
@@ -296,8 +317,10 @@ HITO 7 (IA local/API)    ── tras HITO 1
 HITO 8 (reportes/NIIF)   ── último; se apoya en todo lo anterior
 ```
 
-**Arranque sugerido:** HITO 0 ✅ hecho. Sigue el **HITO 1** (persistencia), el gap
-más caro y fundación del resto. Cada hito se cierra con su PR y tu aprobación (M23).
+**Arranque sugerido:** HITO 0 y HITO 1 ✅ hechos. Sigue el **HITO 2** (completar
+secciones de datos: Bases de datos end-to-end, Cumplimiento SRI unificado, cablear
+familias al camino mayor) o el **HITO 3** (§13/§15-N1, aditivo). Cada hito se cierra
+con su PR y tu aprobación (M23).
 
 ---
 
