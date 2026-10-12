@@ -51,6 +51,11 @@ class ComentarioIn(BaseModel):
     asistente: bool = False
 
 
+class NominaDo1In(BaseModel):
+    # Estado del cuestionario DO-1 (objeto `S` del panel sin los logos). Se persiste tal cual.
+    estado: dict = Field(default_factory=dict)
+
+
 def _proyecto(db: Session, user: User, project_id: int):
     p = get_project(db, project_id, user.organization_id) if user.organization_id else None
     if p is None or not user_can_access_project(db, user, p):
@@ -493,11 +498,26 @@ def panel_nomina(prueba_id: int, db: Session = Depends(get_db),
                 # «PENDIENTE DE PROCESAR») en lugar de devolver un error al auditor.
                 carpeta = None
                 extras = None
-        html = nomina_panel_html.render(engagement, p.id, carpeta_cedulas=carpeta, extras=extras)
+        html = nomina_panel_html.render(engagement, p.id, carpeta_cedulas=carpeta, extras=extras,
+                                        do1_estado=servicio.leer_do1(p))
     finally:
         if tmp:
             shutil.rmtree(tmp, ignore_errors=True)
     return Response(html, media_type="text/html; charset=utf-8")
+
+
+@router.post("/pruebas/{prueba_id}/nomina-do1")
+def guardar_nomina_do1(prueba_id: int, payload: NominaDo1In, db: Session = Depends(get_db),
+                       user: User = Depends(require_staff)) -> dict:
+    """Guarda el estado del cuestionario DO-1 (control interno laboral MDT/IESS) DENTRO de la
+    prueba, para que las respuestas del auditor viajen con ella y no dependan del ``localStorage``
+    del navegador. El panel lo llama con cada cambio (autosave con rebote)."""
+    p = _prueba_nomina(db, user, prueba_id)
+    try:
+        servicio.guardar_do1(db, p, payload.estado)
+    except ReglaIncumplida as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return {"ok": True}
 
 
 @router.get("/pruebas/{prueba_id}/cedula-nomina/{nombre}")

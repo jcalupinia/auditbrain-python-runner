@@ -7,11 +7,13 @@ export const MENSAJES_NOMINA = {
   DESCARGAR: "auditbrain:nomina-descargar",
   PROCESAR: "auditbrain:nomina-procesar",
   ENCERAR: "auditbrain:nomina-encerar",
+  GUARDAR_DO1: "auditbrain:nomina-do1-guardar",
 };
 
 // Despacha un mensaje del panel a los handlers dados. Valida SIEMPRE `msg.type`. Devuelve la
-// acción ejecutada ("descargar" | "procesar" | "encerar") o null si el mensaje no es del panel
-// (sin type, type desconocido, o descargar sin cédula). Cada handler es opcional.
+// acción ejecutada ("descargar" | "procesar" | "encerar" | "guardar-do1") o null si el mensaje no
+// es del panel (sin type, type desconocido, descargar sin cédula, o guardar-do1 sin estado).
+// Cada handler es opcional.
 //
 // Importante: "encerar" solo invoca `handlers.encerar` (en la app = disparar la confirmación);
 // nunca borra por su cuenta. Así el borrado real pasa por el flujo de confirmación humana.
@@ -28,6 +30,12 @@ export function despacharMensajeNomina(msg, handlers = {}) {
     case MENSAJES_NOMINA.ENCERAR:
       handlers.encerar?.();
       return "encerar";
+    // Autosave del cuestionario DO-1: persiste su estado dentro de la prueba. Requiere un
+    // objeto `estado`; sin él no es un mensaje válido del panel.
+    case MENSAJES_NOMINA.GUARDAR_DO1:
+      if (!msg.estado || typeof msg.estado !== "object") return null;
+      handlers.guardarDo1?.(msg.estado);
+      return "guardar-do1";
     default:
       return null;
   }

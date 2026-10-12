@@ -601,6 +601,15 @@ export async function cicloBajarCedulaNomina(pruebaId, nombre, fetchOpts = {}) {
   if (!res.ok) await parse(res);
   return new Uint8Array(await res.arrayBuffer());
 }
+// Guarda el estado del cuestionario DO-1 (control interno laboral MDT/IESS) DENTRO de la prueba,
+// para que viaje con ella y no dependa del localStorage del navegador. Autosave del panel.
+export async function cicloGuardarDo1Nomina(pruebaId, estado, fetchOpts = {}) {
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/nomina-do1`, {
+    method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ estado }),
+  }, fetchOpts);
+  return parse(res);
+}
 // Las 15 cédulas del motor de nómina en un ZIP.
 export async function cicloBajarCedulasNomina(pruebaId, fetchOpts = {}) {
   const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/cedulas-nomina`, { headers: authHeaders() }, fetchOpts);

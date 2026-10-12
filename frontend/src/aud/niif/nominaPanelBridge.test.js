@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { MENSAJES_NOMINA, despacharMensajeNomina } from "./nominaPanelBridge";
 
 describe("nominaPanelBridge · despacho de acciones del panel", () => {
-  const handlers = () => ({ descargar: vi.fn(), procesar: vi.fn(), encerar: vi.fn() });
+  const handlers = () => ({ descargar: vi.fn(), procesar: vi.fn(), encerar: vi.fn(), guardarDo1: vi.fn() });
 
   it("procesar: llama al flujo de procesar (y solo a ese)", () => {
     const h = handlers();
@@ -37,6 +37,23 @@ describe("nominaPanelBridge · despacho de acciones del panel", () => {
     const h = handlers();
     expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.DESCARGAR }, h)).toBeNull();
     expect(h.descargar).not.toHaveBeenCalled();
+  });
+
+  it("guardar-do1: pasa el estado del cuestionario al handler", () => {
+    const h = handlers();
+    const estado = { nt: 25, ans: { 33: "Sí" }, obs: { 33: "ok" } };
+    expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.GUARDAR_DO1, estado }, h)).toBe("guardar-do1");
+    expect(h.guardarDo1).toHaveBeenCalledWith(estado);
+    expect(h.procesar).not.toHaveBeenCalled();
+    expect(h.descargar).not.toHaveBeenCalled();
+    expect(h.encerar).not.toHaveBeenCalled();
+  });
+
+  it("guardar-do1 sin estado (o no-objeto): null, no guarda", () => {
+    const h = handlers();
+    expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.GUARDAR_DO1 }, h)).toBeNull();
+    expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.GUARDAR_DO1, estado: "x" }, h)).toBeNull();
+    expect(h.guardarDo1).not.toHaveBeenCalled();
   });
 
   it("mensaje ajeno o sin type: null, ningún handler", () => {

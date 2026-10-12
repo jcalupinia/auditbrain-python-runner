@@ -262,6 +262,24 @@ def test_render_nt_null_sin_procesar():
     assert re.search(r"const NT_MOTOR=null;", html)
 
 
+def test_render_precarga_do1_guardado():
+    """render inyecta __NOMINA_DO1__ con el estado guardado del cuestionario (fuente de verdad);
+    sin estado queda en null y el panel cae a su borrador local (localStorage)."""
+    import json
+    import re
+
+    estado = {"nt": 100, "ntManual": True, "ans": {"33": "Sí"}, "obs": {"33": "Tiene reglamento"},
+              "step": 2, "done": False}
+    html = np.render({"client": "Empresa de Ejemplo S.A.", "firm": "AuditConsulting"},
+                     7, do1_estado=estado).decode()
+    assert "__NOMINA_DO1__" not in html  # placeholder reemplazado
+    saved = json.loads(re.search(r"const DO1_SAVED=(\{.*?\});", html).group(1))
+    assert saved == estado
+    # Sin estado guardado → null.
+    vacio = np.render({"client": "Empresa de Ejemplo S.A.", "firm": "AuditConsulting"}, 7).decode()
+    assert re.search(r"const DO1_SAVED=null;", vacio)
+
+
 def _carpeta_con_rq007(tmp_path, n=12, selecc=4):
     """Carpeta con una cédula RQ-007 ficticia (valores literales, legible sin LibreOffice):
     hoja «Ficha» con los parámetros, «Parámetros» con los totales y «Población» con n filas,
@@ -416,6 +434,33 @@ def test_panel_nomina_sirve_html_con_el_encargo(client):
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
     assert FICHA["client"] in r.text and FICHA["ruc"] in r.text
     assert f'"pruebaId": {pr["id"]}' in r.text
+
+
+def test_do1_se_guarda_en_la_prueba_y_se_precarga(client):
+    """El estado del DO-1 se persiste DENTRO de la prueba (no en el localStorage) y el panel lo
+    precarga en __NOMINA_DO1__ la próxima vez que se abre."""
+    import json
+    import re
+
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    estado = {"nt": 25, "ntManual": True, "ans": {"33": "Sí", "36": "No"},
+              "obs": {"36": "Falta el comité paritario"}, "step": 1, "done": False}
+    r = client.post(f"{BASE}/pruebas/{pr['id']}/nomina-do1", headers=_h(tok), json={"estado": estado})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    # Al reabrir el panel, el estado viaja en DO1_SAVED (precarga desde la prueba).
+    html = client.get(f"{BASE}/pruebas/{pr['id']}/panel-nomina", headers=_h(tok)).text
+    saved = json.loads(re.search(r"const DO1_SAVED=(\{.*?\});", html).group(1))
+    assert saved == estado
+
+
+def test_do1_rechaza_estado_invalido(client):
+    """estado que no es objeto → 400 (no se corrompe el registro de la prueba)."""
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    r = client.post(f"{BASE}/pruebas/{pr['id']}/nomina-do1", headers=_h(tok),
+                    json={"estado": "no-soy-un-objeto"})
+    assert r.status_code == 422  # pydantic rechaza el tipo antes de llegar al servicio
 
 
 def test_cedulas_piden_datos_minimos(client):
