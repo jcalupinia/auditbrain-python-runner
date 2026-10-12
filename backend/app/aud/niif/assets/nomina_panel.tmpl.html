@@ -436,13 +436,21 @@ const FIRMS={partner:{name:'Partner Auditing Cía. Ltda.',ini:'PA',tag:'AUDITORE
 /* Encargo: el Command Center lo inyecta por postMessage {type:'auditbrain:encargo', encargo:{...}} o por #encargo=<base64 JSON> */
 let ENC=__NOMINA_ENC__;
 const NOMAPI=__NOMINA_API__;
+/* Nº de trabajadores activos al corte tomado del MOTOR (cédula VAC). Es el valor por defecto
+   del cuestionario DO-1: con él, autoNA/eff resuelven solos los ítems por umbral. null = prueba
+   sin procesar (el auditor digita el número a mano, como antes). */
+const NT_MOTOR=__NOMINA_NT__;
 const MDLMAP={"vacx": "VAC_Calculadora_Vacaciones_No_Gozadas.xlsx", "k08": "RQ-008_Kardex_Vacaciones.xlsx", "m07": "RQ-007_Muestreo_Solicitudes_Decimos.xlsx"};
 try{const h=location.hash.match(/encargo=([^&]+)/);if(h)Object.assign(ENC,JSON.parse(decodeURIComponent(escape(atob(h[1])))));}catch(e){}
 const key=()=>'ab-cil:'+ENC.ruc+'-'+ENC.ejercicio+'-'+String(ENC.visita).toLowerCase();
 let S={clientLogo:null,nt:null,ans:{},ref:{},obs:{},draft:{},override:{},step:0,done:false,logo:null};
 function load(){try{const r=localStorage.getItem(key());if(r)S=Object.assign(S,JSON.parse(r));}catch(e){}}
 function save(){try{localStorage.setItem(key(),JSON.stringify(S));}catch(e){}}
-load();
+/* Aplica el Nº de trabajadores del motor como valor por defecto, salvo que el auditor lo haya
+   fijado a mano (S.ntManual). Se vuelve a aplicar en cada load() para seguir sincronizado si el
+   motor reporta otro número al reprocesar. S.ntFromMotor = traza de que el número vino del motor. */
+function aplicarNtMotor(){if(NT_MOTOR!=null&&!S.ntManual){S.nt=NT_MOTOR;S.ntFromMotor=true;}else{S.ntFromMotor=false;}}
+load();aplicarNtMotor();
 
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -582,12 +590,17 @@ function renderIni(){
  const f=FIRMS[ENC.firma]||FIRMS.partner;const n=S.nt;
  let h='<div class="bh"><div class="ic"><svg viewBox="0 0 24 24">'+ICONS.S+'</svg></div><div style="flex:1"><h3>Datos del encargo y aplicabilidad</h3><p>Los datos se heredan de la Ficha del encargo. El único dato nuevo es el número de trabajadores, que resuelve la aplicabilidad de forma automática.</p></div></div>';
  h+='<div class="card"><div class="grid">'+[['Cliente',ENC.cliente],['RUC',ENC.ruc],['Período auditado',ENC.ejercicio],['Fecha de corte',ENC.corte],['Firma auditora',f.name],['Preparado por',ENC.preparado||'(desde la Ficha)'],['Revisado por',ENC.revisado||'(desde la Ficha)']].map(([k,v])=>'<div class="kv"><span>'+k+'</span><b>'+esc(v)+'</b></div>').join('')+'</div>';
- h+='<div style="margin-top:14px;max-width:340px"><label class="tiny" for="nt">Nº de trabajadores en relación de dependencia (al corte)</label><input id="nt" type="number" min="1" step="1" inputmode="numeric" value="'+(n??'')+'" placeholder="Ej. 245"><div class="err" id="ntErr"></div></div></div>';
+ h+='<div style="margin-top:14px;max-width:360px"><label class="tiny" for="nt">Nº de trabajadores en relación de dependencia (al corte)</label><input id="nt" type="number" min="1" step="1" inputmode="numeric" value="'+(n??'')+'" placeholder="Ej. 245"><div class="err" id="ntErr"></div>'+ntMotorHint()+'</div></div>';
  h+='<div class="card"><h2>Umbrales de aplicabilidad</h2><div class="tw"><table class="t"><thead><tr><th>Umbral</th><th>¿Aplica?</th><th>Obligaciones relacionadas</th></tr></thead><tbody id="umbBody">'+umbRows(n)+'</tbody></table></div>';
  h+='<p class="tiny" style="margin:10px 0 0">Ítems con base normativa por confirmar en Fiel Web antes del campo: 7, 27, 46, 47, 52 y 54 (se señalan con la marca «Confirmar»).</p></div>';
  $('#mb').innerHTML=h;
- $('#nt').oninput=e=>{const v=parseInt(e.target.value,10);S.nt=v>0?v:null;$('#ntErr').textContent='';save();$('#umbBody').innerHTML=umbRows(S.nt);};
+ $('#nt').oninput=e=>{const v=parseInt(e.target.value,10);S.nt=v>0?v:null;S.ntManual=true;S.ntFromMotor=false;$('#ntErr').textContent='';save();$('#umbBody').innerHTML=umbRows(S.nt);const hm=$('#ntMotor');if(hm)hm.outerHTML=ntMotorHint();const rb=$('#ntReset');if(rb)rb.onclick=ntReset;};
+ const rb=$('#ntReset');if(rb)rb.onclick=ntReset;
 }
+/* Pista de trazabilidad bajo el campo: si el número vino del motor lo dice; si el auditor lo
+   fijó a mano, marca que es manual y ofrece volver al valor de la nómina. Sin NT_MOTOR, vacío. */
+function ntMotorHint(){if(NT_MOTOR==null)return '';return '<div class="tiny" id="ntMotor" style="margin-top:5px;color:var(--na)">'+(S.ntFromMotor?'Tomado de la nómina (motor): <b style="color:var(--gold)">'+NT_MOTOR+'</b> trabajadores activos al corte · puede editarlo':'Valor manual. La nómina (motor) reporta '+NT_MOTOR+' activos al corte · <button type="button" id="ntReset" style="background:none;border:none;color:var(--gold);cursor:pointer;text-decoration:underline;padding:0;font:inherit">usar el de la nómina</button>')+'</div>';}
+function ntReset(){S.ntManual=false;aplicarNtMotor();save();renderIni();updMid();}
 function renderBlk(b){
  const list=blkItems(b),st=stats(list),pct=Math.round((st.tot-st.pend)/st.tot*100);
  let h='<div class="bh"><div class="ic"><svg viewBox="0 0 24 24">'+ICONS[b]+'</svg></div><div style="flex:1"><h3>'+b+'. '+esc(Q.blocks[b].charAt(0)+Q.blocks[b].slice(1).toLowerCase())+'</h3><p>'+BLK_DESC[b]+' · '+list.length+' ítems</p><div class="bar"><i style="width:'+pct+'%"></i></div></div></div>';
@@ -727,7 +740,7 @@ $('#logoFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new F
 $('#cliFile').onchange=e=>{const f=e.target.files[0];if(!f)return;normImg(f,d=>{S.clientLogo=d;save();renderPanel();toast('Logo del cliente incluido');});e.target.value='';};
 $('#cliDel').onclick=()=>{S.clientLogo=null;save();renderPanel();toast('Logo del cliente retirado');};
 $('#logoReset').onclick=()=>{S.logo=null;save();toast('Logo oficial de la firma');};
-window.addEventListener('message',e=>{const d=e.data;if(d&&d.type==='auditbrain:encargo'&&d.encargo){Object.assign(ENC,d.encargo);load();renderPanel();}});
+window.addEventListener('message',e=>{const d=e.data;if(d&&d.type==='auditbrain:encargo'&&d.encargo){Object.assign(ENC,d.encargo);load();aplicarNtMotor();renderPanel();}});
 renderPanel();
 
 /* ===== Programa de auditoría (DO-0) ===== */
