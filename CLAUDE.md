@@ -883,3 +883,170 @@ pruebas de la auditoría de ese cliente). El servidor es un lugar de paso y limp
   estructurado `{code: "PRUEBA_ABIERTA_EXISTE", pruebaId, …}` (HTTP 409); el frontend
   (`PruebasEncargo.jsx`) abre esa prueba para modificarla. Las APROBADAS no bloquean: corregirlas
   es, por diseño, una versión nueva. Test: `test_no_se_crea_una_prueba_abierta_duplicada`.
+
+## ⚠️ OBLIGATORIA PARA TODAS LAS TAREAS — Facilitar las pruebas al usuario y proporcionar URLs verificadas
+
+**REGLA OBLIGATORIA (decisión del dueño, 2026-10-12).** Aplica a TODAS las tareas de
+este repositorio, sin excepción, además de la «Regla suprema» del inicio de este archivo.
+
+### 1. No basta con modificar el código
+
+Cuando termines una tarea, debes ayudar al usuario a comprobar personalmente que los cambios funcionan.
+
+No debes limitarte a decir «terminado», «corregido» o «ya funciona».
+
+Debes explicar:
+
+- Qué modificaste.
+- Qué comportamiento debería cambiar.
+- Qué pruebas ejecutaste realmente.
+- Qué pruebas pasaron y cuáles fallaron.
+- Qué debe probar manualmente el usuario.
+- Dónde debe entrar para encontrar su entorno de prueba en Render.
+
+Nunca afirmes que una prueba fue ejecutada o aprobada si no tienes evidencia de su ejecución.
+
+### 2. OBLIGATORIO: proporcionar el enlace real de Render
+
+Cada vez que una tarea requiera probar cambios desplegados, debes intentar localizar el Preview Environment correspondiente al Pull Request de esa tarea.
+
+Busca las URLs reales en las fuentes disponibles, como:
+
+- El Pull Request correspondiente en GitHub.
+- La sección de despliegues del Pull Request.
+- El enlace `View deployment`.
+- El Preview Environment y sus servicios en el Dashboard de Render.
+
+Debes presentar los resultados en una sección visible llamada:
+
+**ENLACE PARA PROBAR MI CAMBIO**
+
+Incluye, cuando corresponda:
+
+- **Pull Request:** enlace real al PR de GitHub.
+- **Frontend de prueba:** URL real del Preview.
+- **Portal de clientes:** URL real del Preview, si la tarea lo afecta.
+- **Backend de prueba:** URL real del backend de Preview y su estado.
+- **Base de datos:** confirma si existe una base de datos independiente para ese Preview, sin mostrar credenciales.
+- **Estado del entorno:** pendiente, desplegándose, listo o fallido.
+- **Pruebas automáticas:** resultados comprobados de GitHub Actions.
+- **Pruebas manuales pendientes:** acciones que todavía deba realizar el usuario.
+
+No todos los trabajos requieren una modificación del frontend. Incluye únicamente los recursos pertinentes a la tarea y explica los que no correspondan.
+
+### 3. PROHIBIDO INVENTAR URLs, DESPLIEGUES O RESULTADOS
+
+Esta regla tiene prioridad sobre cualquier deseo de dar una respuesta aparentemente completa.
+
+**NUNCA inventes, supongas, deduzcas ni construyas una URL de Render o GitHub y la presentes como si estuviera verificada.**
+
+En particular:
+
+- No construyas una URL suponiendo que Render utiliza un patrón determinado con el nombre del servicio, la rama o el número del Pull Request.
+- No afirmes que un Preview existe porque la rama o el PR existen.
+- No afirmes que un despliegue terminó porque el código se subió correctamente.
+- No afirmes que los cuatro recursos están disponibles cuando solamente verificaste uno.
+- No inventes resultados de GitHub Actions, pruebas, logs, conexiones o bases de datos.
+- No presentes una URL de producción como si fuera una URL de Preview.
+- No confundas un despliegue individual de un servicio con un entorno completo de Preview.
+
+Para presentar un enlace como verificado, debes haberlo obtenido de una fuente real disponible en GitHub o Render y comprobar que corresponde a la tarea actual.
+
+Si no puedes acceder a las fuentes necesarias, indica expresamente:
+
+**«No he podido verificar la URL real del Preview; no voy a inventarla».**
+
+Después, indica al usuario exactamente dónde debe hacer clic para encontrarla, por ejemplo:
+
+`GitHub → Pull Requests → PR de la tarea → sección de despliegues → View deployment`
+
+Adapta esta ruta a la interfaz real que el usuario tenga disponible. Si el enlace todavía no existe, explica que el Preview aún no se ha creado o no está listo.
+
+### 4. VERIFICAR QUE EL PREVIEW SEA EL CORRECTO
+
+Antes de declarar listo un entorno de prueba, comprueba lo siguiente, siempre que sea aplicable:
+
+1. El frontend de Preview tiene una URL propia y está desplegado.
+2. El frontend utiliza el backend del mismo Preview, nunca el backend de producción.
+3. El portal de clientes utiliza el backend del mismo Preview cuando corresponda.
+4. El backend de Preview utiliza PostgreSQL de ese Preview, nunca la base de producción.
+5. La configuración de CORS permite el origen del frontend correspondiente.
+6. Los servicios relevantes han terminado de desplegarse y no están en estado fallido.
+7. Las variables y credenciales necesarias para probar están configuradas de manera segura.
+
+No muestres contraseñas, tokens, cookies, claves de API ni URLs completas de conexión que contengan credenciales.
+
+No des por comprobado el aislamiento de la base de datos únicamente porque exista una variable `DATABASE_URL`. Verifica, sin revelar secretos, que su destino corresponde a la base de datos del Preview.
+
+Si algún punto no puede comprobarse, indícalo como pendiente. No des por validado el entorno completo.
+
+### 5. GUIAR AL USUARIO PARA PROBAR SU TAREA
+
+Debes proporcionar instrucciones específicas según el cambio realizado.
+
+Por ejemplo, si se modificó un formulario:
+
+1. Indica qué URL de prueba abrir.
+2. Indica qué módulo y pantalla visitar.
+3. Explica qué datos ficticios introducir.
+4. Describe qué botón pulsar y qué resultado debería aparecer.
+5. Explica cómo comprobar que se guardó o actualizó correctamente.
+6. Indica qué error buscar si no funciona.
+7. Explica qué captura, mensaje o información debe enviarte el usuario si necesita ayuda.
+
+Si se modificó el backend, una API, un proceso de datos, una integración o una tarea automatizada, proporciona instrucciones de comprobación apropiadas para esa funcionalidad.
+
+No des instrucciones genéricas cuando puedas ofrecer pasos concretos.
+
+No solicites utilizar datos reales de clientes ni ejecutar operaciones destructivas en producción para validar una tarea.
+
+### 6. SI EL PREVIEW FALLA, CONTINUAR CON LA MISMA TAREA
+
+Cuando el usuario informe de un problema durante las pruebas:
+
+1. Analiza el mensaje de error, los logs y el código correspondiente.
+2. Identifica la causa probable y distingue los hechos comprobados de las hipótesis.
+3. Corrige la misma rama del Pull Request cuando corresponda.
+4. Ejecuta las pruebas pertinentes.
+5. Sube la corrección a la misma rama.
+6. Comprueba si Render actualizó el Preview y si el nuevo despliegue finalizó.
+7. Recupera nuevamente las URLs verificadas.
+8. Indica al usuario si debe recargar la página o repetir alguna operación.
+
+No inventes que Render ya terminó el despliegue si no puedes comprobarlo.
+
+### 7. REGLAS DE GIT Y PRODUCCIÓN
+
+- Nunca trabajes directamente sobre `main`.
+- Nunca hagas push directo a `main`.
+- No fusiones Pull Requests automáticamente.
+- No despliegues manualmente a producción para comprobar una tarea.
+- No elimines ni sobrescribas cambios pendientes de otros trabajos.
+- Mantén una rama por tarea y un Pull Request por cambio independiente.
+- Ejecuta las pruebas pertinentes antes de entregar el trabajo.
+- Mantén secretos fuera del código y de los logs.
+
+El usuario debe poder revisar y probar los cambios antes de que se integren en `main`.
+
+### 8. FORMATO OBLIGATORIO DE LA RESPUESTA FINAL
+
+Siempre que una tarea implique código que deba probarse, termina con esta estructura:
+
+**RESUMEN DEL CAMBIO**
+Qué se modificó y dónde.
+
+**ENLACE PARA PROBAR MI CAMBIO**
+Enlace real verificado o indicación explícita de que todavía no está disponible, junto con los pasos para encontrarlo.
+
+**ESTADO DE LAS PRUEBAS**
+Tests locales, checks de GitHub y estado real de los despliegues. Distingue los resultados comprobados de los pendientes.
+
+**CÓMO PROBARLO**
+Pasos concretos para que el usuario compruebe su funcionalidad.
+
+**PENDIENTES**
+Errores conocidos, limitaciones y validaciones que todavía falten.
+
+No elimines las secciones relevantes simplemente porque todavía no puedes completarlas. Marca el estado como pendiente y explica qué falta.
+
+La prioridad es ayudar al usuario a encontrar fácilmente el entorno de prueba y validar cada cambio sin afectar producción. La veracidad es obligatoria: cuando no sepas una URL o no puedas comprobar un resultado, dilo con claridad en lugar de inventarlo.
