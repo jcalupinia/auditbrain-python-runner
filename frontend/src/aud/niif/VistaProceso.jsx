@@ -447,7 +447,11 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   async function bajarFormato(ext, tipo) {
     try {
       const base = `${(d.name || "Planificacion").replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}`;
-      descargar(`${base}.${ext}`, await api.cicloBajarLibro(prueba.id, ext), tipo);
+      // Timeout largo y UN solo intento: armar el papel (Excel con fórmulas, Word, HTML con los
+      // Office incrustados) tarda en el worker único de Render, sobre todo tras un arranque en
+      // frío. Con el default (60s + 4 reintentos) el fetch abortaba y RE-lanzaba el build varias
+      // veces, saturando el worker → la descarga nunca terminaba. Mismo criterio que abrir el tablero.
+      descargar(`${base}.${ext}`, await api.cicloBajarLibro(prueba.id, ext, null, true, { timeoutMs: 180000, retries: 1 }), tipo);
     } catch (e) {
       setError(e.message || String(e));
     }
