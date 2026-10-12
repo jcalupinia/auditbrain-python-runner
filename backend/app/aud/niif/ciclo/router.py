@@ -84,8 +84,13 @@ def _salida(p: Prueba) -> dict:
 
 
 def _regla(fn):
+    from backend.app.aud.niif.procesadores import concurrencia
     try:
         return fn()
+    except concurrencia.ProcesoOcupado as e:
+        # El servidor está al tope de procesos pesados (motor + LibreOffice). Se pide reintentar
+        # en vez de apilar trabajo hasta agotar la memoria (OOM) de la instancia única.
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
     except ReglaIncumplida as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     except servicio.Conflicto as e:
@@ -474,35 +479,17 @@ def panel_nomina(prueba_id: int, db: Session = Depends(get_db),
     Si la prueba ya se procesó (``registro['run']``), el panel lleva el visor con las 15 cédulas
     de la última ejecución, recalculadas con LibreOffice para que cada fórmula tenga su valor en
     caché. Si no se ha procesado, el visor va vacío y las tarjetas dicen «PENDIENTE DE PROCESAR»."""
-    import shutil
-    import tempfile
-
     p = _prueba_nomina(db, user, prueba_id)
     from backend.app.aud.niif.procesadores import nomina_panel_html
-    from backend.app.aud.niif.procesadores.nomina import recalc
 
     engagement = (p.registro or {}).get("engagement") or {}
-    tmp = None
-    carpeta = None
-    extras = None
-    try:
-        if (p.registro or {}).get("run"):
-            # Prueba procesada: regenera las cédulas del motor, lee los JSON de sus ventanas
-            # propias (prog.json / do12.json) y recalcula las cédulas en una carpeta.
-            try:
-                cedulas, extras = servicio.correr_nomina(db, p, con_extras=True)
-                tmp = tempfile.mkdtemp(prefix="nomina_panel_")
-                carpeta = recalc.recalcular(cedulas, tmp)
-            except Exception:  # noqa: BLE001
-                # Si el motor o el recálculo fallan, el panel se sirve sin visor (tarjetas
-                # «PENDIENTE DE PROCESAR») en lugar de devolver un error al auditor.
-                carpeta = None
-                extras = None
-        html = nomina_panel_html.render(engagement, p.id, carpeta_cedulas=carpeta, extras=extras,
-                                        do1_estado=servicio.leer_do1(p))
-    finally:
-        if tmp:
-            shutil.rmtree(tmp, ignore_errors=True)
+    # Cédulas recalculadas para el visor, CON CACHÉ por prueba + límite de concurrencia: si la
+    # prueba ya se procesó y los insumos no cambiaron, reutiliza el recalc sin re-correr motor
+    # ni LibreOffice. Si el servidor está ocupado o el recalc falla, devuelve None y el panel se
+    # abre igual, sin visor (degradación suave) — nunca deja de abrir por carga.
+    carpeta, extras = servicio.recalc_nomina(db, p)
+    html = nomina_panel_html.render(engagement, p.id, carpeta_cedulas=carpeta, extras=extras,
+                                    do1_estado=servicio.leer_do1(p))
     return Response(html, media_type="text/html; charset=utf-8")
 
 
@@ -526,13 +513,16 @@ def descargar_cedula_nomina(prueba_id: int, nombre: str, db: Session = Depends(g
     """Una de las 15 cédulas del motor de nómina (xlsx), generada al vuelo desde los archivos
     de la prueba (como el papel genérico, que tampoco se persiste)."""
     p = _prueba_nomina(db, user, prueba_id)
+    from backend.app.aud.niif.procesadores import concurrencia
     from backend.app.aud.niif.procesadores import nomina_beneficios as nb
     if nombre not in nb.CEDULAS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cédula de nómina no reconocida.")
     try:
-        cedulas = servicio.correr_nomina(db, p)
+        cedulas = servicio.cedulas_nomina(db, p)
     except ReglaIncumplida as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except concurrencia.ProcesoOcupado as e:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
     data = cedulas.get(nombre)
     if data is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="La cédula no está disponible todavía.")
@@ -549,10 +539,13 @@ def descargar_cedulas_nomina(prueba_id: int, db: Session = Depends(get_db),
     import zipfile
 
     p = _prueba_nomina(db, user, prueba_id)
+    from backend.app.aud.niif.procesadores import concurrencia
     try:
-        cedulas = servicio.correr_nomina(db, p)
+        cedulas = servicio.cedulas_nomina(db, p)
     except ReglaIncumplida as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except concurrencia.ProcesoOcupado as e:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for nom, by in cedulas.items():

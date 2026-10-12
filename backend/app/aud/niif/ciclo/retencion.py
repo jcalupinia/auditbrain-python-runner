@@ -112,6 +112,8 @@ def purgar_prueba(db, p: Prueba) -> None:
     # Los archivos se borran del disco DESPUÉS de confirmar la base: si fallara,
     # queda una carpeta huérfana (la barre el cleanup), nunca una fila sin archivo.
     almacen.borrar_prueba(pid)
+    from backend.app.aud.niif.ciclo import nomina_cache
+    nomina_cache.invalidar(pid)  # libera la caché del motor (cédulas + recalc) de la prueba
 
 
 def purgar_once() -> dict:

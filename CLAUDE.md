@@ -884,6 +884,32 @@ pruebas de la auditoría de ese cliente). El servidor es un lugar de paso y limp
   (`PruebasEncargo.jsx`) abre esa prueba para modificarla. Las APROBADAS no bloquean: corregirlas
   es, por diseño, una versión nueva. Test: `test_no_se_crea_una_prueba_abierta_duplicada`.
 
+## Concurrencia: semáforo de proceso pesado + caché del motor de nómina (anti-OOM)
+
+**REGLA (decisión del dueño, 2026-10-12):** el backend corre en **una sola instancia**
+(`render.yaml`, plan `standard`, ~1 CPU / 2 GB, `uvicorn` **sin `--workers`**, sin autoescalado).
+Con 6-7 auditores en paralelo, varios «Procesar»/paneles disparaban varios **LibreOffice** a la
+vez y la instancia **superaba su memoria (OOM) → Render la reiniciaba → se caía para todos**
+(confirmado por el correo «exceeded its memory limit»). Dos defensas, ambas EN PROCESO (válidas
+mientras haya una sola instancia/worker; si se escala horizontal habría que moverlas a algo
+compartido tipo Redis):
+
+- **Semáforo** (`backend/app/aud/niif/procesadores/concurrencia.py`): limita a N procesos
+  pesados simultáneos (`AUD_PROCESO_PESADO_MAX`, def. **1**; subir al ampliar el plan). Si no hay
+  cupo en `AUD_PROCESO_PESADO_TIMEOUT_S` (def. 90) lanza `ProcesoOcupado` → el router responde
+  **HTTP 429** «reintente» en vez de apilar trabajo hasta el OOM. Envuelve SOLO el trabajo pesado
+  (motor + LibreOffice), nunca una lectura de caché barata.
+- **Caché por prueba** (`backend/app/aud/niif/ciclo/nomina_cache.py`): el panel y las descargas de
+  cédulas **ya no re-corren el motor + LibreOffice en cada apertura/descarga**; se reutiliza el
+  resultado mientras los insumos/ficha no cambien. Firma = `sha256`/tamaño de cada archivo fuente
+  + ficha (si cambia un archivo, se recalcula sola); se invalida además al **Procesar**
+  (`_run_bespoke`, que además calienta la caché), **Encerar** y **purgar** (retención). Tope
+  `AUD_NOMINA_CACHE_MAX` (def. 6) pruebas. Las cédulas (bytes) viven en memoria; el recalc en
+  `<tmp>/nomina_cache` (se limpia al arrancar el proceso).
+- Helpers en `servicio`: `cedulas_nomina` (descargas, caché+semáforo, 429) y `recalc_nomina`
+  (panel, caché+semáforo; si está ocupado o falla, el panel abre **sin visor** — nunca deja de
+  abrir). Tests: `tests/test_aud_concurrencia_cache.py`.
+
 ## ⚠️ OBLIGATORIA PARA TODAS LAS TAREAS — Facilitar las pruebas al usuario y proporcionar URLs verificadas
 
 **REGLA OBLIGATORIA (decisión del dueño, 2026-10-12).** Aplica a TODAS las tareas de
