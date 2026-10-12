@@ -534,6 +534,16 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   }
   procesarNominaRef.current = procesarNominaDesdePanel;
 
+  // Autosave del cuestionario DO-1 pedido por el panel: persiste su estado dentro de la prueba.
+  // Es de fondo: si falla (red, prueba ya purgada) no se interrumpe al auditor; el panel conserva
+  // su copia en localStorage y reintenta en el próximo cambio.
+  async function guardarDo1Nomina(estado) {
+    if (!prueba.id || !estado) return;
+    try {
+      await api.cicloGuardarDo1Nomina(prueba.id, estado);
+    } catch { /* guardado de fondo: no romper el panel por un fallo de red */ }
+  }
+
   async function bajarCedulaNomina(nombre) {
     try {
       descargar(nombre, await api.cicloBajarCedulaNomina(prueba.id, nombre, { timeoutMs: 180000, retries: 1 }), XLSX);
@@ -564,6 +574,8 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
         procesar: () => { if (procesarNominaRef.current) procesarNominaRef.current(); },
         // No se borra en silencio: dispara la confirmación humana del Command Center (NIA 230).
         encerar: () => setEncerando(true),
+        // Autosave del cuestionario DO-1: lo persiste dentro de la prueba, en silencio.
+        guardarDo1: (estado) => guardarDo1Nomina(estado),
       });
     };
     window.addEventListener("message", onMensaje);

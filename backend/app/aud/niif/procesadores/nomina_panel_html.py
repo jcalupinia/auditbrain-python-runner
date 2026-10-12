@@ -262,7 +262,8 @@ def derivar_nt(carpeta_cedulas: str | None) -> int | None:
 
 
 def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/ciclo",
-           carpeta_cedulas: str | None = None, extras: dict | None = None) -> bytes:
+           carpeta_cedulas: str | None = None, extras: dict | None = None,
+           do1_estado: dict | None = None) -> bytes:
     """HTML del panel con el encargo inyectado. ``prueba_id`` enlaza los botones al motor.
 
     ``carpeta_cedulas``: carpeta con las cédulas YA RECALCULADAS (LibreOffice) que produjo el
@@ -278,6 +279,11 @@ def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/cic
     motor (``derivar_nt``): el cuestionario DO-1 lo usa como valor por defecto de ``S.nt`` para
     resolver la aplicabilidad de los ítems por umbral sin que el auditor lo digite (``null`` sin
     procesar; el auditor siempre puede sobrescribirlo).
+
+    ``do1_estado`` es el estado guardado del cuestionario DO-1 dentro de la prueba
+    (``servicio.leer_do1``): se inyecta en ``__NOMINA_DO1__`` para que el panel PRECARGUE las
+    respuestas del auditor desde la prueba (fuente de verdad) en vez del ``localStorage`` del
+    navegador. ``None`` → el panel cae a su borrador local, como antes.
 
     Sin ``extras`` ni ``carpeta_cedulas`` (prueba no procesada) el panel inyecta estructuras
     VACÍAS y las ventanas muestran «PENDIENTE DE PROCESAR», como el visor."""
@@ -306,5 +312,6 @@ def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/cic
             .replace("__NOMINA_MDL__", json.dumps(mdl, ensure_ascii=False))
             .replace("__NOMINA_POP07__", json.dumps(pop07, ensure_ascii=False))
             .replace("__NOMINA_NT__", json.dumps(nt))
+            .replace("__NOMINA_DO1__", json.dumps(do1_estado, ensure_ascii=False))
             .replace("__NOMINA_VISOR__", json.dumps(datos_visor)))
     return html.encode("utf-8")

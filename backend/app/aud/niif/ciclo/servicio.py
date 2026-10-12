@@ -1212,6 +1212,40 @@ def args_papel(db: Session, p: Prueba) -> tuple:
     return (p.definicion, reg, _eventos_papel(db, p), p.version, p.estado)
 
 
+# Clave del estado del cuestionario DO-1 (control interno laboral MDT/IESS) dentro del registro.
+DO1_KEY = "nomina_do1"
+# Tope defensivo: el DO-1 son ~30 ítems con respuesta + ref + observación; no debe pesar como
+# un adjunto. 256 KiB deja holgura de sobra sin permitir que el panel guarde un blob gigante.
+_DO1_MAX_BYTES = 256 * 1024
+
+
+def leer_do1(p: Prueba) -> dict | None:
+    """Estado guardado del cuestionario DO-1 de esta prueba (el objeto ``S`` del panel sin los
+    logos), o ``None`` si no se ha guardado. Lo inyecta el panel para precargar las respuestas."""
+    est = (p.registro or {}).get(DO1_KEY)
+    return est if isinstance(est, dict) else None
+
+
+def guardar_do1(db: Session, p: Prueba, estado: dict) -> dict:
+    """Persiste el estado del cuestionario DO-1 DENTRO del registro de la prueba.
+
+    Antes el DO-1 vivía solo en el ``localStorage`` del navegador: se perdía al cambiar de equipo
+    o de pestaña y no viajaba con la prueba. Ahora la fuente de verdad es el registro; el panel
+    lo precarga desde aquí y lo guarda con cada cambio (autosave con rebote). ``estado`` es el
+    objeto ``S`` del panel (respuestas, referencias, observaciones, overrides, Nº de trabajadores,
+    paso, done) SIN los logos (cosméticos, grandes). Devuelve lo guardado."""
+    if not isinstance(estado, dict):
+        raise ReglaIncumplida("El estado del DO-1 debe ser un objeto.")
+    if len(json.dumps(estado, ensure_ascii=False).encode("utf-8")) > _DO1_MAX_BYTES:
+        raise ReglaIncumplida("El estado del DO-1 es demasiado grande para guardarlo en la prueba.")
+    reg = dict(p.registro or {})
+    reg[DO1_KEY] = estado
+    p.registro = reg
+    db.add(p)
+    db.commit()
+    return estado
+
+
 def marcar_descargada(db: Session, p: Prueba) -> None:
     """Registra que el usuario descargó el papel. La retención borra la prueba una
     breve gracia después (y en todo caso a las 8 h de creada): el Command Center es

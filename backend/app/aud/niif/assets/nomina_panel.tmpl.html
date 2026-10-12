@@ -440,12 +440,33 @@ const NOMAPI=__NOMINA_API__;
    del cuestionario DO-1: con él, autoNA/eff resuelven solos los ítems por umbral. null = prueba
    sin procesar (el auditor digita el número a mano, como antes). */
 const NT_MOTOR=__NOMINA_NT__;
+/* Estado guardado del cuestionario DO-1 DENTRO de la prueba (servicio.leer_do1). Es la fuente
+   de verdad: si viene, el panel lo precarga en vez del localStorage del navegador. null = sin
+   guardado previo (prueba nueva o sin procesar) → cae al borrador local, como antes. */
+const DO1_SAVED=__NOMINA_DO1__;
 const MDLMAP={"vacx": "VAC_Calculadora_Vacaciones_No_Gozadas.xlsx", "k08": "RQ-008_Kardex_Vacaciones.xlsx", "m07": "RQ-007_Muestreo_Solicitudes_Decimos.xlsx"};
 try{const h=location.hash.match(/encargo=([^&]+)/);if(h)Object.assign(ENC,JSON.parse(decodeURIComponent(escape(atob(h[1])))));}catch(e){}
 const key=()=>'ab-cil:'+ENC.ruc+'-'+ENC.ejercicio+'-'+String(ENC.visita).toLowerCase();
 let S={clientLogo:null,nt:null,ans:{},ref:{},obs:{},draft:{},override:{},step:0,done:false,logo:null};
-function load(){try{const r=localStorage.getItem(key());if(r)S=Object.assign(S,JSON.parse(r));}catch(e){}}
-function save(){try{localStorage.setItem(key(),JSON.stringify(S));}catch(e){}}
+/* Precarga el DO-1. Fuente de verdad = el estado guardado en la prueba (DO1_SAVED); si no hay,
+   cae al localStorage del navegador (borrador local / compat con lo guardado antes del cambio). */
+function load(){
+  if(DO1_SAVED&&typeof DO1_SAVED==='object'){S=Object.assign(S,DO1_SAVED);return;}
+  try{const r=localStorage.getItem(key());if(r)S=Object.assign(S,JSON.parse(r));}catch(e){}
+}
+/* Copia persistible del estado SIN los logos (cosméticos y grandes): esos quedan solo en el
+   navegador; lo que viaja con la prueba son las respuestas/observaciones del cuestionario. */
+function estadoPersistible(){const c=Object.assign({},S);delete c.logo;delete c.clientLogo;return c;}
+/* Guarda el DO-1 en el localStorage (inmediato, por si no hay opener) y en la prueba (con rebote,
+   porque save() se llama en cada tecla de una observación). El guardado en la prueba lo hace el
+   Command Center al recibir el postMessage; aquí solo lo pedimos. */
+let _persistDo1T=null;
+function persistDo1Prueba(){
+  if(!(NOMAPI&&NOMAPI.pruebaId))return;
+  clearTimeout(_persistDo1T);
+  _persistDo1T=setTimeout(()=>{nomGuardarDo1(estadoPersistible());},800);
+}
+function save(){try{localStorage.setItem(key(),JSON.stringify(S));}catch(e){}persistDo1Prueba();}
 /* Aplica el Nº de trabajadores del motor como valor por defecto, salvo que el auditor lo haya
    fijado a mano (S.ntManual). Se vuelve a aplicar en cada load() para seguir sincronizado si el
    motor reporta otro número al reprocesar. S.ntFromMotor = traza de que el número vino del motor. */
@@ -793,6 +814,11 @@ let xKind='';
    Devuelve true si hab\u00eda un opener/parent al que avisar (false = panel abierto suelto). */
 function nomSend(type){var t=(window.opener&&window.opener!==window)?window.opener:((window.parent&&window.parent!==window)?window.parent:null);if(t){try{t.postMessage({type:type},'*');return true;}catch(e){}}return false;}
 function nomDL(nombre){var t=(window.opener&&window.opener!==window)?window.opener:((window.parent&&window.parent!==window)?window.parent:null);if(t){try{t.postMessage({type:'auditbrain:nomina-descargar',cedula:nombre},'*');toast('Preparando '+nombre+'\u2026');return;}catch(e){}}toast('La descarga se genera desde el Command Center.');}
+/* Pide al Command Center guardar el estado del DO-1 DENTRO de la prueba. Devuelve true si hab\u00eda
+   opener/parent al que avisar. Sin opener (panel suelto) el DO-1 queda solo en el localStorage. */
+function nomGuardarDo1(estado){var t=(window.opener&&window.opener!==window)?window.opener:((window.parent&&window.parent!==window)?window.parent:null);if(t){try{t.postMessage({type:'auditbrain:nomina-do1-guardar',estado:estado},'*');return true;}catch(e){}}return false;}
+/* Al cerrar la pesta\u00f1a, vac\u00eda el rebote y guarda ya: as\u00ed no se pierden los \u00faltimos cambios. */
+window.addEventListener('beforeunload',function(){if(NOMAPI&&NOMAPI.pruebaId){clearTimeout(_persistDo1T);nomGuardarDo1(estadoPersistible());}});
 function dlMdl(k){const n=MDLMAP[k];if(n)nomDL(n);}
 document.addEventListener('click',e=>{const m=e.target.closest('[data-mdl]');if(m){dlMdl(m.dataset.mdl);}});
 const xN=v=>Number(v||0).toLocaleString('es-EC',{minimumFractionDigits:2,maximumFractionDigits:2});
