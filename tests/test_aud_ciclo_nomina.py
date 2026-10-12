@@ -38,8 +38,11 @@ def _ficha_y_prueba_nomina(client, tok, pid, origen="proc:nomina_beneficios"):
 # --- plantilla del panel: sin datos de cliente embebidos (privacidad) --------
 
 # Nombres y cifras del piloto (PROPHAR) que NUNCA deben viajar en los archivos del repo.
-# El contenido fijo de la plantilla (PROG/POP07/MDL) quedó neutralizado; las ventanas
-# Programa/Hallazgos/Vacaciones se alimentarán del motor en la fase B2.
+# El contenido fijo de la plantilla (PROG/MDL) quedó como placeholder; las ventanas
+# Programa/Hallazgos/Vacaciones se alimentan del motor en runtime (fase B2):
+#  - Programa (DO-0)   ← prog.json  → PROG.prog / PROG.rq / PROG.norm
+#  - Hallazgos (DO-12) ← do12.json  → PROG.h12 / PROG.aj / PROG.efe
+#  - Vacaciones (DO-4V)← cédula VAC / kárdex RQ-008 → MDL.vacx / MDL.k08
 TERMINOS_PILOTO = ("montesdeoca", "remache", "prophar", "1791859596", "24813",
                    "130720", "albiño", "quitiaquez", "robalino")
 
@@ -115,6 +118,131 @@ def test_render_sin_procesar_no_trae_visor_ni_cifras(tmp_path):
     # El visor va vacío: las tarjetas mostrarán «PENDIENTE DE PROCESAR» (lógica del panel).
     assert re.search(r"const VISOR_GZ=null;", html)
     assert "__NOMINA_" not in html
+
+
+# --- ventanas propias alimentadas del motor (B2) -----------------------------
+
+# JSON ficticios con la misma forma que escriben mk_pa (prog.json) y mk_do12 (do12.json).
+_PROG_FICTICIO = {
+    "prog": [
+        {"t": "Prueba Alfa", "ref": "DO-0", "aser": "Existencia", "obj": "objetivo alfa",
+         "ins": "RQ-002", "crit": "criterio", "res": "Terminada.", "hall": "H-1",
+         "est": "Terminada", "pasos": [["1", "paso uno"], ["2", "paso dos"]]},
+        {"t": "Prueba Beta", "ref": "DO-2", "aser": "Integridad", "obj": "objetivo beta",
+         "ins": "RQ-003", "crit": "criterio", "res": "En ejecución.", "hall": "—",
+         "est": "En ejecución", "pasos": [["1", "paso tres"]]},
+    ],
+    "rq": [["RQ-002", "Anexo", "saldos", "Recibido", "DO-2", "—"]],
+    "hall": [[1, "Hallazgo catálogo", "DO-0", "1000.0", "De hecho", "AJ"]],
+    "norm": [["Vacaciones", "Código del Trabajo", "15 días", "VAC"]],
+    "xlsx": "UEsDBAo=",
+}
+_DO12_FICTICIO = {
+    "hall": [[i + 1, f"Hallazgo {i + 1}", "condición", "criterio", "causa", "efecto",
+              1500.0 + i, "Ref. PT", "Ajuste contable" if i == 0 else "Reclasificación",
+              "recomendación"] for i in range(14)],
+    "aj": [["AJ-1", "5BS.21204.003", "Vacaciones por pagar", 1500.0, None, "H-1"],
+           ["RJ-1", "SUE", "Sueldos — administración", 800.0, None, "H-2"]],
+    "efe": [["Vacaciones por pagar", 9000.0, -1500.0, 7500.0, "DO-4C"]],
+}
+
+
+def test_construir_prog_llena_las_ventanas_desde_el_motor():
+    """Con los JSON del motor, PROG trae el programa (DO-0) y los hallazgos/ajustes (DO-12)."""
+    prog = np.construir_prog({"prog": _PROG_FICTICIO, "do12": _DO12_FICTICIO})
+    # Programa: pruebas y pasos del motor (prog.json).
+    assert len(prog["prog"]) == 2
+    assert sum(len(p["pasos"]) for p in prog["prog"]) == 3
+    assert prog["rq"] and prog["norm"]
+    # Hallazgos: los 14 de DO-12 (do12.hall) con sus ajustes (do12.aj) y efecto (do12.efe).
+    assert len(prog["h12"]) == 14
+    assert [r[0] for r in prog["aj"]] == ["AJ-1", "RJ-1"]
+    assert prog["efe"] and prog["xlsx"] == "UEsDBAo="
+
+
+def test_construir_prog_vacio_sin_motor():
+    """Sin extras (prueba no procesada) → estructura vacía: las ventanas dirán «PENDIENTE»."""
+    vacio = np.construir_prog(None)
+    assert vacio["prog"] == [] and vacio["h12"] == [] and vacio["aj"] == []
+    assert np.construir_prog({})["prog"] == []
+
+
+def _carpeta_con_vac(tmp_path):
+    """Carpeta con una cédula VAC y un kárdex RQ-008 ficticios (valores literales, legibles
+    por construir_mdl sin LibreOffice). Datos neutros: nada del piloto."""
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "VAC Calculadora"
+    resumen = [
+        "Trabajadores activos al corte (población 100%)",
+        "Con kárdex completo", "Sin kárdex (no soportados)",
+        "Pasivo exigible según calculadora al corte (a)", "Saldo en libros al corte (b)",
+        "Ajuste total propuesto (a) − (b)", "Pasivo correcto al cierre anterior (c)",
+        "Saldo en libros al cierre anterior (d)", "Ajuste a resultados acumulados (c) − (d)",
+        "Ajuste al gasto del año auditado", "Control",
+    ]
+    for i, etiqueta in enumerate(resumen):
+        ws.cell(9 + i, 1, etiqueta)
+        ws.cell(9 + i, 5, 100 + i)
+    ws.cell(20, 1, "Estado de la prueba")
+    ws.cell(20, 5, "CALCULADO — pasivo y ajuste concluyentes")
+    wb.save(str(tmp_path / "VAC_Calculadora_Vacaciones_No_Gozadas.xlsx"))
+
+    kb = openpyxl.Workbook()
+    wk = kb.active
+    wk.title = "Kárdex RQ-008"
+    for i in range(3):
+        wk.cell(6 + i, 3, f"170000000{i}")
+    kb.save(str(tmp_path / "RQ-008_Kardex_Vacaciones.xlsx"))
+    return str(tmp_path)
+
+
+def test_construir_mdl_vacaciones_desde_la_cedula_del_motor(tmp_path):
+    """La ventana de Vacaciones (DO-4V) se alimenta del resumen de la cédula VAC y del kárdex."""
+    mdl = np.construir_mdl(_carpeta_con_vac(tmp_path))
+    assert "vacx" in mdl and mdl["vacx"]["estado"].startswith("CALCULADO")
+    assert mdl["vacx"]["clase"] == "ok"
+    assert len(mdl["vacx"]["resumen"]) == 11
+    assert mdl["k08"] == {"filas": 3}
+
+
+def test_construir_mdl_vacio_sin_carpeta():
+    assert np.construir_mdl(None) == {}
+
+
+def test_render_con_motor_llena_ventanas_y_sin_datos_del_piloto(tmp_path):
+    """HTML completo: PROG y MDL inyectados desde el motor, sin términos del piloto."""
+    import json
+    import re
+
+    extras = {"prog": _PROG_FICTICIO, "do12": _DO12_FICTICIO}
+    carpeta = _carpeta_con_vac(tmp_path)
+    html = np.render({"client": "Empresa de Ejemplo S.A.", "firm": "AuditConsulting",
+                      "year": 2026}, 7, carpeta_cedulas=carpeta, extras=extras).decode()
+    assert "__NOMINA_" not in html
+    prog = json.loads(re.search(r"const PROG=(\{.*\});\nlet pTab", html).group(1))
+    mdl = json.loads(re.search(r"const MDL=(\{.*?\});\nconst XS", html).group(1))
+    assert len(prog["prog"]) == 2 and len(prog["h12"]) == 14
+    assert [r[0] for r in prog["aj"]] == ["AJ-1", "RJ-1"]
+    assert mdl["vacx"]["estado"].startswith("CALCULADO") and mdl["k08"]["filas"] == 3
+    bajo = html.lower()
+    for t in TERMINOS_PILOTO:
+        assert t not in bajo, t
+
+
+def test_render_sin_motor_ventanas_vacias(tmp_path):
+    """Sin extras ni carpeta: PROG/MDL vacíos → las ventanas muestran «PENDIENTE DE PROCESAR»."""
+    import json
+    import re
+
+    html = np.render({"client": "Empresa de Ejemplo S.A.", "firm": "AuditConsulting"},
+                     1, carpeta_cedulas=None, extras=None).decode()
+    prog = json.loads(re.search(r"const PROG=(\{.*\});\nlet pTab", html).group(1))
+    mdl = json.loads(re.search(r"const MDL=(\{.*?\});\nconst XS", html).group(1))
+    assert prog["prog"] == [] and prog["h12"] == [] and mdl == {}
+    assert "PENDIENTE DE PROCESAR" in html
 
 
 def test_render_procesado_trae_el_visor_con_libros(tmp_path):

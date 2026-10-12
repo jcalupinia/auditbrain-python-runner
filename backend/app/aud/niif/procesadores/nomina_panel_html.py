@@ -73,14 +73,113 @@ def marca_panel(engagement: dict) -> dict:
             "auditia": marca.data_uri("audit_ia")}
 
 
+def _prog_vacio() -> dict:
+    """Estructura vacía de ``PROG`` para una prueba sin procesar: las ventanas Programa,
+    Hallazgos y Ajustes muestran «PENDIENTE DE PROCESAR» (lógica del panel), igual que el
+    visor cuando no hay cédulas."""
+    return {"prog": [], "rq": [], "norm": [], "hall": [], "h12": [], "aj": [], "efe": [], "xlsx": ""}
+
+
+def construir_prog(extras: dict | None) -> dict:
+    """Objeto ``PROG`` del panel desde los JSON del motor (``prog.json`` + ``do12.json``).
+
+    ``prog.json`` (``mk_pa``): ``{prog, rq, norm, hall, xlsx}``. ``do12.json`` (``mk_do12``):
+    ``{hall, aj, efe}``. El panel consume los hallazgos de DO-12 como ``PROG.h12`` y el
+    programa DO-0 como ``PROG.prog``. Sin extras (prueba no procesada) → estructura vacía."""
+    extras = extras or {}
+    prog = extras.get("prog") or {}
+    do12 = extras.get("do12") or {}
+    if not prog:
+        return _prog_vacio()
+    return {
+        "prog": prog.get("prog", []),
+        "rq": prog.get("rq", []),
+        "norm": prog.get("norm", []),
+        "hall": prog.get("hall", []),
+        "h12": do12.get("hall", []),
+        "aj": do12.get("aj", []),
+        "efe": do12.get("efe", []),
+        "xlsx": prog.get("xlsx", ""),
+    }
+
+
+def _buscar_cedula(carpeta: str, prefijo: str) -> str | None:
+    for nombre in sorted(os.listdir(carpeta)):
+        if nombre.startswith(prefijo) and nombre.endswith(".xlsx"):
+            return os.path.join(carpeta, nombre)
+    return None
+
+
+def construir_mdl(carpeta_cedulas: str | None) -> dict:
+    """Objeto ``MDL`` del panel desde los datos del motor para la ventana de Vacaciones (DO-4V).
+
+    ``MDL.vacx``: el bloque RESUMEN de la cédula VAC (liquidación hipotética) con sus valores
+    YA RECALCULADOS y el estado de la prueba. ``MDL.k08``: el kárdex RQ-008 (número de filas).
+    Sin carpeta de cédulas (prueba no procesada) → ``{}``: la ventana muestra «PENDIENTE DE
+    PROCESAR». Nunca lanza: si una cédula falta o no se puede leer, esa clave queda fuera."""
+    if not (carpeta_cedulas and os.path.isdir(carpeta_cedulas)):
+        return {}
+    import openpyxl
+
+    from backend.app.aud.niif.procesadores.nomina import visor
+
+    mdl: dict = {}
+    vac = _buscar_cedula(carpeta_cedulas, "VAC_")
+    if vac:
+        try:
+            wf = openpyxl.load_workbook(vac)
+            wv = openpyxl.load_workbook(vac, data_only=True)
+            if "VAC Calculadora" in wf.sheetnames:
+                sf, sv = wf["VAC Calculadora"], wv["VAC Calculadora"]
+                resumen, estado = [], ""
+                # RESUMEN: etiqueta en A (merged), valor recalculado en E, filas 9..20.
+                for r in range(9, 21):
+                    etiqueta = sf.cell(r, 1).value
+                    valor = sv.cell(r, 5).value
+                    if etiqueta is None:
+                        continue
+                    if r == 20:  # «Estado de la prueba»
+                        estado = str(valor or "").strip()
+                        continue
+                    resumen.append([str(etiqueta),
+                                    visor._fmt(valor, sf.cell(r, 5).number_format)])
+                clase = ("ok" if estado.startswith("CALCULADO")
+                         else "bad" if estado.startswith("NO SOPORTADO") else "pd")
+                mdl["vacx"] = {"resumen": resumen, "estado": estado, "clase": clase}
+        except Exception:  # noqa: BLE001
+            pass
+    k08 = _buscar_cedula(carpeta_cedulas, "RQ-008_")
+    if k08:
+        try:
+            wk = openpyxl.load_workbook(k08, data_only=True)
+            # Hoja del kárdex: cuenta de trabajadores (filas con cédula desde la 6).
+            ws = next((wk[t] for t in ("Kárdex RQ-008", "Kárdex", "Kardex") if t in wk.sheetnames), None)
+            filas = 0
+            if ws is not None:
+                for r in range(6, ws.max_row + 1):
+                    if ws.cell(r, 3).value not in (None, ""):
+                        filas += 1
+            mdl["k08"] = {"filas": filas}
+        except Exception:  # noqa: BLE001
+            pass
+    return mdl
+
+
 def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/ciclo",
-           carpeta_cedulas: str | None = None) -> bytes:
+           carpeta_cedulas: str | None = None, extras: dict | None = None) -> bytes:
     """HTML del panel con el encargo inyectado. ``prueba_id`` enlaza los botones al motor.
 
     ``carpeta_cedulas``: carpeta con las cédulas YA RECALCULADAS (LibreOffice) que produjo el
     motor para esta prueba. Si viene, el visor del panel muestra cada cédula pestaña por pestaña
-    (patrón artefacto, como la planificación); si no, las tarjetas quedan «PENDIENTE DE PROCESAR».
-    """
+    (patrón artefacto, como la planificación) y la ventana de Vacaciones (DO-4V) se alimenta de
+    la cédula VAC / kárdex RQ-008.
+
+    ``extras``: ``{'prog': prog.json, 'do12': do12.json}`` que el motor dejó en ``home`` (los
+    pasa el endpoint vía ``servicio.correr_nomina(..., con_extras=True)``). Alimentan las
+    ventanas Programa (DO-0) y Hallazgos/Ajustes (DO-12).
+
+    Sin ``extras`` ni ``carpeta_cedulas`` (prueba no procesada) el panel inyecta estructuras
+    VACÍAS y las ventanas muestran «PENDIENTE DE PROCESAR», como el visor."""
     from backend.app.aud.niif.procesadores.nomina import visor
 
     enc = construir_encargo(engagement)
@@ -90,9 +189,13 @@ def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/cic
     datos_visor = None
     if carpeta_cedulas and os.path.isdir(carpeta_cedulas):
         datos_visor = visor.empaquetar(carpeta_cedulas)
+    prog = construir_prog(extras)
+    mdl = construir_mdl(carpeta_cedulas)
     html = (tmpl
             .replace("__NOMINA_ENC__", json.dumps(enc, ensure_ascii=False))
             .replace("__NOMINA_API__", json.dumps(api, ensure_ascii=False))
             .replace("__NOMINA_MARCA__", json.dumps(marca_panel(engagement)))
+            .replace("__NOMINA_PROG__", json.dumps(prog, ensure_ascii=False))
+            .replace("__NOMINA_MDL__", json.dumps(mdl, ensure_ascii=False))
             .replace("__NOMINA_VISOR__", json.dumps(datos_visor)))
     return html.encode("utf-8")

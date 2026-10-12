@@ -479,18 +479,21 @@ def panel_nomina(prueba_id: int, db: Session = Depends(get_db),
     engagement = (p.registro or {}).get("engagement") or {}
     tmp = None
     carpeta = None
+    extras = None
     try:
         if (p.registro or {}).get("run"):
-            # Prueba procesada: regenera las cédulas del motor y recalcúlalas en una carpeta.
+            # Prueba procesada: regenera las cédulas del motor, lee los JSON de sus ventanas
+            # propias (prog.json / do12.json) y recalcula las cédulas en una carpeta.
             try:
-                cedulas = servicio.correr_nomina(db, p)
+                cedulas, extras = servicio.correr_nomina(db, p, con_extras=True)
                 tmp = tempfile.mkdtemp(prefix="nomina_panel_")
                 carpeta = recalc.recalcular(cedulas, tmp)
             except Exception:  # noqa: BLE001
                 # Si el motor o el recálculo fallan, el panel se sirve sin visor (tarjetas
                 # «PENDIENTE DE PROCESAR») en lugar de devolver un error al auditor.
                 carpeta = None
-        html = nomina_panel_html.render(engagement, p.id, carpeta_cedulas=carpeta)
+                extras = None
+        html = nomina_panel_html.render(engagement, p.id, carpeta_cedulas=carpeta, extras=extras)
     finally:
         if tmp:
             shutil.rmtree(tmp, ignore_errors=True)

@@ -6,7 +6,7 @@ Ejecuta en orden: motor (reproceso) → series compartidas (pickles) → comprob
 (85 PDF) → 4 cédulas nuevas (DO-2, DO-3, DO-3.1, DO-4) → 10 generadores de
 referencia (contra la carpeta de la prueba, sin rutas fijas)."""
 from __future__ import annotations
-import os, runpy
+import json, os, runpy
 from backend.app.aud.niif.procesadores.nomina import rutas as rutas_mod
 from backend.app.aud.niif.procesadores.nomina import motor, mayores, series, comprobantes, cedulas_nuevas, hallazgos
 
@@ -65,3 +65,23 @@ def correr(rutas, ficha: dict | None = None) -> dict[str, bytes]:
             with open(os.path.join(rutas.out, f), 'rb') as fh:
                 salidas[f] = fh.read()
     return salidas
+
+
+def leer_extras(home: str) -> dict:
+    """Lee los JSON que el motor deja en ``home`` para las ventanas propias del panel.
+
+    ``mk_pa`` escribe ``prog.json`` (programa DO-0 + requerimientos + hallazgos + normativa
+    + xlsx b64) y ``mk_do12`` escribe ``do12.json`` (hallazgos, ajustes y efecto en saldos).
+    Devuelve ``{'prog': {...}, 'do12': {...}}`` con solo las claves presentes; nunca lanza
+    (si falta un archivo o está corrupto, esa clave queda fuera y el panel degrada a vacío)."""
+    extras: dict = {}
+    for nombre, clave in (('prog.json', 'prog'), ('do12.json', 'do12')):
+        ruta = os.path.join(home, nombre)
+        if not os.path.isfile(ruta):
+            continue
+        try:
+            with open(ruta, encoding='utf-8') as fh:
+                extras[clave] = json.load(fh)
+        except Exception:  # noqa: BLE001
+            pass
+    return extras
