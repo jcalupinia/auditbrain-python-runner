@@ -64,17 +64,35 @@ def construir_encargo(engagement: dict) -> dict:
     return enc
 
 
-def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/ciclo") -> bytes:
-    """HTML del panel con el encargo inyectado. ``prueba_id`` enlaza los botones al motor."""
+def marca_panel(engagement: dict) -> dict:
+    """Logos de la cabecera (los mismos de ``marca.py`` que usa la planificación)."""
+    from backend.app.aud.niif.procesadores import marca
+    return {"audit": marca.data_uri("auditconsulting_blanco"),
+            "auditOscuro": marca.data_uri("auditconsulting_oscuro"),
+            "partner": marca.data_uri("partner_auditing"),
+            "auditia": marca.data_uri("audit_ia")}
+
+
+def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/ciclo",
+           carpeta_cedulas: str | None = None) -> bytes:
+    """HTML del panel con el encargo inyectado. ``prueba_id`` enlaza los botones al motor.
+
+    ``carpeta_cedulas``: carpeta con las cédulas YA RECALCULADAS (LibreOffice) que produjo el
+    motor para esta prueba. Si viene, el visor del panel muestra cada cédula pestaña por pestaña
+    (patrón artefacto, como la planificación); si no, las tarjetas quedan «PENDIENTE DE PROCESAR».
+    """
+    from backend.app.aud.niif.procesadores.nomina import visor
+
     enc = construir_encargo(engagement)
     api = {"base": base, "pruebaId": prueba_id}
     with open(_TMPL, encoding="utf-8") as fh:
         tmpl = fh.read()
-    titulo = (enc.get("cliente") or "Nómina").replace("<", "").replace(">", "")
+    datos_visor = None
+    if carpeta_cedulas and os.path.isdir(carpeta_cedulas):
+        datos_visor = visor.empaquetar(carpeta_cedulas)
     html = (tmpl
             .replace("__NOMINA_ENC__", json.dumps(enc, ensure_ascii=False))
-            .replace("__NOMINA_API__", json.dumps(api, ensure_ascii=False)))
-    # El <title> del panel ya trae el nombre de la herramienta; el nombre del cliente va
-    # en el encargo (hero). No se toca el <title> para no romper la plantilla.
-    _ = _html.escape(titulo)
+            .replace("__NOMINA_API__", json.dumps(api, ensure_ascii=False))
+            .replace("__NOMINA_MARCA__", json.dumps(marca_panel(engagement)))
+            .replace("__NOMINA_VISOR__", json.dumps(datos_visor)))
     return html.encode("utf-8")
