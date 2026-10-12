@@ -464,10 +464,39 @@ def _prueba_nomina(db: Session, user: User, prueba_id: int) -> Prueba:
 def panel_nomina(prueba_id: int, db: Session = Depends(get_db),
                  user: User = Depends(require_staff)) -> Response:
     """Panel propio de la herramienta de nómina (la «cara»), con el encargo del Command Center
-    inyectado. Los botones de descarga piden las cédulas al motor (``cedula-nomina``)."""
+    inyectado. Los botones de descarga piden las cédulas al motor (``cedula-nomina``).
+
+    Si la prueba ya se procesó (``registro['run']``), el panel lleva el visor con las 15 cédulas
+    de la última ejecución, recalculadas con LibreOffice para que cada fórmula tenga su valor en
+    caché. Si no se ha procesado, el visor va vacío y las tarjetas dicen «PENDIENTE DE PROCESAR»."""
+    import shutil
+    import tempfile
+
     p = _prueba_nomina(db, user, prueba_id)
     from backend.app.aud.niif.procesadores import nomina_panel_html
-    html = nomina_panel_html.render((p.registro or {}).get("engagement") or {}, p.id)
+    from backend.app.aud.niif.procesadores.nomina import recalc
+
+    engagement = (p.registro or {}).get("engagement") or {}
+    tmp = None
+    carpeta = None
+    extras = None
+    try:
+        if (p.registro or {}).get("run"):
+            # Prueba procesada: regenera las cédulas del motor, lee los JSON de sus ventanas
+            # propias (prog.json / do12.json) y recalcula las cédulas en una carpeta.
+            try:
+                cedulas, extras = servicio.correr_nomina(db, p, con_extras=True)
+                tmp = tempfile.mkdtemp(prefix="nomina_panel_")
+                carpeta = recalc.recalcular(cedulas, tmp)
+            except Exception:  # noqa: BLE001
+                # Si el motor o el recálculo fallan, el panel se sirve sin visor (tarjetas
+                # «PENDIENTE DE PROCESAR») en lugar de devolver un error al auditor.
+                carpeta = None
+                extras = None
+        html = nomina_panel_html.render(engagement, p.id, carpeta_cedulas=carpeta, extras=extras)
+    finally:
+        if tmp:
+            shutil.rmtree(tmp, ignore_errors=True)
     return Response(html, media_type="text/html; charset=utf-8")
 
 

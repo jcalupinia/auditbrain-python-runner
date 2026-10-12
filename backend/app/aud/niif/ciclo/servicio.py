@@ -477,11 +477,16 @@ def _t(p: Prueba) -> dict:
     return {**reg, "state": p.estado, "definition": definicion}
 
 
-def correr_nomina(db: Session, p: Prueba) -> dict:
+def correr_nomina(db: Session, p: Prueba, con_extras: bool = False):
     """Materializa los archivos fuente de la prueba en un directorio temporal y corre el
     motor de nómina 2.0 (``nomina_beneficios.correr_prueba``). Devuelve
     ``{nombre_cédula: bytes}`` con las 15 cédulas. Lanza ``ReglaIncumplida`` si faltan los
     requerimientos mínimos (RQ-002/003/004/006).
+
+    Con ``con_extras=True`` devuelve ``(cedulas, extras)``: ``extras`` trae los JSON que el
+    motor deja en ``home`` para las ventanas propias del panel (Programa DO-0 y Hallazgos
+    DO-12), leídos ANTES de borrar el temporal. Los callers existentes (descarga de cédulas,
+    ZIP, ``_run_bespoke``) siguen recibiendo solo el dict de cédulas.
 
     A diferencia del flujo genérico (que lee ``reg['datasets']`` ya mapeados), el motor de
     nómina lee los archivos CRUDOS del disco, así que hay que volcarlos a ``home`` con su
@@ -491,6 +496,7 @@ def correr_nomina(db: Session, p: Prueba) -> dict:
     import tempfile
 
     from backend.app.aud.niif.procesadores import nomina_beneficios as nb
+    from backend.app.aud.niif.procesadores.nomina import orquestador as orq
 
     home = tempfile.mkdtemp(prefix="nomina_")
     try:
@@ -512,7 +518,11 @@ def correr_nomina(db: Session, p: Prueba) -> dict:
                 "Cargue el anexo (RQ-002), el Consolidado del IESS (RQ-003), los mayores (RQ-004) "
                 "y el rol de pagos (RQ-006) antes de generar las cédulas de nómina.")
         ficha = (p.registro or {}).get("engagement") or {}
-        return nb.correr_prueba(arch, ficha, home, out)
+        cedulas = nb.correr_prueba(arch, ficha, home, out)
+        if con_extras:
+            # El motor escribe prog.json / do12.json en ``home``; se leen antes del finally.
+            return cedulas, orq.leer_extras(home)
+        return cedulas
     finally:
         shutil.rmtree(home, ignore_errors=True)
 
