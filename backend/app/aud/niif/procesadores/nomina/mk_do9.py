@@ -31,6 +31,22 @@ lib = {'APO': _mes(APO_C, ['PROVISION', 'FINIQUITOS']), 'FR': _mes(['5BS.21203.0
 pag = {k: [round(float(_I[_I.cta.isin(c) & (_I['sub'] == 'PAGO IESS') & (_I.m == m)].Importe.sum()), 2) for m in range(1, 13)]
        for k, c in (('APO', APO_C), ('FR', ['5BS.21203.004']), ('QUI', ['5BS.21203.003']), ('HIP', ['5BS.21203.005']))}
 
+# --- cifras derivadas de los datos (reemplazan las constantes fijas del cliente) ---
+from backend.app.aud.niif.procesadores.nomina import motor as _MO
+_nf = lambda v: f"{v:,.2f}".translate(str.maketrans({',': '.', '.': ','}))
+# Seguro de salud a tiempo parcial declarado en los comprobantes IESS (RQ-005)
+_seguro_tp = round(float(comp.seguro_tp.sum()), 2)
+# Rol «normal» de diciembre: líquido a recibir (empleados + jubilados), col. 59 del rol (mismo índice fijo que DO-3.1)
+_wr = load_workbook(_R.CTX.rol, read_only=True, data_only=True)['normal']
+_rol_dic_liq = round(sum(_MO.num(x[59]) for x in _wr.iter_rows(min_row=6, values_only=True)
+                         if len(x) > 59 and x[0] not in (None, '') and not str(x[0]).startswith('Total')
+                         and x[1] not in (None, '') and _MO.mnum(x[0]) == 12), 2)
+# Préstamos del papel anterior: hipotecario y quirografario estaban cruzados en ene–ago; se reconstruye desde los comprobantes
+_hip_m = comp[comp.tipo == 'Préstamo hipotecario'].groupby('mes').total.sum()
+_qui_m = comp[comp.tipo == 'Préstamo quirografario'].groupby('mes').total.sum()
+_pa_hipo = round(sum(float(_qui_m.get(m, 0)) for m in range(1, 9)) + sum(float(_hip_m.get(m, 0)) for m in range(9, 13)), 2)
+_pa_quiro = round(sum(float(_hip_m.get(m, 0)) for m in range(1, 9)) + sum(float(_qui_m.get(m, 0)) for m in range(9, 13)), 2)
+
 NAVY = PatternFill('solid', fgColor='FF0F2341'); SUB = PatternFill('solid', fgColor='FFDDE6F3'); YEL = PatternFill('solid', fgColor='FFFFF2CC')
 AR = Font(name='Arial', size=10); ARB = Font(name='Arial', size=10, bold=True)
 WH = Font(name='Arial', size=10, bold=True, color='FFFFFFFF'); WH12 = Font(name='Arial', size=12, bold=True, color='FFFFFFFF')
@@ -112,7 +128,7 @@ for i, (cod, nom) in enumerate(SALDOS):
     r = 23 + i; srow[cod] = r
     cell(wi, f'B{r}', cod, AR, box=True); cell(wi, f'C{r}', nom, AR, box=True); cell(wi, f'D{r}', ANEXO[cod], BLUE, N2, box=True)
 cell(wi, 'B30', 'Rol de diciembre (DO-3.1, pestaña «normal») — líquido a recibir', ARB)
-cell(wi, 'B31', 'Empleados y jubilados', AR, box=True); cell(wi, 'D31', 163774.65, GREEN, N2, box=True)
+cell(wi, 'B31', 'Empleados y jubilados', AR, box=True); cell(wi, 'D31', _rol_dic_liq, GREEN, N2, box=True)
 cell(wi, 'B32', 'Estipendio de pasantes (Mayor de gastos RQ-004, diciembre)', AR, box=True); cell(wi, 'D32', MY.gasto_mes('EST')[11], BLUE, N2, box=True)
 for col, w in zip('ABCDEFG', [2, 16, 26, 18, 20, 20, 18]): wi.column_dimensions[col].width = w
 IN = "'Insumos'"
@@ -157,7 +173,7 @@ for col in 'BCDFGHIJLMNO':
 cell(ws, 'A22', 'Total', WH, fill=NAVY, box=True)
 for col in 'BCDFGHJLMN': cell(ws, f'{col}23', 'Σ', RED, al=Alignment(horizontal='center'))
 cell(ws, 'A24', 'Aportes: la diferencia libros − comprobantes se explica principalmente por las notas de crédito que el IESS descuenta al cobrar (col. O); '
-                'la empresa registra el aporte bruto. Fondos de reserva: enero (238,18) es la nota de crédito del comprobante de ajuste. El Mayor RQ-004 muestra que los 223,57 de febrero del papel anterior eran una provisión revertida en el mismo mes (REV.FOND.RESERVA/5DFIN): diferencia resuelta.', IT)
+                'la empresa registra el aporte bruto. Fondos de reserva: la diferencia de enero es la nota de crédito del comprobante de ajuste. El Mayor RQ-004 muestra que la diferencia de febrero del papel anterior era una provisión revertida en el mismo mes (REV.FOND.RESERVA): diferencia resuelta.', IT)
 ws.merge_cells('A24:O25'); ws['A24'].alignment = Alignment(wrap_text=True, vertical='top')
 
 # Cruce a tres vías aportes y FR
@@ -170,11 +186,11 @@ for i, (t, a, b2, nc, co) in enumerate(three):
     cell(ws, f'A{r}', t, AR, box=True); cell(ws, f'B{r}', a, AR, N2, box=True); cell(ws, f'C{r}', b2, AR, N2, box=True)
     cell(ws, f'D{r}', nc, GREEN, N2, box=True); cell(ws, f'E{r}', f'=C{r}+D{r}', ARB, N2, box=True)
     cell(ws, f'F{r}', '=' + co, GREEN, N2, box=True); cell(ws, f'G{r}', f'=E{r}-F{r}', ARB, N2, box=True); cell(ws, f'H{r}', f'=B{r}-E{r}', ARB, N2, box=True)
-cell(ws, 'A31', 'Comprobantes bruto − Consolidado: seguro de salud tiempo parcial (≈ AD 4,41% JP, 349,18) y ajustes de planilla. '
-                'Libros − comprobantes bruto: según el Mayor RQ-004, aporte de pasantes pagado fuera de planilla (330,88), pagos de ajuste y diferencias de redondeo (ver pestaña «Mayor RQ-004»).', IT)
+cell(ws, 'A31', f'Comprobantes bruto − Consolidado: seguro de salud tiempo parcial (≈ AD 4,41% JP, {_nf(_seguro_tp)}) y ajustes de planilla. '
+                'Libros − comprobantes bruto: según el Mayor RQ-004, aporte de pasantes pagado fuera de planilla, pagos de ajuste y diferencias de redondeo (ver pestaña «Mayor RQ-004»).', IT)
 ws.merge_cells('A31:O31')
 cell(ws, 'A32', 'Seguro de salud tiempo parcial en comprobantes (= «Otros gastos de nómina» AD 4,41% JP de la DO-2):', AR)
-cell(ws, 'H32', f'=SUM({CR("K")})', GREEN, N2); cell(ws, 'I32', '=IF(ABS(H32-349.18)<0.01,"Cuadra con DO-2 ✓","Revisar")', IT)
+cell(ws, 'H32', f'=SUM({CR("K")})', GREEN, N2); cell(ws, 'I32', f'=IF(ABS(H32-{_seguro_tp})<0.01,"Cuadra con DO-2 ✓","Revisar")', IT)
 
 # Saldos por pagar a diciembre
 cell(ws, 'A35', 'SALDOS POR PAGAR AL 31-DIC-2025', NAVYF)
@@ -196,8 +212,8 @@ ws.merge_cells('A42:O42')
 # Corrección préstamos
 cell(ws, 'A44', 'CORRECCIÓN AL PAPEL ANTERIOR — CLASIFICACIÓN DE PRÉSTAMOS', NAVYF)
 th(ws, 45, 1, ['Tipo', 'Papel anterior', 'Según comprobantes', 'Diferencia'], 22)
-cell(ws, 'A46', 'Préstamos hipotecarios', AR, box=True); cell(ws, 'B46', 72981.65, BLUE, N2, box=True); cell(ws, 'C46', '=H22', AR, N2, box=True); cell(ws, 'D46', '=B46-C46', ARB, N2, box=True)
-cell(ws, 'A47', 'Préstamos quirografarios', AR, box=True); cell(ws, 'B47', 64716.90, BLUE, N2, box=True); cell(ws, 'C47', '=J22', AR, N2, box=True); cell(ws, 'D47', '=B47-C47', ARB, N2, box=True)
+cell(ws, 'A46', 'Préstamos hipotecarios', AR, box=True); cell(ws, 'B46', _pa_hipo, BLUE, N2, box=True); cell(ws, 'C46', '=H22', AR, N2, box=True); cell(ws, 'D46', '=B46-C46', ARB, N2, box=True)
+cell(ws, 'A47', 'Préstamos quirografarios', AR, box=True); cell(ws, 'B47', _pa_quiro, BLUE, N2, box=True); cell(ws, 'C47', '=J22', AR, N2, box=True); cell(ws, 'D47', '=B47-C47', ARB, N2, box=True)
 cell(ws, 'A48', 'Total préstamos', ARB, box=True)
 for col in 'BCD': cell(ws, f'{col}48', f'=SUM({col}46:{col}47)', ARB, N2, box=True)
 cell(ws, 'A49', 'De enero a agosto el papel anterior tenía cruzadas las columnas hipotecario / quirografario; el total no cambia.', IT)
@@ -223,7 +239,7 @@ txt = [(58, 'Objetivo:', RU),
 for r, t, f in txt:
     cell(ws, f'A{r}', t, f)
     if f is AR: ws.merge_cells(f'A{r}:O{r}'); ws[f'A{r}'].alignment = Alignment(wrap_text=True, vertical='top'); ws.row_dimensions[r].height = 32
-cell(ws, 'A70', '="Aportes: libros − comprobantes "&TEXT(L22,"#,##0.00")&", explicado en "&TEXT(O22,"#,##0.00")&" por notas de crédito del IESS. Fondos de reserva: "&TEXT(M22,"#,##0.00")&" (238,18 nota de crédito de enero; los 223,57 de febrero del papel anterior eran una reversión según el Mayor RQ-004). '
+cell(ws, 'A70', '="Aportes: libros − comprobantes "&TEXT(L22,"#,##0.00")&", explicado en "&TEXT(O22,"#,##0.00")&" por notas de crédito del IESS. Fondos de reserva: "&TEXT(M22,"#,##0.00")&" (nota de crédito de enero; la diferencia de febrero del papel anterior era una reversión según el Mayor RQ-004). '
                 'Préstamos: cuadran en total; el papel anterior tenía cruzada la clasificación de enero a agosto. Saldos de diciembre sustentados con comprobantes. Sin pagos fuera de plazo. Mayor RQ-004: los 5 saldos se reconstruyen desde el saldo inicial (diferencia "&TEXT(\'Mayor RQ-004\'!K12,"#,##0.00")&") y cada pago al IESS se coteja con su comprobante (diferencia total "&TEXT(\'Mayor RQ-004\'!G33,"#,##0.00")&")."', AR)
 ws.merge_cells('A70:O71'); ws['A70'].alignment = Alignment(wrap_text=True, vertical='top'); ws['A70'].border = BOX; ws.row_dimensions[70].height = 30
 for col, wd in zip('ABCDEFGHIJKLMNO', [34, 14, 14, 14, 3, 14, 13, 13, 12, 13, 3, 13, 12, 12, 13]): ws.column_dimensions[col].width = wd
@@ -249,7 +265,7 @@ for i, cta in enumerate(NOM):
 cell(wm, 'B11', 'TOTAL', WH, fill=NAVY, box=True); cell(wm, 'C11', '', WH, fill=NAVY, box=True)
 for col in 'DEFGHIJKLM': cell(wm, f'{col}11', f'=SUM({col}6:{col}10)', WH, N2, NAVY, box=True)
 cell(wm, 'B12', 'Diferencia total saldo calculado − ESF:', ARB); cell(wm, 'K12', '=M11', RED, N2)
-cell(wm, 'B13', 'Otros pagos: aporte de pasantes pagado fuera de planilla (junio 330,88), ajustes de aportes y fondos pagados al IESS (17,90) y descuento mal aplicado de extensión de salud (27,28).', IT)
+cell(wm, 'B13', 'Otros pagos: aporte de pasantes pagado fuera de planilla, ajustes de aportes y fondos pagados al IESS y descuento mal aplicado de extensión de salud.', IT)
 cell(wm, 'B16', 'PAGOS AL IESS SEGÚN MAYOR vs COMPROBANTES DE PAGO (RQ-005) — por período de la planilla', ARB)
 th(wm, 17, 2, ['Período', 'Mes de pago', 'Pago aportes (mayor)', 'Comprobante aportes + ext. salud', 'Diferencia aportes', 'Pago FR (mayor)', 'Comprobante FR',
                'Pago préstamos (mayor)', 'Comprobantes préstamos', 'Diferencia FR + préstamos'], 44)
@@ -270,7 +286,7 @@ for k in range(12):
     cell(wm, f'K{r}', f'=ROUND(G{r}-H{r}+I{r}-J{r},2)', AR, N2, box=True)
 cell(wm, 'B30', 'TOTAL', WH, fill=NAVY, box=True); cell(wm, 'C30', '', WH, fill=NAVY, box=True)
 for col in 'DEFGHIJK': cell(wm, f'{col}30', f'=SUM({col}18:{col}29)', WH, N2, NAVY, box=True)
-cell(wm, 'B31', 'La planilla de diciembre de 2025 se paga en enero de 2026 y es el saldo por pagar al cierre (ver DO-9, saldos por pagar). El período dic-2024 se coteja con el saldo inicial del anexo. Diferencias de aportes (ene, sep–nov): extensión de salud y notas de crédito descontadas en el comprobante; FR ene: ajuste pagado 1,16.', IT)
+cell(wm, 'B31', 'La planilla de diciembre de 2025 se paga en enero de 2026 y es el saldo por pagar al cierre (ver DO-9, saldos por pagar). El período dic-2024 se coteja con el saldo inicial del anexo. Diferencias de aportes (ene, sep–nov): extensión de salud y notas de crédito descontadas en el comprobante; FR ene: ajuste pagado menor.', IT)
 cell(wm, 'B33', 'Diferencia total pagos − comprobantes (aportes + FR + préstamos):', ARB); cell(wm, 'G33', '=F30+K30', RED, N2)
 for col, w in zip('ABCDEFGHIJKLM', [2, 15, 22, 15, 15, 13, 14, 15, 14, 14, 15, 15, 12]): wm.column_dimensions[col].width = w
 wm.freeze_panes = 'D6'
@@ -289,7 +305,7 @@ ctl = [('Comprobantes leídos = 85', f'=COUNTA({CR("D")})', 85, 0),
        ('Quirografario dic = saldo libros', f'={D9}!B39', f'={D9}!C39', 0.01),
        ('Hipotecario dic = saldo libros', f'={D9}!B40', f'={D9}!C40', 0.01),
        ('Consolidado aportes = DO-3', f"={IN}!F18", _R.CIFRAS['consolidado_aportes'], 0.01),
-       ('Seguro salud tiempo parcial = AD 4,41% JP DO-2 (349,18)', f'={D9}!H32', 349.18, 0.01),
+       ('Seguro salud tiempo parcial = AD 4,41% JP DO-2', f'={D9}!H32', _seguro_tp, 0.01),
        ('Sin comprobantes fuera de plazo (V10)', f'={D9}!H53', 0, 0),
        ('Mayor RQ-004: saldo inicial + movimientos = saldo ESF (5 cuentas)', "='Mayor RQ-004'!M11", 0, 0.01),
        ('Mayor RQ-004: aportes provisionados = libros del cruce mensual', "='Mayor RQ-004'!E6+'Mayor RQ-004'!E7+'Mayor RQ-004'!F6+'Mayor RQ-004'!F7", f'=-{D9}!B22', 0.01)]

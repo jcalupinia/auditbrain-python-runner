@@ -54,6 +54,17 @@ def header(ws, titulo, ncol, ref='DO-12'):
 # ================================================================= HALLAZGOS
 _S = _R.SUJETOS; _C = _R.CIFRAS
 _n = lambda v: f"{v:,.2f}".translate(str.maketrans({',': '.', '.': ','}))
+# Importe del ajuste AJ-1 (vacaciones en exceso): sale de la regla (pasivo en libros − reproceso DO-4), no de una cifra fija.
+_aj1 = _C['vac_exceso']
+# FR pagado en rol a cada administrador excluido (RQ-003 Exclusiones), derivado del rol; base de la reclasificación RJ-1.
+import collections as _collections
+from backend.app.aud.niif.procesadores.nomina import motor as _MO
+_exc_ced, _exc_nom = _MO.leer_exclusiones(_R.CTX.exclusiones) if _R.CTX.exclusiones else ({}, {})
+_frrol_nom = _collections.defaultdict(float)
+if _exc_nom:
+    for _d in _MO.leer_rol_normal(_R.CTX.rol):
+        _frrol_nom[_d['nombre']] += _d['fr_rol']
+_exc_fr = sorted(((_nom, round(_frrol_nom.get(_nom, 0.0), 2)) for _nom in _exc_nom), key=lambda x: -x[1])
 # (titulo, condicion, criterio, causa, efecto_txt, importe, ref, clasif, recomendacion, carta?)
 H = [
  ('Provisión de vacaciones en exceso',
@@ -169,17 +180,22 @@ wa = wb.create_sheet('Ajustes propuestos', 1)
 header(wa, 'Asientos de ajuste y reclasificación propuestos', 7)
 th(wa, 7, 1, ['Asiento', 'Cuenta', 'Descripción', 'Debe', 'Haber', 'Hallazgo', 'Efecto'], 28)
 rows = []
-rows.append(('AJ-1', '5BS.21204.003', 'Vacaciones por pagar', 24813.65, None, 'H-1', 'Disminuye pasivo'))
+rows.append(('AJ-1', '5BS.21204.003', 'Vacaciones por pagar', _aj1, None, 'H-1', 'Disminuye pasivo'))
 first_vac = len(rows)
 tot_vac = sum(v for _, _, v in VAC)
 for k, (cod, nom, v) in enumerate(VAC):
-    f = f'=ROUND(24813.65*{v}/{tot_vac},2)' if k < len(VAC) - 1 else f'=24813.65-SUM(E9:E{7+len(VAC)})'
+    f = f'=ROUND({_aj1}*{v}/{tot_vac},2)' if k < len(VAC) - 1 else f'={_aj1}-SUM(E9:E{7+len(VAC)})'
     rows.append(('AJ-1', cod, f'{nom} (prorrata por centro de costo)', None, f, 'H-1', 'Disminuye gasto'))
 rows.append(('', '', 'Glosa: ajuste de la provisión de vacaciones a 1/24 de la remuneración (Código del Trabajo, art. 69).', None, None, '', ''))
-rows.append(('RJ-1', '5DGEN.61101.001', 'Sueldos — administración general (remuneración del representante legal)', 11719.34, None, 'H-2', 'Reclasificación'))
-rows.append(('RJ-1', '5DGEN.61101.007', 'Fondos de reserva — administración general', None, 11719.34, 'H-2', 'Reclasificación'))
-rows.append(('RJ-1', '5DIR.61101.001', 'Sueldos — directorio (remuneración del presidente)', 6574.86, None, 'H-2', 'Reclasificación'))
-rows.append(('RJ-1', '5DIR.61101.007', 'Fondos de reserva — directorio', None, 6574.86, 'H-2', 'Reclasificación'))
+# RJ-1: reclasificación del FR pagado en rol a cada administrador excluido, con su importe (fr_rol) y su centro de costo.
+_RJ_CC = [('5DGEN.61101.001', '5DGEN.61101.007', 'administración general', 'remuneración del representante legal'),
+          ('5DIR.61101.001', '5DIR.61101.007', 'directorio', 'remuneración del presidente')]
+for _i, (_scta, _frcta, _cc, _desc) in enumerate(_RJ_CC):
+    if _i >= len(_exc_fr):
+        break
+    _monto = _exc_fr[_i][1]
+    rows.append(('RJ-1', _scta, f'Sueldos — {_cc} ({_desc})', _monto, None, 'H-2', 'Reclasificación'))
+    rows.append(('RJ-1', _frcta, f'Fondos de reserva — {_cc}', None, _monto, 'H-2', 'Reclasificación'))
 rows.append(('', '', 'Glosa: reclasificación de fondos de reserva pagados a administradores por nombramiento. Verificar centro de costo y efecto tributario (LRTI).', None, None, '', ''))
 for i, rw in enumerate(rows):
     r = 8 + i
@@ -264,7 +280,7 @@ _wf.cell(_r, 2, 'Año auditado 2026. Cédula construida con datos de la plantill
 wb.save(OUT)
 
 # ---- JSON para el panel
-aj = [[a, b, c, d if isinstance(d, (int, float)) else None, (round(24813.65 * float(e.split('*')[1].split('/')[0]) / tot_vac, 2) if isinstance(e, str) and e.startswith('=ROUND') else (None if isinstance(e, str) else e)), f]
+aj = [[a, b, c, d if isinstance(d, (int, float)) else None, (round(_aj1 * float(e.split('*')[1].split('/')[0]) / tot_vac, 2) if isinstance(e, str) and e.startswith('=ROUND') else (None if isinstance(e, str) else e)), f]
       for a, b, c, d, e, f, _ in rows]
 json.dump(dict(hall=[[i + 1, h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8]] for i, h in enumerate(H)], aj=aj,
                efe=[[t, s0, aj_, s0 + aj_, rf] for t, s0, aj_, rf in efe]),

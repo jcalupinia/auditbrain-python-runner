@@ -24,6 +24,18 @@ FRC = [c for c, _, _ in MY.cuentas_por_concepto('FR')]
 lib_sue_mes = MY.gasto_mes('SUE')
 fr_iess = comp[comp.tipo == 'Fondos de reserva'].groupby('mes').total.sum()
 
+# --- décimos jubilares del rol (derivados de los datos; antes constantes del cliente) ---
+from backend.app.aud.niif.procesadores.nomina import motor as _MO
+_nf = lambda v: f"{v:,.2f}".translate(str.maketrans({',': '.', '.': ','}))
+_rol_norm = _MO.leer_rol_normal(_R.CTX.rol)
+_jd13 = round(sum(d['d13mens'] for d in _rol_norm if d['tipo'] == 'Jubilado'), 2)   # D13 mensualizado de jubilados patronales
+_jd14 = round(sum(d['d14mens'] for d in _rol_norm if d['tipo'] == 'Jubilado'), 2)   # D14 mensualizado de jubilados patronales
+_jub_total = round(_jd13 + _jd14, 2)
+# D14 mensualizado: diferencia residual entre libros y (rol − jubilar), derivada
+_rol_d14_mens = round(float(rm['D14 MENS SIE'].sum()), 2)
+_g14_mens = round(sum(MY.gasto_mes('D14')) + MY.pasivo_tot(MY.B, '5BS.21204.002', 'PROVISION'), 2)
+_aj14 = round(_g14_mens - (_rol_d14_mens - _jd14), 2)
+
 NAVY = PatternFill('solid', fgColor='FF0F2341'); SUB = PatternFill('solid', fgColor='FFDDE6F3'); YEL = PatternFill('solid', fgColor='FFFFF2CC')
 GRY = PatternFill('solid', fgColor='FFEDEDED')
 AR = Font(name='Arial', size=10); ARB = Font(name='Arial', size=10, bold=True)
@@ -144,14 +156,14 @@ deb = [('Vacaciones tomadas (goces)', '=D21', MY.pasivo_tot(MY.B, '5BS.21204.003
        ('Vacaciones de finiquito', '=Q21', MY.pasivo_tot(MY.B, '5BS.21204.003', 'FINIQUITOS'), 'Débito 5BS.21204.003 · DO-4C liquidaciones'),
        ('D13 liquidado en finiquitos', '=O21', MY.pasivo_tot(MY.B, '5BS.21204.001', 'FINIQUITOS'), 'Débito 5BS.21204.001 · DO-4C'),
        ('D14 liquidado en finiquitos', '=P21', MY.pasivo_tot(MY.B, '5BS.21204.002', 'FINIQUITOS'), 'Débito 5BS.21204.002 · DO-4C'),
-       ('D13 mensualizado (sin jubilares 27,60)', '=M21-27.6', round(sum(MY.gasto_mes('D13')) + MY.pasivo_tot(MY.B, '5BS.21204.001', 'PROVISION'), 2), 'No debita el pasivo: gasto D13 − provisión acreditada (DO-6)'),
-       ('D14 mensualizado (sin jubilares 474,22)', '=N21-474.22', round(sum(MY.gasto_mes('D14')) + MY.pasivo_tot(MY.B, '5BS.21204.002', 'PROVISION') - 18.93, 2), 'Gasto D14 − provisión acreditada − ajuste de pago a tiempo parcial 18,93')]
+       (f'D13 mensualizado (sin jubilares {_nf(_jd13)})', f'=M21-{_jd13}', round(sum(MY.gasto_mes('D13')) + MY.pasivo_tot(MY.B, '5BS.21204.001', 'PROVISION'), 2), 'No debita el pasivo: gasto D13 − provisión acreditada (DO-6)'),
+       (f'D14 mensualizado (sin jubilares {_nf(_jd14)})', f'=N21-{_jd14}', round(_g14_mens - _aj14, 2), f'Gasto D14 − provisión acreditada − ajuste de pago a tiempo parcial {_nf(_aj14)}')]
 for i, (t, v, lb, u) in enumerate(deb):
     r = 42 + i
     cell(ws, f'A{r}', t, AR, box=True); cell(ws, f'B{r}', v, ARB, N2, box=True)
     cell(ws, f'C{r}', lb, BLUE, N2, box=True); cell(ws, f'D{r}', f'=ROUND(B{r}-C{r},2)', ARB, N2, box=True)
     cell(ws, f'E{r}', u, IT, box=True); ws.merge_cells(f'E{r}:H{r}')
-cell(ws, 'A48', 'Décimos jubilares incluidos en el rol: D13 27,60 y D14 474,22 (jubilada patronal Beltrán Cañizares). Explican los 501,82 de mensualizados del rol que no están en el Consolidado IESS.', IT)
+cell(ws, 'A48', f'Décimos jubilares incluidos en el rol: D13 {_nf(_jd13)} y D14 {_nf(_jd14)} (jubilados patronales de la pestaña «normal»). Explican los {_nf(_jub_total)} de mensualizados del rol que no están en el Consolidado IESS.', IT)
 ws.merge_cells('A48:Q48')
 
 # Bloque: sueldos por mes
@@ -178,7 +190,7 @@ for r, t, f in txt:
     cell(ws, f'A{r}', t, f)
     if f is AR: ws.merge_cells(f'A{r}:Q{r}'); ws[f'A{r}'].alignment = Alignment(wrap_text=True, vertical='top'); ws.row_dimensions[r].height = 30
 cell(ws, 'A79', '="Sueldos: el rol excede a libros en "&TEXT(B26,"#,##0.00")&" en la nómina regular (las liquidaciones cuadran mes a mes según el Mayor RQ-004). Horas extras, bonos, comisiones, premios, pasantes y vacaciones tomadas cuadran; los débitos del pasivo por goces y finiquitos coinciden con el rol. '
-                'Fondos de reserva: pagado (rol + IESS) vs gasto "&TEXT(B37,"#,##0.00")&". Los 501,82 de décimos del rol fuera del IESS son décimos jubilares."', AR)
+                f'Fondos de reserva: pagado (rol + IESS) vs gasto "&TEXT(B37,"#,##0.00")&". Los {_nf(_jub_total)} de décimos del rol fuera del IESS son décimos jubilares."', AR)
 ws.merge_cells('A79:Q80'); ws['A79'].alignment = Alignment(wrap_text=True, vertical='top'); ws['A79'].border = BOX; ws.row_dimensions[79].height = 30
 ws.column_dimensions['A'].width = 34
 for i in range(2, 18): ws.column_dimensions[chr(64 + i)].width = 12.5
