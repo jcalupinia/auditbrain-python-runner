@@ -1397,6 +1397,31 @@ export async function quitarSlotOF(jobId, slot, nombre) {
   );
 }
 
+// Describe el encabezado de UN mayor (para el mapeo manual de columnas):
+// { hoja, fila_encabezado, headers:[...], columnas_detectadas:{campo:idx},
+//   columnas_faltantes:[...], mapeo_manual:{...}, nombre }.
+export async function encabezadosMayorOF(jobId, slot, nombre) {
+  const qs = `?nombre=${encodeURIComponent(nombre)}`;
+  return parse(
+    await apiFetch(`${OF_BASE}/jobs/${jobId}/slots/${slot}/encabezados${qs}`, {
+      headers: authHeaders(),
+    })
+  );
+}
+
+// Guarda el mapeo manual de columnas de un mayor { campo: idx }. Exige al
+// menos las columnas mínimas (codigo, debe, haber).
+export async function guardarMapeoColumnasOF(jobId, slot, nombre, mapeo) {
+  const qs = `?nombre=${encodeURIComponent(nombre)}`;
+  return parse(
+    await apiFetch(`${OF_BASE}/jobs/${jobId}/slots/${slot}/mapeo${qs}`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ mapeo }),
+    })
+  );
+}
+
 // Estado de todos los slots: { slot: { n_archivos, nombres } }.
 export async function estadoSlotsOF(jobId) {
   return parse(

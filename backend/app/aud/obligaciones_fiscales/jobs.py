@@ -36,8 +36,12 @@ def leer_mayores_del_job(job_id: int):
     errores: list[str] = []
     ilegibles: list[tuple[str, list[str]]] = []
 
+    # Mapeo MANUAL de columnas por archivo (cuando el auditor lo asignó porque
+    # el detector no reconoció el encabezado). Aplica a general y específicos.
+    col_map = file_storage.read_mayor_columnas_mapeo(job_dir)
+
     def _acumular(ruta, categoria: str | None = None) -> None:
-        lectura = leer_mayor(ruta.read_bytes())
+        lectura = leer_mayor(ruta.read_bytes(), mapeo_manual=col_map.get(ruta.name))
         if not lectura.mapeo_suficiente:
             ilegibles.append((ruta.name, list(lectura.columnas_faltantes)))
             return

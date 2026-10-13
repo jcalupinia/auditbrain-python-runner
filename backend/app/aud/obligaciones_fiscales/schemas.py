@@ -55,6 +55,16 @@ SLOTS_VALIDOS = (
 )
 
 
+class MapeoColumnasIn(BaseModel):
+    """Mapeo manual de columnas de un mayor {campo: índice de columna 0-based}.
+
+    Los campos válidos son los del lector (codigo, cuenta, fecha, asiento,
+    documento, identificacion, persona, descripcion, debe, haber, saldo). El
+    router exige al menos los mínimos (codigo, debe, haber)."""
+
+    mapeo: dict[str, int] = {}
+
+
 class CorreccionIn(BaseModel):
     codigo_cuenta: str
     categoria: str | None = None

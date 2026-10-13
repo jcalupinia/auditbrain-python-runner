@@ -31,6 +31,7 @@ from backend.app.aud.obligaciones_fiscales.schemas import (
     CorreccionesIn,
     JobOut,
     JobUpdateIn,
+    MapeoColumnasIn,
 )
 from backend.app.core.config import settings
 from backend.app.db.session import get_db
@@ -138,7 +139,10 @@ def _job_editable(db, current, job_id: int):
         job = service.get_job(db, current, job_id)
     except PermissionError as e:
         raise HTTPException(403, detail=str(e))
-    if job.status not in ("borrador", "revision"):
+    # 'failed' se admite para poder REEMPLAZAR o RE-MAPEAR un mayor que no se
+    # pudo leer (el job quedó en error tras el intento de clasificación) sin
+    # tener que recrear el encargo.
+    if job.status not in ("borrador", "revision", "failed"):
         raise HTTPException(
             409, detail=f"El job está en estado {job.status}: ya no admite cambios de archivos."
         )
@@ -205,12 +209,18 @@ def clear_slot_endpoint(
         raise HTTPException(400, detail=f"Slot desconocido: {slot}")
     _job_editable(db, current, job_id)
     job_dir = file_storage.job_dir(job_id)
+    es_mayor = slot in ("mayor_general", "mayor_especifico")
     if nombre:
         file_storage.delete_input(job_dir, slot, nombre)
         if slot == "mayor_especifico":
             file_storage.unset_mayor_especifico_categoria(job_dir, nombre)
+        if es_mayor:
+            # El mapeo manual de columnas se guardó con el nombre YA saneado.
+            file_storage.unset_mayor_columnas_mapeo(job_dir, file_storage.safe_filename(nombre))
     else:
         for p in file_storage.list_inputs(job_dir, slot):
+            if es_mayor:
+                file_storage.unset_mayor_columnas_mapeo(job_dir, p.name)
             p.unlink(missing_ok=True)
         if slot == "mayor_especifico":
             file_storage.unset_mayor_especifico_categoria(job_dir, None)
@@ -228,6 +238,94 @@ def get_slots_endpoint(
     except PermissionError as e:
         raise HTTPException(403, detail=str(e))
     return _estado_slots(job_id)
+
+
+_SLOTS_MAYOR = ("mayor_general", "mayor_especifico")
+
+
+@router.get("/jobs/{job_id}/slots/{slot}/encabezados")
+def encabezados_mayor_endpoint(
+    job_id: int,
+    slot: str,
+    nombre: str,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Describe el encabezado de UN mayor (para el mapeo manual de columnas):
+    los textos de la fila de encabezado, el mapeo automático detectado y qué
+    columnas mínimas faltan. No lee los movimientos."""
+    from backend.app.aud.obligaciones_fiscales.mayor.reader import inspeccionar_encabezado
+
+    if slot not in _SLOTS_MAYOR:
+        raise HTTPException(400, detail="El mapeo de columnas solo aplica a los mayores.")
+    try:
+        service.get_job(db, current, job_id)
+    except PermissionError as e:
+        raise HTTPException(403, detail=str(e))
+    job_dir = file_storage.job_dir(job_id)
+    target = job_dir / file_storage.INPUTS_DIR / file_storage.safe_filename(slot) / \
+        file_storage.safe_filename(nombre)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(404, detail=f"No existe el archivo {nombre} en el slot {slot}.")
+    info = inspeccionar_encabezado(target.read_bytes())
+    # El mapeo manual ya guardado (si existe) para pre-rellenar la UI.
+    guardado = file_storage.read_mayor_columnas_mapeo(job_dir).get(
+        file_storage.safe_filename(nombre), {}
+    )
+    info["mapeo_manual"] = guardado
+    info["nombre"] = file_storage.safe_filename(nombre)
+    return info
+
+
+@router.put("/jobs/{job_id}/slots/{slot}/mapeo")
+def set_mapeo_columnas_endpoint(
+    job_id: int,
+    slot: str,
+    body: MapeoColumnasIn,
+    nombre: str,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Guarda el mapeo manual de columnas de un mayor que el detector no pudo
+    leer. Exige al menos las columnas mínimas (codigo, debe, haber). Tras
+    guardarlo, el auditor vuelve a Procesar y el mayor se lee con ese mapeo."""
+    from backend.app.aud.obligaciones_fiscales.mayor.reader import SINONIMOS
+    from backend.app.aud.obligaciones_fiscales.mayor.tipos import COLUMNAS_MINIMAS
+
+    if slot not in _SLOTS_MAYOR:
+        raise HTTPException(400, detail="El mapeo de columnas solo aplica a los mayores.")
+    _job_editable(db, current, job_id)
+    job_dir = file_storage.job_dir(job_id)
+    target = job_dir / file_storage.INPUTS_DIR / file_storage.safe_filename(slot) / \
+        file_storage.safe_filename(nombre)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(404, detail=f"No existe el archivo {nombre} en el slot {slot}.")
+
+    # Validación: campos conocidos, índices enteros >= 0, sin repetir columna,
+    # y las columnas mínimas presentes.
+    mapeo: dict[str, int] = {}
+    usados: dict[int, str] = {}
+    for campo, idx in body.mapeo.items():
+        if campo not in SINONIMOS:
+            raise HTTPException(400, detail=f"Campo desconocido: {campo}")
+        if not isinstance(idx, int) or idx < 0:
+            raise HTTPException(400, detail=f"Índice inválido para {campo}: {idx}")
+        if idx in usados:
+            raise HTTPException(
+                400, detail=f"La columna {idx} está asignada a dos campos "
+                            f"({usados[idx]} y {campo}).",
+            )
+        usados[idx] = campo
+        mapeo[campo] = idx
+    faltan = [c for c in COLUMNAS_MINIMAS if c not in mapeo]
+    if faltan:
+        raise HTTPException(
+            400, detail=f"Faltan columnas mínimas por mapear: {', '.join(faltan)}.",
+        )
+
+    file_storage.set_mayor_columnas_mapeo(job_dir, file_storage.safe_filename(nombre), mapeo)
+    service.touch_job(db, job_id)
+    return {"nombre": file_storage.safe_filename(nombre), "mapeo_manual": mapeo}
 
 
 @router.post("/jobs/{job_id}/procesar", response_model=JobOut)
