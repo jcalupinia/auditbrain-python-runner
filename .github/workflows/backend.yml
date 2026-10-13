@@ -29,6 +29,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system deps (poppler-utils)
+        # El motor de nómina lee los comprobantes del IESS (RQ-005) con
+        # `pdftotext -layout` (poppler-utils), igual que producción
+        # (Dockerfile). Sin él, el test de punta a punta de la nómina falla con
+        # FileNotFoundError: 'pdftotext'. Es dependencia de runtime, no de dev.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
