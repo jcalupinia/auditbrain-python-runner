@@ -1,30 +1,18 @@
-# Imagen del backend (Dockerfile.render / Dockerfile): solo lo que el servidor usa.
+# Rama coolify-hetzner: contexto de build del Portal de Clientes.
+# Se MANTIENEN frontend-shared y frontend-client (el portal los necesita);
+# se excluye el resto para un contexto liviano. NO afecta main ni Render.
 .git
+**/node_modules
 **/__pycache__
 **/*.pyc
-**/node_modules
-frontend/dist
-frontend-client/
-frontend-shared/
+backend/
+docs/
 e2e/
 e2e-portal-cliente/
 papeles_muestra/
-# Del frontend el backend SOLO lee los ejemplos por requerimiento y su manifiesto
-# (ejercicio modelo y papeles de muestra: backend/app/aud/niif/ejemplos_manifiesto.py).
-frontend/*
-!frontend/public/
-frontend/public/*
-!frontend/public/ejemplos/
-!frontend/src/
-frontend/src/*
-!frontend/src/aud/
-frontend/src/aud/*
-!frontend/src/aud/niif/
-frontend/src/aud/niif/*
-!frontend/src/aud/niif/ejemplosRequerimientos.js
-# Motor portable del sitio: la «Calculadora reutilizable» del HTML de las pruebas declarativas.
-!frontend/src/aud/niif/sitio/
-frontend/src/aud/niif/sitio/*
-!frontend/src/aud/niif/sitio/tools/
-frontend/src/aud/niif/sitio/tools/*
-!frontend/src/aud/niif/sitio/tools/portable-engine.mjs
+tests/
+scripts/
+server/
+skills/
+workflows/
+frontend/
