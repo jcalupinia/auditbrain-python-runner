@@ -734,3 +734,78 @@ def test_nomina_sin_flag_bespoke_congelado_igual_enruta_al_motor(client):
     assert val.get("ok") is True, val
     texto = json.dumps(val, ensure_ascii=False)
     assert "Número inválido" not in texto
+
+
+def test_procesar_nomina_de_punta_a_punta_sin_flag_bespoke(client):
+    """Regresión del «Número inválido» que seguía saliendo en el Procesar de la nómina.
+
+    El panel se abre por nombre, pero TODA la secuencia de Procesar (producirBespoke:
+    map_validate → validate → configure → approve_methodology → execute → analyze) enrutaba
+    por el flag ``bespoke`` congelado. En una prueba sin el flag, varios pasos genéricos
+    reventaban: ``validate`` llamaba ``reconcile(controlTotal=None)`` → «Número inválido»;
+    ``configure`` pedía ``proc.PARAMETROS``; ``analyze`` leía ``run['rows']``. Con el
+    enrutamiento por ``procesadores.es_bespoke`` la secuencia completa pasa en una prueba sin
+    el flag y nunca aparece «Número inválido»."""
+    import os
+
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from backend.app.aud.niif.ciclo.models import Prueba
+    from backend.app.db.session import SessionLocal
+
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ej = os.path.join(raiz, "frontend", "public", "ejemplos", "nomina_beneficios")
+    subir = [
+        ("RQ-002", "RQ-002_anexo_de_nomina_saldos_por_cuenta.xlsx"),
+        ("RQ-003", "RQ-003_consolidado_iess_por_region.xlsx"),
+        ("RQ-004", "RQ-004_mayor_de_gasto_de_nomina.xlsx"),
+        ("RQ-004", "RQ-004_mayor_de_iess_por_pagar.xlsx"),
+        ("RQ-004", "RQ-004_mayor_de_beneficios_sociales_por_pagar.xlsx"),
+        ("RQ-005", "RQ-005_comprobantes_de_pago_iess.zip"),
+        ("RQ-006", "RQ-006_rol_de_pagos_normal_y_pasantes.xlsx"),
+    ]
+
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    prid = pr["id"]
+    aprob = _a_requerimiento_aprobado(client, tok, prid)
+    rev = aprob["revision"]
+    for rq, nom in subir:
+        with open(os.path.join(ej, nom), "rb") as fh:
+            data = fh.read()
+        r = client.post(f"{BASE}/pruebas/{prid}/archivos", headers=_h(tok),
+                        data={"revision": str(rev), "requerimiento": rq, "componente": ""},
+                        files={"archivo": (nom, data)})
+        assert r.status_code in (200, 201), r.text
+        rev = client.get(f"{BASE}/pruebas/{prid}", headers=_h(tok)).json()["revision"]
+
+    # Simula la prueba vieja del usuario: definición guardada SIN el flag `bespoke`.
+    with SessionLocal() as db:
+        p = db.get(Prueba, prid)
+        d = dict(p.definicion)
+        d.pop("bespoke", None)
+        p.definicion = d
+        flag_modified(p, "definicion")
+        db.commit()
+
+    pasos = [
+        ("map_validate", {}),
+        ("validate", {"evidenceReviewed": True, "evidenceReview": "Evidencia de la nómina revisada.",
+                      "ledger": "0", "tolerance": "0", "acceptance": "Conciliación en DO-9/DO-12."}),
+        ("configure", {"basis": "Metodología de la herramienta de nómina.", "buckets": []}),
+        ("approve_methodology", {}),
+        ("execute", {}),
+        ("analyze", {}),
+    ]
+    estados = []
+    for accion, extra in pasos:
+        rev = client.get(f"{BASE}/pruebas/{prid}", headers=_h(tok)).json()["revision"]
+        r = client.post(f"{BASE}/pruebas/{prid}/acciones", headers=_h(tok),
+                        json={"accion": accion, "revision": rev, "datos": extra})
+        assert r.status_code in (200, 201), f"{accion}: {r.text}"
+        assert "Número inválido" not in r.text, f"{accion} lanzó «Número inválido»: {r.text}"
+        estados.append(client.get(f"{BASE}/pruebas/{prid}", headers=_h(tok)).json().get("estado"))
+    # Llegó a RESULTADOS_ANALIZADOS con las 15 cédulas del motor.
+    assert estados[-1] == "RESULTADOS_ANALIZADOS", estados
+    reg = client.get(f"{BASE}/pruebas/{prid}", headers=_h(tok)).json()["registro"]
+    assert len((reg.get("run") or {}).get("cedulas") or []) == 15, reg.get("run")

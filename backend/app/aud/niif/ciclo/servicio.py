@@ -945,15 +945,26 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
         if faltan:
             raise ReglaIncumplida("Cobertura incompleta. " + " · ".join(faltan))
         reg["rejectedFiles"] = rechazados
-        reg["reconciliation"] = datos_mod.reconcile(
-            reg.get("controlTotal"), datos.get("ledger"), datos.get("tolerance"), str(datos.get("acceptance") or "")
-        )
+        # Las bespoke (nómina 2.0) NO tienen «control total» genérico (su motor lee los archivos
+        # crudos y concilia por dentro: DO-9 contra comprobantes, DO-12 hallazgos/ajustes). Correr
+        # la conciliación genérica llamaría `decimal(controlTotal=None)` → «Número inválido». Se
+        # deja un marcador «resuelto» para que la transición E7→E8 avance (el motor concilia).
+        if procesadores.es_bespoke(p.definicion):
+            reg["reconciliation"] = {"resolved": True, "bespoke": True, "difference": "0.00", "within": True,
+                                     "acceptance": "El motor de nómina concilia internamente (DO-9 vs comprobantes, "
+                                                   "DO-12 hallazgos y ajustes); sin control total genérico."}
+        else:
+            reg["reconciliation"] = datos_mod.reconcile(
+                reg.get("controlTotal"), datos.get("ledger"), datos.get("tolerance"), str(datos.get("acceptance") or "")
+            )
         p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
         con_archivo = {a.requerimiento for a in recibidos_}
         reg["requests"] = [{**r, "status": "RECIBIDO" if r["id"] in con_archivo else "NO REQUERIDO"} for r in reg["requests"]]
 
     # --- E8: ejecución y análisis (route.ts: configure … save_analysis) --------
-    elif accion == "configure" and procesadores.de(p.definicion):
+    # Las bespoke (nómina 2.0) NO usan parámetros del procesador (PARAMETROS/tasas): su motor
+    # lee los archivos crudos. Caen al configure simple (solo guarda la metodología/sustento).
+    elif accion == "configure" and procesadores.de(p.definicion) and not procesadores.es_bespoke(p.definicion):
         proc = procesadores.de(p.definicion)
         crudos = datos.get("parametros") if isinstance(datos.get("parametros"), dict) else {}
         params = {}
@@ -1054,7 +1065,23 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
 
     elif accion == "analyze":
         p.estado = reglas.transicion({**reg, "state": p.estado}, accion)
-        reg["analysis"] = datos_mod.preliminary({**reg, "definition": p.definicion})
+        # Las bespoke (nómina 2.0) no tienen filas/totales genéricos: el análisis preliminar
+        # genérico (`preliminary`) lee run["rows"], ausente aquí. Se arma un texto propio que
+        # remite a las cédulas del motor (el detalle y los hallazgos viven en el panel / DO-12).
+        if procesadores.es_bespoke(p.definicion):
+            ceds = (reg.get("run") or {}).get("cedulas") or []
+            reg["analysis"] = (
+                "CONCLUSIÓN PRELIMINAR — PENDIENTE DE REVISIÓN DEL AUDITOR\n\n"
+                f"Alcance: {(p.definicion or {}).get('name')}. El motor procesó la nómina sobre el 100% de la "
+                f"población y generó {len(ceds)} cédulas (DO-0..DO-12, RQ-004/007/008 y la calculadora de "
+                "vacaciones), disponibles en el panel de la herramienta.\n"
+                "Conciliación: la realiza el motor por dentro (DO-9 libros vs comprobantes del IESS; DO-12 "
+                "hallazgos y ajustes).\n"
+                "El auditor debe revisar las cédulas y los hallazgos del DO-12 antes de concluir.\n\n"
+                "Conclusión del auditor: PENDIENTE."
+            )
+        else:
+            reg["analysis"] = datos_mod.preliminary({**reg, "definition": p.definicion})
 
     elif accion in ("save_analysis", "submit"):
         if p.estado != "RESULTADOS_ANALIZADOS":
