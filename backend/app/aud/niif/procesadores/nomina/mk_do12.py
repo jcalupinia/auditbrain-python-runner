@@ -114,6 +114,14 @@ H = [
   'El saldo de sueldos por pagar (' + _n(_C['sueldo_pend']) + ') corresponde al sueldo de diciembre de un trabajador; el resto del rol de diciembre se pagó en el mes.',
   'Los pasivos deben estar sustentados y liquidarse en el período siguiente.', 'Pago pendiente o error de registro.', 'Saldo de ' + _n(_C['sueldo_pend']) + ' por sustentar.', _C['sueldo_pend'], 'DO-9', 'Sustento',
   'Proporcionar el comprobante de pago de enero de 2026.', False),
+ # Importe None A PROPÓSITO en los tres hallazgos que siguen (compensación CxC, residual
+ # IESS y ajustes manuales de vacaciones). En la cédula de referencia eran cifras FIJAS de
+ # PROPHAR, de juicio del auditor (p. ej. 8.300,00 con un nombre de trabajador), NO el valor
+ # de la regla (cxc_compensacion=27.114,92, ajustes_vac=2.750,52 no reproducen 8.300/2.741,32).
+ # La regla §4.3 del CLAUDE.md prohíbe hardcodear cifras de PROPHAR en los generadores, así que
+ # se dejan sin importe cuantificado (son «por sustentar/informativo») y el «Total cuantificado»
+ # suma solo los hallazgos derivados de reglas. Decisión del socio 2026-10-13 (Opción A): NO
+ # re-introducir estas cifras; si se quisieran, irían como parámetro que ingresa el auditor, nunca fijas.
  ('Compensación de cuentas por cobrar a empleados con el décimo tercero', 'En diciembre se debitó el pasivo del décimo tercero (asientos CIERRE.CXC.EMPLEADO) para cancelar cuentas por cobrar a empleados, y se pagó parte del décimo tercero fuera de la transferencia general (Mayor RQ-004, 5BS.21204.001).',
   'Código del Trabajo: las deducciones a la remuneración y a los décimos requieren autorización del trabajador o disposición legal; los décimos tienen protección especial frente a descuentos.', 'Cobro de anticipos o préstamos a empleados mediante compensación con el décimo tercero.',
   'Riesgo de reclamo laboral si no existe autorización escrita; sin efecto en el saldo (importe por sustentar).', None, 'DO-4C / Mayor RQ-004', 'Sustento',
@@ -184,7 +192,15 @@ rows.append(('AJ-1', '5BS.21204.003', 'Vacaciones por pagar', _aj1, None, 'H-1',
 first_vac = len(rows)
 tot_vac = sum(v for _, _, v in VAC)
 for k, (cod, nom, v) in enumerate(VAC):
-    f = f'=ROUND({_aj1}*{v}/{tot_vac},2)' if k < len(VAC) - 1 else f'={_aj1}-SUM(E9:E{7+len(VAC)})'
+    # La ÚLTIMA cuenta cierra el ajuste (AJ-1 − la suma de las anteriores) para que la prorrata
+    # cuadre al centavo. Con una SOLA cuenta no hay anteriores: toma el ajuste entero, sin SUM
+    # (si no, el rango E9:E8 se incluiría a sí mismo → referencia circular / #¡VALOR! al abrir).
+    if k < len(VAC) - 1:
+        f = f'=ROUND({_aj1}*{v}/{tot_vac},2)'
+    elif len(VAC) == 1:
+        f = f'={_aj1}'
+    else:
+        f = f'={_aj1}-SUM(E9:E{7+len(VAC)})'
     rows.append(('AJ-1', cod, f'{nom} (prorrata por centro de costo)', None, f, 'H-1', 'Disminuye gasto'))
 rows.append(('', '', 'Glosa: ajuste de la provisión de vacaciones a 1/24 de la remuneración (Código del Trabajo, art. 69).', None, None, '', ''))
 # RJ-1: reclasificación del FR pagado en rol a cada administrador excluido, con su importe (fr_rol) y su centro de costo.

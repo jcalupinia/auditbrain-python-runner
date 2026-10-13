@@ -489,7 +489,8 @@ def panel_nomina(prueba_id: int, db: Session = Depends(get_db),
     # abre igual, sin visor (degradación suave) — nunca deja de abrir por carga.
     carpeta, extras = servicio.recalc_nomina(db, p)
     html = nomina_panel_html.render(engagement, p.id, carpeta_cedulas=carpeta, extras=extras,
-                                    do1_estado=servicio.leer_do1(p))
+                                    do1_estado=servicio.leer_do1(p),
+                                    archivos=servicio.archivos(db, p.id))
     return Response(html, media_type="text/html; charset=utf-8")
 
 

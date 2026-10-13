@@ -530,7 +530,18 @@ const TESTS=[
  {t:'IESS por Pagar: Libros vs Comprobantes de Pago',d:'Aportes, fondos de reserva y préstamos: libros vs comprobantes vs Consolidado; saldos por pagar a diciembre y plazos (DO-9).',rq:['RQ-002','RQ-004','RQ-005','RQ-006'],col:'#c98a10',ic:'D'},
  {t:'Roles de Pago vs Libros: Gastos y Provisiones',d:'Conceptos del rol por mes vs gasto en libros; fondos de reserva con depósitos IESS; pagos que debitan el pasivo (DO-10).',rq:['RQ-002','RQ-004','RQ-005','RQ-006'],col:'#1688d9',ic:'D'},
  {t:'Hallazgos y Ajustes de Auditoría',d:'Hoja de hallazgos (condición, criterio, causa, efecto), ajustes propuestos, resumen de incorrecciones (prueba al 100%) y carta de control interno (DO-12).',prog2:true,rq:['Todas las pruebas'],col:'#d64545',ic:'F'}];
-const FILES={};/* en memoria, por requerimiento o sub-compartimento */
+/* Archivos YA cargados a la prueba (inyectados por render) agrupados en los casilleros del
+   panel. Cuando el requerimiento tiene compartimentos (RQ-003 por región, RQ-004 pasivos/gastos,
+   RQ-005 por tipo) se reparte por el nombre del compartimento (componente); RQ-004 sin
+   componente se reparte por el nombre del archivo (GASTO → gastos). Los rechazados no cuentan. */
+const _norm=s=>String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+function bucketFiles(list){const F={};(list||[]).forEach(a=>{if(a.estado==='rechazado')return;
+  const r=RQS.find(x=>x.c===a.req);const ent={name:a.name,size:a.size,id:a.id};
+  if(r&&r.subs){let idx=r.subs.findIndex(s=>{const sa=_norm(s),cb=_norm(a.comp);return cb&&(sa.includes(cb)||cb.includes(sa));});
+   if(idx<0&&a.req==='RQ-004')idx=/gasto/i.test(a.name)?1:0;if(idx<0)idx=0;
+   (F[a.req+'.'+idx]=F[a.req+'.'+idx]||[]).push(ent);}
+  else{(F[a.req]=F[a.req]||[]).push(ent);}});return F;}
+const FILES=bucketFiles(__NOMINA_FILES__);/* casilleros: por requerimiento o sub-compartimento */
 let encArm=false,upTarget=null;
 const fsz=b=>b>1048576?(b/1048576).toFixed(1).replace('.',',')+' MB':Math.max(1,Math.round(b/1024))+' KB';
 function reqIdx(r){return r.subs.map((s,i)=>i).filter(i=>!(r.opt||[]).includes(i));}
@@ -572,10 +583,17 @@ function renderPanel(){
 }
 document.addEventListener('click',e=>{
  const u=e.target.closest('[data-up]');if(u){upTarget=u.dataset.up;$('#upAny').value='';$('#upAny').click();return;}
- const d=e.target.closest('[data-del]');if(d){const [k,i]=d.dataset.del.split('|');FILES[k].splice(+i,1);encArm=false;renderPanel();toast('Archivo eliminado');return;}
+ const d=e.target.closest('[data-del]');if(d){const [k,i]=d.dataset.del.split('|');const ent=(FILES[k]||[])[+i]||{};if(ent.id!=null&&nomBorrar(ent.id)){toast('Eliminando…');return;}FILES[k].splice(+i,1);encArm=false;renderPanel();toast('Archivo eliminado');return;}
  if(e.target.closest('[data-open]')){openM();return;}
 });
-$('#upAny').onchange=e=>{const fs=[...e.target.files];if(!fs.length||!upTarget)return;(FILES[upTarget]=FILES[upTarget]||[]).push(...fs.map(f=>({name:f.name,size:f.size})));encArm=false;renderPanel();toast(fs.length+' archivo(s) cargado(s)');};
+$('#upAny').onchange=e=>{const fs=[...e.target.files];if(!fs.length||!upTarget)return;e.target.value='';
+ /* Sube de verdad a la prueba vía el Command Center (opener): req + componente del casillero.
+    Al terminar, el Command Center regenera el panel con la carga real. Suelto (sin opener) cae a
+    la simulación local de la sesión. */
+ const [rc,si]=String(upTarget).split('.');const rr=RQS.find(x=>x.c===rc);
+ const comp=(rr&&rr.subs&&si!=null)?rr.subs[+si]:'';
+ if(nomSubir(rc,comp,fs)){toast('Subiendo '+fs.length+' archivo(s)…');return;}
+ (FILES[upTarget]=FILES[upTarget]||[]).push(...fs.map(f=>({name:f.name,size:f.size})));encArm=false;renderPanel();toast(fs.length+' archivo(s) cargado(s)');};
 /* Procesar: acciona el motor REAL vía el Command Center (opener). Da feedback y se deshabilita
    mientras tanto; al terminar, el Command Center regenera el panel (vuelve a quedar habilitado). */
 $('#bProc').onclick=()=>{if(nomSend('auditbrain:nomina-procesar')){const b=$('#bProc');b.disabled=true;const t=b.querySelector('b');if(t)t.textContent='Procesando…';toast('Procesando la nómina en el Command Center…');}else{toast('El procesamiento se acciona desde el Command Center.');}};
@@ -837,6 +855,9 @@ let xKind='';
    Devuelve true si hab\u00eda un opener/parent al que avisar (false = panel abierto suelto). */
 function nomSend(type){var t=(window.opener&&window.opener!==window)?window.opener:((window.parent&&window.parent!==window)?window.parent:null);if(t){try{t.postMessage({type:type},'*');return true;}catch(e){}}return false;}
 function nomDL(nombre){var t=(window.opener&&window.opener!==window)?window.opener:((window.parent&&window.parent!==window)?window.parent:null);if(t){try{t.postMessage({type:'auditbrain:nomina-descargar',cedula:nombre},'*');toast('Preparando '+nombre+'\u2026');return;}catch(e){}}toast('La descarga se genera desde el Command Center.');}
+function _nomTarget(){return (window.opener&&window.opener!==window)?window.opener:((window.parent&&window.parent!==window)?window.parent:null);}
+function nomSubir(req,comp,files){var t=_nomTarget();if(t){try{t.postMessage({type:'auditbrain:nomina-subir',req:req,comp:comp,files:files},'*');return true;}catch(e){}}return false;}
+function nomBorrar(id){var t=_nomTarget();if(t&&id!=null){try{t.postMessage({type:'auditbrain:nomina-borrar',fileId:id},'*');return true;}catch(e){}}return false;}
 /* Pide al Command Center guardar el estado del DO-1 DENTRO de la prueba. Devuelve true si hab\u00eda
    opener/parent al que avisar. Sin opener (panel suelto) el DO-1 queda solo en el localStorage. */
 function nomGuardarDo1(estado){var t=(window.opener&&window.opener!==window)?window.opener:((window.parent&&window.parent!==window)?window.parent:null);if(t){try{t.postMessage({type:'auditbrain:nomina-do1-guardar',estado:estado},'*');return true;}catch(e){}}return false;}

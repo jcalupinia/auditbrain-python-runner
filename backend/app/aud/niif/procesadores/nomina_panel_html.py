@@ -261,9 +261,30 @@ def derivar_nt(carpeta_cedulas: str | None) -> int | None:
     return None
 
 
+def construir_files(archivos: list | None) -> list:
+    """Normaliza los archivos cargados a la prueba al formato que agrupa el panel en sus
+    casilleros: ``[{req, comp, name, size, estado, id}]``. El panel (JS) los reparte en
+    FILES por requerimiento y, cuando el requerimiento tiene compartimentos (RQ-003 por
+    región, RQ-004 pasivos/gastos, RQ-005 por tipo), por el nombre del compartimento.
+    Ignora los archivos rechazados (no cubren el requerimiento)."""
+    out = []
+    for a in archivos or []:
+        estado = getattr(a, "estado", None) or (a.get("estado") if isinstance(a, dict) else None)
+        get = (lambda k: getattr(a, k, None)) if not isinstance(a, dict) else (lambda k: a.get(k))
+        out.append({
+            "req": str(get("requerimiento") or ""),
+            "comp": str(get("componente") or ""),
+            "name": str(get("nombre") or ""),
+            "size": int(get("tamano") or 0),
+            "estado": str(estado or "recibido"),
+            "id": get("id"),
+        })
+    return out
+
+
 def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/ciclo",
            carpeta_cedulas: str | None = None, extras: dict | None = None,
-           do1_estado: dict | None = None) -> bytes:
+           do1_estado: dict | None = None, archivos: list | None = None) -> bytes:
     """HTML del panel con el encargo inyectado. ``prueba_id`` enlaza los botones al motor.
 
     ``carpeta_cedulas``: carpeta con las cédulas YA RECALCULADAS (LibreOffice) que produjo el
@@ -304,6 +325,10 @@ def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/cic
     # Nº de trabajadores activos al corte tomado del motor (cédula VAC). Valor por defecto del
     # cuestionario DO-1 para que la aplicabilidad (autoNA/eff) se resuelva sola; None sin procesar.
     nt = derivar_nt(carpeta_cedulas)
+    # Archivos YA cargados a la prueba (requerimiento, componente, nombre, tamaño, estado): el
+    # panel los agrupa en sus casilleros (FILES) para que al reabrir/refrescar reflejen la carga
+    # real, no una simulación en memoria. ``None`` → lista vacía (nada cargado todavía).
+    files_init = construir_files(archivos)
     html = (tmpl
             .replace("__NOMINA_ENC__", json.dumps(enc, ensure_ascii=False))
             .replace("__NOMINA_API__", json.dumps(api, ensure_ascii=False))
@@ -313,5 +338,6 @@ def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/cic
             .replace("__NOMINA_POP07__", json.dumps(pop07, ensure_ascii=False))
             .replace("__NOMINA_NT__", json.dumps(nt))
             .replace("__NOMINA_DO1__", json.dumps(do1_estado, ensure_ascii=False))
+            .replace("__NOMINA_FILES__", json.dumps(files_init, ensure_ascii=False))
             .replace("__NOMINA_VISOR__", json.dumps(datos_visor)))
     return html.encode("utf-8")

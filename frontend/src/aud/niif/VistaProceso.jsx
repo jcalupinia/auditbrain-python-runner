@@ -548,6 +548,50 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
     } catch { /* guardado de fondo: no romper el panel por un fallo de red */ }
   }
 
+  // Carga de archivos desde los casilleros del panel: sube de verdad a la prueba (uno por uno,
+  // encadenando la revisión como la subida del wizard) y refresca el panel con la carga real.
+  async function subirDesdePanel({ req, comp, files }) {
+    if (!prueba.id || !req || !files?.length) return;
+    setTrabajando(true); setError(""); setAviso("");
+    try {
+      let rev = (await api.cicloLeerPrueba(prueba.id)).revision;
+      const fallos = [];
+      for (const archivo of files) {
+        try {
+          const r = await api.cicloSubirArchivo(prueba.id, rev, req, comp, archivo);
+          if (r && Number.isInteger(r.revision)) rev = r.revision;
+        } catch (e) {
+          fallos.push(`${archivo?.name || "archivo"}: ${e.message || String(e)}`);
+        }
+      }
+      if (fallos.length) setError(`No se pudieron subir: ${fallos.join(" · ")}`);
+      else setAviso(`${files.length} archivo(s) cargado(s) a ${req}${comp ? ` · ${comp}` : ""}.`);
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setTrabajando(false);
+      await onRecargar();
+      await refrescarPanelNomina();
+    }
+  }
+
+  // Borrado de un archivo ya cargado desde el panel (✕). Respeta la regla del servidor: solo
+  // antes de validar la documentación (delete_file). Refresca el panel al terminar.
+  async function borrarDesdePanel(fileId) {
+    if (!prueba.id || fileId == null) return;
+    setTrabajando(true); setError("");
+    try {
+      const fresca = await api.cicloLeerPrueba(prueba.id);
+      await api.cicloAccion(prueba.id, "delete_file", fresca.revision, { fileId: Number(fileId) });
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setTrabajando(false);
+      await onRecargar();
+      await refrescarPanelNomina();
+    }
+  }
+
   async function bajarCedulaNomina(nombre) {
     try {
       descargar(nombre, await api.cicloBajarCedulaNomina(prueba.id, nombre, { timeoutMs: 180000, retries: 1 }), XLSX);
@@ -580,6 +624,9 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
         encerar: () => setEncerando(true),
         // Autosave del cuestionario DO-1: lo persiste dentro de la prueba, en silencio.
         guardarDo1: (estado) => guardarDo1Nomina(estado),
+        // Carga y borrado de archivos desde los casilleros del panel (suben/borran en la prueba).
+        subir: (datos) => subirDesdePanel(datos),
+        borrar: (fileId) => borrarDesdePanel(fileId),
       });
     };
     window.addEventListener("message", onMensaje);

@@ -273,6 +273,26 @@ def test_panel_trae_deficiencias_ci_do1():
     assert "obsList()" in html and "carta de control interno" in html
 
 
+def test_render_inyecta_los_archivos_cargados():
+    """render inyecta __NOMINA_FILES__ con los archivos ya cargados a la prueba (requerimiento,
+    componente, nombre, tamaño, estado, id) para que el panel los agrupe en sus casilleros. Sin
+    archivos → lista vacía; el placeholder siempre se reemplaza."""
+    arch = [
+        {"requerimiento": "RQ-002", "componente": "", "nombre": "Anexo.xlsx", "tamano": 1234, "estado": "recibido", "id": 5},
+        {"requerimiento": "RQ-003", "componente": "Sierra / Amazonía", "nombre": "Consol.xlsx", "tamano": 10, "estado": "recibido", "id": 6},
+    ]
+    files = np.construir_files(arch)
+    assert files[0] == {"req": "RQ-002", "comp": "", "name": "Anexo.xlsx", "size": 1234, "estado": "recibido", "id": 5}
+    assert files[1]["req"] == "RQ-003" and files[1]["comp"] == "Sierra / Amazonía"
+    assert np.construir_files(None) == []
+    html = np.render({"client": "X S.A.", "firm": "AuditConsulting"}, 7, archivos=arch).decode()
+    assert "__NOMINA_FILES__" not in html
+    assert "Anexo.xlsx" in html and "Consol.xlsx" in html
+    # Sin archivos: el placeholder se reemplaza por una lista vacía.
+    vacio = np.render({"client": "X S.A.", "firm": "AuditConsulting"}, 1).decode()
+    assert "__NOMINA_FILES__" not in vacio
+
+
 def test_render_precarga_do1_guardado():
     """render inyecta __NOMINA_DO1__ con el estado guardado del cuestionario (fuente de verdad);
     sin estado queda en null y el panel cae a su borrador local (localStorage)."""
@@ -498,6 +518,87 @@ def test_libro_generico_no_aplica_a_la_bespoke(client):
     assert r.status_code == 400 and "panel" in r.json()["detail"].lower()
 
 
+def test_ejemplos_nomina_2_0_existen_abren_sin_reparar_y_sin_piloto():
+    """Los ejemplos de la 2.0 (dataset sintético ficticio) del manifiesto existen en disco, abren
+    sin «reparaciones» (ninguna celda de texto empieza con =,+,-,@) y no traen datos del piloto."""
+    import os
+    import re
+
+    import openpyxl
+
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    pub = os.path.join(raiz, "frontend", "public", "ejemplos", "nomina_beneficios")
+    manifiesto = open(os.path.join(raiz, "frontend", "src", "aud", "niif", "ejemplosRequerimientos.js"),
+                      encoding="utf-8").read()
+    bloque = re.search(r"\bnomina_beneficios:\s*\{(.*?)\}", manifiesto, re.S).group(1)
+    entradas = dict(re.findall(r'"(RQ-\d+)":\s*"([^"]+)"', bloque))
+    # Cubre los requerimientos que el auditor carga (RQ-002..008; RQ-001 va incorporado).
+    assert {"RQ-002", "RQ-003", "RQ-004", "RQ-006"} <= set(entradas)
+    piloto = ("montesdeoca", "remache", "prophar", "1791859596", "albiño", "quitiaquez", "robalino")
+    for req, nombre in entradas.items():
+        ruta = os.path.join(pub, nombre)
+        assert os.path.exists(ruta), f"falta el ejemplo {nombre}"
+        if nombre.endswith(".xlsx"):
+            wb = openpyxl.load_workbook(ruta)  # abre sin «reparar»
+            for ws in wb.worksheets:
+                for row in ws.iter_rows():
+                    for c in row:
+                        v = c.value
+                        if isinstance(v, str):
+                            assert v[:1] not in ("=", "+", "@"), f"{nombre}!{c.coordinate}: texto que parece fórmula"
+                            assert not any(t in v.lower() for t in piloto), f"{nombre}: dato del piloto"
+
+
+def test_do12_prorrata_vacaciones_una_sola_cuenta_no_es_circular(tmp_path):
+    """Regresión del blindaje DO-12: con UNA sola cuenta de gasto de vacaciones, la prorrata del
+    ajuste AJ-1 NO debe autorreferenciarse (antes: =_aj1-SUM(E9:E8) → referencia circular →
+    #¡VALOR! al recalcular). Se genera un dataset sintético de 1 cuenta, se corre el motor y se
+    comprueba que ninguna fórmula de «Ajustes propuestos» suma un rango que incluya su propia fila."""
+    import importlib.util
+    import io
+    import os
+    import re
+
+    import openpyxl
+
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    spec = importlib.util.spec_from_file_location(
+        "ejemplos_nomina_gen", os.path.join(raiz, "scripts", "ejemplos_nomina_beneficios.py"))
+    gen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen)
+    dest = str(tmp_path / "ej1vac")
+    gen.generar(dest, n_vac=1)   # <-- una sola cuenta de vacaciones
+
+    def _rq(req, nombre):
+        return {"requerimiento": req, "nombre": nombre, "ruta": os.path.join(dest, nombre)}
+    # RQ-005 (comprobantes PDF): se reutiliza el .zip YA committeado en la carpeta pública para
+    # no depender de reportlab (que no está en CI). Los aportes/FR no dependen de n_vac.
+    zip_comp = os.path.join(raiz, "frontend", "public", "ejemplos", "nomina_beneficios",
+                            "RQ-005_comprobantes_de_pago_iess.zip")
+    archivos = [
+        _rq("RQ-002", "RQ-002_anexo_de_nomina_saldos_por_cuenta.xlsx"),
+        _rq("RQ-003", "RQ-003_consolidado_iess_por_region.xlsx"),
+        _rq("RQ-004", "RQ-004_mayor_de_gasto_de_nomina.xlsx"),
+        _rq("RQ-004", "RQ-004_mayor_de_iess_por_pagar.xlsx"),
+        _rq("RQ-004", "RQ-004_mayor_de_beneficios_sociales_por_pagar.xlsx"),
+        {"requerimiento": "RQ-005", "nombre": "RQ-005_comprobantes_de_pago_iess.zip", "ruta": zip_comp},
+        _rq("RQ-006", "RQ-006_rol_de_pagos_normal_y_pasantes.xlsx"),
+    ]
+    ficha = {"client": "Comercial Andina de Ejemplo S.A.", "ruc": "1790000000001", "year": 2025,
+             "cutoff": "2025-12-31", "visit": "Final", "firm": "AuditConsulting",
+             "framework": "NIIF para las PYMES", "edition": "2015", "preparer": "JV", "reviewer": "Socio"}
+    ced = nb.correr_prueba(archivos, ficha, str(tmp_path / "home"), str(tmp_path / "out"))
+    wb = openpyxl.load_workbook(io.BytesIO(ced["DO-12_Hallazgos_y_Ajustes.xlsx"]), data_only=False)
+    ws = wb["Ajustes propuestos"]
+    for row in ws.iter_rows():
+        for c in row:
+            if isinstance(c.value, str) and c.value.startswith("="):
+                for mref in re.finditer(r"SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)", c.value):
+                    col1, r1, col2, r2 = mref.group(1), int(mref.group(2)), mref.group(3), int(mref.group(4))
+                    if col1 == c.column_letter == col2 and min(r1, r2) <= c.row <= max(r1, r2):
+                        raise AssertionError(f"Fórmula autorreferente en {c.coordinate}: {c.value}")
+
+
 def test_panel_solo_para_la_herramienta_de_nomina(client):
     tok, pid = _staff_con_proyecto(client)
     pr = _ficha_y_prueba_nomina(client, tok, pid, origen="proc:efectivo_equivalentes")
@@ -524,10 +625,8 @@ def _leer(client, tok, prid):
     return r.json()
 
 
-def test_cadena_del_requerimiento_llega_a_aprobado(client):
-    tok, pid = _staff_con_proyecto(client)
-    pr = _ficha_y_prueba_nomina(client, tok, pid)
-    prid = pr["id"]
+def _a_requerimiento_aprobado(client, tok, prid):
+    """Recorre la cadena (como prepararBaseTecnica del frontend) hasta REQUERIMIENTO_APROBADO."""
     for _ in range(10):
         p = _leer(client, tok, prid)
         reg, est, rev = p["registro"], p["estado"], p["revision"]
@@ -553,10 +652,35 @@ def test_cadena_del_requerimiento_llega_a_aprobado(client):
         r = client.post(f"{BASE}/pruebas/{prid}/acciones", headers=_h(tok),
                         json={"accion": accion, "revision": rev, "datos": datos})
         assert r.status_code == 200, f"{accion}: {r.text[:500]}"
+    return _leer(client, tok, prid)
 
-    final = _leer(client, tok, prid)
+
+def test_cadena_del_requerimiento_llega_a_aprobado(client):
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    final = _a_requerimiento_aprobado(client, tok, pr["id"])
     assert final["estado"] == "REQUERIMIENTO_APROBADO", final["estado"]
     # Los 8 requerimientos propios de la nómina (RQ-001..RQ-008) con sus procedimientos.
     ids = {rq["id"] for rq in final["registro"]["requests"]}
     assert {"RQ-001", "RQ-002", "RQ-003", "RQ-006"} <= ids
     assert len(final["registro"]["requests"]) == 8
+
+
+def test_carga_desde_el_panel_sube_y_aparece_en_el_casillero(client):
+    """Integral del lado servidor de la «carga desde el panel»: tras subir un archivo a la prueba
+    (lo que hace VistaProceso al recibir el postMessage del panel), el panel lo muestra en su
+    casillero del requerimiento (render inyecta los archivos reales)."""
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    prid = pr["id"]
+    aprob = _a_requerimiento_aprobado(client, tok, prid)
+    assert aprob["estado"] == "REQUERIMIENTO_APROBADO"
+    # Sube el anexo (RQ-002) como lo haría el Command Center con el File del panel.
+    r = client.post(f"{BASE}/pruebas/{prid}/archivos", headers=_h(tok),
+                    data={"revision": str(aprob["revision"]), "requerimiento": "RQ-002", "componente": ""},
+                    files={"archivo": ("Anexo_Nomina.xlsx", b"PK\x03\x04 contenido ficticio")})
+    assert r.status_code in (200, 201), r.text
+    # El panel ahora lista ese archivo en su casillero (lo inyecta render vía __NOMINA_FILES__).
+    html = client.get(f"{BASE}/pruebas/{prid}/panel-nomina", headers=_h(tok)).text
+    assert "Anexo_Nomina.xlsx" in html
+    assert '"req": "RQ-002"' in html or '"req":"RQ-002"' in html
