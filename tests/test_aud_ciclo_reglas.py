@@ -172,3 +172,43 @@ def test_la_ficha_completa_exige_moneda_visita_y_edicion():
     with pytest.raises(ReglaIncumplida):
         reglas.validar_ficha_encargo({**FICHA, "edition": ""})
     assert reglas.validar_ficha_encargo({**FICHA, "edition": ""}, completa=False)["edition"] == ""
+
+
+# --- Programa propio PARCIAL (herramienta bespoke: nómina) --------------------
+#
+# Regresión: una herramienta bespoke declara un programa MÍNIMO (solo
+# code/objective/assertion) porque el programa real vive en su panel. `crear_programa`
+# debe completar los campos que exige el flujo genérico (risk/procedure/evidence/
+# criterion) para que `validar_programa` no lo rechace y «Preparar el requerimiento»
+# no reviente con KeyError. Una ficha con el programa COMPLETO queda idéntica.
+
+def test_crear_programa_completa_un_programa_bespoke_parcial():
+    d = {
+        "id": "nomina_beneficios", "name": "Nómina",
+        "program": [
+            {"code": "DO-1", "objective": "Control interno laboral", "assertion": "Control interno"},
+            {"code": "DO-2", "objective": "Sumaria de nómina", "assertion": "Integridad"},
+        ],
+    }
+    prog = reglas.crear_programa(d, {"framework": "NIIF completas", "cutoff": "2025-12-31"})
+    assert [p["code"] for p in prog] == ["DO-1", "DO-2"]
+    # Todos los campos que exige validar_programa quedan como texto no vacío.
+    for p in prog:
+        for k in ("code", "objective", "risk", "assertion", "procedure", "evidence", "criterion"):
+            assert isinstance(p[k], str) and p[k].strip(), (p["code"], k)
+    # Y efectivamente pasa la validación del programa (con fuentes mínimas).
+    reglas.validar_programa(prog, [{"category": "NIIF", "verified": True, "procedures": ["DO-1", "DO-2"]}])
+
+
+def test_crear_programa_respeta_un_programa_completo_tal_cual():
+    """Una ficha con el programa completo (encargo NIIF) conserva EXACTAMENTE su contenido:
+    el defaulting bespoke no pisa ningún campo presente."""
+    x = {"code": "P-01", "objective": "Obj", "risk": "Riesgo real", "assertion": "Existencia",
+         "procedure": "Procedimiento real", "evidence": "Evidencia real", "criterion": "Criterio real",
+         "source": "NIIF 15 párr. 31"}
+    prog = reglas.crear_programa({"id": "x", "name": "X", "program": [x]},
+                                 {"framework": "NIIF completas", "cutoff": "2025-12-31"})
+    p = prog[0]
+    for k in ("objective", "risk", "assertion", "procedure", "evidence", "criterion"):
+        assert p[k] == x[k], k
+    assert p["reference"] == "NIIF 15 párr. 31"

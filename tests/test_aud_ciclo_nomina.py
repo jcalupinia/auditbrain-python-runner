@@ -508,3 +508,55 @@ def test_panel_solo_para_la_herramienta_de_nomina(client):
     tok2, pid2 = prn
     pr2 = _ficha_y_prueba_nomina(client, tok2, pid2)
     assert client.get(f"{BASE}/pruebas/{pr2['id']}/papel-bancos", headers=_h(tok2)).status_code == 400
+
+
+# --- regresión: la cadena del requerimiento se arma para la nómina bespoke ----
+#
+# Antes fallaba: `generate_program` reventaba con KeyError('risk') porque el programa
+# de la nómina es mínimo (code/objective/assertion) y `crear_programa` exigía el
+# esquema completo del encargo NIIF. Sin programa no había requerimiento → el panel
+# no podía crear la prueba («No se pudo conectar con el servidor»). Aquí se recorre la
+# misma cadena que `prepararBaseTecnica` del frontend hasta REQUERIMIENTO_APROBADO.
+
+def _leer(client, tok, prid):
+    r = client.get(f"{BASE}/pruebas/{prid}", headers=_h(tok))
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_cadena_del_requerimiento_llega_a_aprobado(client):
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    prid = pr["id"]
+    for _ in range(10):
+        p = _leer(client, tok, prid)
+        reg, est, rev = p["registro"], p["estado"], p["revision"]
+        if est == "PRUEBA_SELECCIONADA":
+            accion, datos = ("generate_program", {}) if reg.get("researchedAt") else ("research", {})
+        elif est == "PROGRAMA_PROPUESTO":
+            codigos = [x["code"] for x in (reg.get("program") or [])]
+            corte = (reg.get("engagement") or {}).get("cutoff") or "corte"
+            fuentes = []
+            for s in (reg.get("sources") or []):
+                f = {**s, "verified": True, "procedures": codigos, "date": s.get("date") or f"Vigente al {corte}"}
+                if s.get("category") in ("NIIF", "NIA"):
+                    f["section"] = s.get("section") or "Según programa de la ficha"
+                fuentes.append(f)
+            accion, datos = "approve_program", {"program": reg.get("program"), "sources": fuentes,
+                                                "taxScope": reg.get("taxScope") or "", "taxAcknowledged": True}
+        elif est == "PROGRAMA_APROBADO":
+            accion, datos = "generate_request", {}
+        elif est == "REQUERIMIENTO_GENERADO":
+            accion, datos = "approve_request", {"requests": reg.get("requests")}
+        else:
+            break
+        r = client.post(f"{BASE}/pruebas/{prid}/acciones", headers=_h(tok),
+                        json={"accion": accion, "revision": rev, "datos": datos})
+        assert r.status_code == 200, f"{accion}: {r.text[:500]}"
+
+    final = _leer(client, tok, prid)
+    assert final["estado"] == "REQUERIMIENTO_APROBADO", final["estado"]
+    # Los 8 requerimientos propios de la nómina (RQ-001..RQ-008) con sus procedimientos.
+    ids = {rq["id"] for rq in final["registro"]["requests"]}
+    assert {"RQ-001", "RQ-002", "RQ-003", "RQ-006"} <= ids
+    assert len(final["registro"]["requests"]) == 8
