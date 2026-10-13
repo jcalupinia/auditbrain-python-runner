@@ -295,7 +295,16 @@ def _pdf_comprobante(ruta, no, mes, concepto, valor):
 
 def comprobantes_pdf():
     """Genera comprobantes PDF ficticios (Aportes y Fondos de reserva por mes) y los deja en un
-    .zip. Son legibles por pdftotext (el parser RQ-005) para que la cédula DO-9 corra con datos."""
+    .zip. Son legibles por pdftotext (el parser RQ-005) para que la cédula DO-9 corra con datos.
+
+    Necesita reportlab. Si no está instalado (p. ej. el entorno de CI, que no ejecuta este
+    generador), se omite RQ-005 y se avisa: el .zip ya committeado en la carpeta pública se
+    conserva, y los tests que necesitan comprobantes reutilizan ese .zip."""
+    try:
+        import reportlab  # noqa: F401
+    except ImportError:
+        print("  (aviso) reportlab no disponible: se omite RQ-005; se conserva el .zip committeado.")
+        return
     base_mes = sum(e[2] for e in EMP)
     aportes = round(base_mes * (TASA_PAT + TASA_IND + TASA_CCC), 2)
     fr = round(base_mes * PCT_FR, 2)

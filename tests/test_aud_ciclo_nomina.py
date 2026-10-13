@@ -571,13 +571,17 @@ def test_do12_prorrata_vacaciones_una_sola_cuenta_no_es_circular(tmp_path):
 
     def _rq(req, nombre):
         return {"requerimiento": req, "nombre": nombre, "ruta": os.path.join(dest, nombre)}
+    # RQ-005 (comprobantes PDF): se reutiliza el .zip YA committeado en la carpeta pública para
+    # no depender de reportlab (que no está en CI). Los aportes/FR no dependen de n_vac.
+    zip_comp = os.path.join(raiz, "frontend", "public", "ejemplos", "nomina_beneficios",
+                            "RQ-005_comprobantes_de_pago_iess.zip")
     archivos = [
         _rq("RQ-002", "RQ-002_anexo_de_nomina_saldos_por_cuenta.xlsx"),
         _rq("RQ-003", "RQ-003_consolidado_iess_por_region.xlsx"),
         _rq("RQ-004", "RQ-004_mayor_de_gasto_de_nomina.xlsx"),
         _rq("RQ-004", "RQ-004_mayor_de_iess_por_pagar.xlsx"),
         _rq("RQ-004", "RQ-004_mayor_de_beneficios_sociales_por_pagar.xlsx"),
-        _rq("RQ-005", "RQ-005_comprobantes_de_pago_iess.zip"),
+        {"requerimiento": "RQ-005", "nombre": "RQ-005_comprobantes_de_pago_iess.zip", "ruta": zip_comp},
         _rq("RQ-006", "RQ-006_rol_de_pagos_normal_y_pasantes.xlsx"),
     ]
     ficha = {"client": "Comercial Andina de Ejemplo S.A.", "ruc": "1790000000001", "year": 2025,
