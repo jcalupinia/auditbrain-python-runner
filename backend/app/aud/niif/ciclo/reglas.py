@@ -109,12 +109,39 @@ def crear_programa(d: dict, encargo: dict) -> list[dict]:
     else:
         fuente = d.get("source")
     # Una ficha con programa propio (la que redacta el encargo NIIF) se usa tal cual.
+    # Las herramientas bespoke (p. ej. nómina) declaran un programa MÍNIMO
+    # (solo code/objective/assertion) porque el programa real de trabajo vive en su
+    # panel propio (DO-0 del motor); el resto de los campos que exige el flujo
+    # genérico (risk/procedure/evidence/criterion) se completan con un valor por
+    # defecto derivado del objetivo, para que `validar_programa` no los rechace y la
+    # preparación del requerimiento no reviente. Una ficha con el programa completo
+    # (encargo NIIF, sitio) conserva EXACTAMENTE su contenido (el espejo no cambia).
     if isinstance(d.get("program"), list) and d["program"]:
+        def _campo(x, k, defecto):
+            v = x.get(k)
+            return v if isinstance(v, str) and v.strip() else defecto
         propios = []
         for x in d["program"]:
-            p = {"code": x["code"], "objective": x["objective"], "risk": x["risk"], "assertion": x["assertion"],
-                 "procedure": x["procedure"], "evidence": x["evidence"], "criterion": x["criterion"],
-                 "reference": x["source"] if isinstance(x.get("source"), str) else ""}
+            objetivo = _campo(x, "objective", x.get("code") or "Procedimiento")
+            p = {
+                "code": x["code"],
+                "objective": objetivo,
+                "risk": _campo(x, "risk", f"Error u omisión en: {objetivo}."),
+                "assertion": _campo(x, "assertion", "Según el procedimiento"),
+                "procedure": _campo(
+                    x, "procedure",
+                    f"Ejecutar el procedimiento {x['code']} en el panel de la herramienta y documentar el resultado.",
+                ),
+                "evidence": _campo(
+                    x, "evidence",
+                    "Evidencia del requerimiento vinculado y cédula generada por la herramienta.",
+                ),
+                "criterion": _campo(
+                    x, "criterion",
+                    "Resultado conforme o excepción documentada en la cédula correspondiente.",
+                ),
+                "reference": x["source"] if isinstance(x.get("source"), str) else "",
+            }
             if fuente is not None:
                 p["source"] = fuente
             p["state"] = "PROPUESTO"
