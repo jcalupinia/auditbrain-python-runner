@@ -273,6 +273,26 @@ def test_panel_trae_deficiencias_ci_do1():
     assert "obsList()" in html and "carta de control interno" in html
 
 
+def test_render_inyecta_los_archivos_cargados():
+    """render inyecta __NOMINA_FILES__ con los archivos ya cargados a la prueba (requerimiento,
+    componente, nombre, tamaño, estado, id) para que el panel los agrupe en sus casilleros. Sin
+    archivos → lista vacía; el placeholder siempre se reemplaza."""
+    arch = [
+        {"requerimiento": "RQ-002", "componente": "", "nombre": "Anexo.xlsx", "tamano": 1234, "estado": "recibido", "id": 5},
+        {"requerimiento": "RQ-003", "componente": "Sierra / Amazonía", "nombre": "Consol.xlsx", "tamano": 10, "estado": "recibido", "id": 6},
+    ]
+    files = np.construir_files(arch)
+    assert files[0] == {"req": "RQ-002", "comp": "", "name": "Anexo.xlsx", "size": 1234, "estado": "recibido", "id": 5}
+    assert files[1]["req"] == "RQ-003" and files[1]["comp"] == "Sierra / Amazonía"
+    assert np.construir_files(None) == []
+    html = np.render({"client": "X S.A.", "firm": "AuditConsulting"}, 7, archivos=arch).decode()
+    assert "__NOMINA_FILES__" not in html
+    assert "Anexo.xlsx" in html and "Consol.xlsx" in html
+    # Sin archivos: el placeholder se reemplaza por una lista vacía.
+    vacio = np.render({"client": "X S.A.", "firm": "AuditConsulting"}, 1).decode()
+    assert "__NOMINA_FILES__" not in vacio
+
+
 def test_render_precarga_do1_guardado():
     """render inyecta __NOMINA_DO1__ con el estado guardado del cuestionario (fuente de verdad);
     sin estado queda en null y el panel cae a su borrador local (localStorage)."""
@@ -524,10 +544,8 @@ def _leer(client, tok, prid):
     return r.json()
 
 
-def test_cadena_del_requerimiento_llega_a_aprobado(client):
-    tok, pid = _staff_con_proyecto(client)
-    pr = _ficha_y_prueba_nomina(client, tok, pid)
-    prid = pr["id"]
+def _a_requerimiento_aprobado(client, tok, prid):
+    """Recorre la cadena (como prepararBaseTecnica del frontend) hasta REQUERIMIENTO_APROBADO."""
     for _ in range(10):
         p = _leer(client, tok, prid)
         reg, est, rev = p["registro"], p["estado"], p["revision"]
@@ -553,10 +571,35 @@ def test_cadena_del_requerimiento_llega_a_aprobado(client):
         r = client.post(f"{BASE}/pruebas/{prid}/acciones", headers=_h(tok),
                         json={"accion": accion, "revision": rev, "datos": datos})
         assert r.status_code == 200, f"{accion}: {r.text[:500]}"
+    return _leer(client, tok, prid)
 
-    final = _leer(client, tok, prid)
+
+def test_cadena_del_requerimiento_llega_a_aprobado(client):
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    final = _a_requerimiento_aprobado(client, tok, pr["id"])
     assert final["estado"] == "REQUERIMIENTO_APROBADO", final["estado"]
     # Los 8 requerimientos propios de la nómina (RQ-001..RQ-008) con sus procedimientos.
     ids = {rq["id"] for rq in final["registro"]["requests"]}
     assert {"RQ-001", "RQ-002", "RQ-003", "RQ-006"} <= ids
     assert len(final["registro"]["requests"]) == 8
+
+
+def test_carga_desde_el_panel_sube_y_aparece_en_el_casillero(client):
+    """Integral del lado servidor de la «carga desde el panel»: tras subir un archivo a la prueba
+    (lo que hace VistaProceso al recibir el postMessage del panel), el panel lo muestra en su
+    casillero del requerimiento (render inyecta los archivos reales)."""
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    prid = pr["id"]
+    aprob = _a_requerimiento_aprobado(client, tok, prid)
+    assert aprob["estado"] == "REQUERIMIENTO_APROBADO"
+    # Sube el anexo (RQ-002) como lo haría el Command Center con el File del panel.
+    r = client.post(f"{BASE}/pruebas/{prid}/archivos", headers=_h(tok),
+                    data={"revision": str(aprob["revision"]), "requerimiento": "RQ-002", "componente": ""},
+                    files={"archivo": ("Anexo_Nomina.xlsx", b"PK\x03\x04 contenido ficticio")})
+    assert r.status_code in (200, 201), r.text
+    # El panel ahora lista ese archivo en su casillero (lo inyecta render vía __NOMINA_FILES__).
+    html = client.get(f"{BASE}/pruebas/{prid}/panel-nomina", headers=_h(tok)).text
+    assert "Anexo_Nomina.xlsx" in html
+    assert '"req": "RQ-002"' in html or '"req":"RQ-002"' in html

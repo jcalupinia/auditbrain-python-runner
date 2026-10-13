@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { MENSAJES_NOMINA, despacharMensajeNomina } from "./nominaPanelBridge";
 
 describe("nominaPanelBridge · despacho de acciones del panel", () => {
-  const handlers = () => ({ descargar: vi.fn(), procesar: vi.fn(), encerar: vi.fn(), guardarDo1: vi.fn() });
+  const handlers = () => ({ descargar: vi.fn(), procesar: vi.fn(), encerar: vi.fn(), guardarDo1: vi.fn(), subir: vi.fn(), borrar: vi.fn() });
 
   it("procesar: llama al flujo de procesar (y solo a ese)", () => {
     const h = handlers();
@@ -54,6 +54,29 @@ describe("nominaPanelBridge · despacho de acciones del panel", () => {
     expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.GUARDAR_DO1 }, h)).toBeNull();
     expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.GUARDAR_DO1, estado: "x" }, h)).toBeNull();
     expect(h.guardarDo1).not.toHaveBeenCalled();
+  });
+
+  it("subir: pasa requerimiento, componente y archivos al handler", () => {
+    const h = handlers();
+    const files = [{ name: "RQ-003_Sierra.xlsx" }];
+    expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.SUBIR, req: "RQ-003", comp: "Sierra / Amazonía", files }, h)).toBe("subir");
+    expect(h.subir).toHaveBeenCalledWith({ req: "RQ-003", comp: "Sierra / Amazonía", files });
+    expect(h.procesar).not.toHaveBeenCalled();
+  });
+
+  it("subir sin requerimiento o sin archivos: null, no sube", () => {
+    const h = handlers();
+    expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.SUBIR, files: [{ name: "x.xlsx" }] }, h)).toBeNull();
+    expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.SUBIR, req: "RQ-002", files: [] }, h)).toBeNull();
+    expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.SUBIR, req: "RQ-002" }, h)).toBeNull();
+    expect(h.subir).not.toHaveBeenCalled();
+  });
+
+  it("borrar: pasa el id del archivo; sin id es null", () => {
+    const h = handlers();
+    expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.BORRAR, fileId: 7 }, h)).toBe("borrar");
+    expect(h.borrar).toHaveBeenCalledWith(7);
+    expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.BORRAR }, h)).toBeNull();
   });
 
   it("mensaje ajeno o sin type: null, ningún handler", () => {

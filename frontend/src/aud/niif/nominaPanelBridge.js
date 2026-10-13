@@ -8,6 +8,8 @@ export const MENSAJES_NOMINA = {
   PROCESAR: "auditbrain:nomina-procesar",
   ENCERAR: "auditbrain:nomina-encerar",
   GUARDAR_DO1: "auditbrain:nomina-do1-guardar",
+  SUBIR: "auditbrain:nomina-subir",
+  BORRAR: "auditbrain:nomina-borrar",
 };
 
 // Despacha un mensaje del panel a los handlers dados. Valida SIEMPRE `msg.type`. Devuelve la
@@ -36,6 +38,17 @@ export function despacharMensajeNomina(msg, handlers = {}) {
       if (!msg.estado || typeof msg.estado !== "object") return null;
       handlers.guardarDo1?.(msg.estado);
       return "guardar-do1";
+    // Carga de archivos desde los casilleros del panel: sube de verdad a la prueba. Requiere el
+    // requerimiento y al menos un archivo (File); el componente (sub-casillero) es opcional.
+    case MENSAJES_NOMINA.SUBIR:
+      if (!msg.req || !Array.isArray(msg.files) || !msg.files.length) return null;
+      handlers.subir?.({ req: String(msg.req), comp: String(msg.comp || ""), files: msg.files });
+      return "subir";
+    // Borrado de un archivo ya cargado (botón ✕ sobre un archivo real de la prueba).
+    case MENSAJES_NOMINA.BORRAR:
+      if (msg.fileId == null) return null;
+      handlers.borrar?.(msg.fileId);
+      return "borrar";
     default:
       return null;
   }
