@@ -164,6 +164,28 @@ def _mapear_encabezado(celdas: list) -> dict[str, int]:
                 usadas.add(i)
                 break
 
+    # Tercera pasada, SOLO para los importes débito/haber: muchos ERP anteponen
+    # una palabra al encabezado del importe ('Monto débito', 'Valor Crédito',
+    # 'Importe Debe'), así que ni la igualdad ni el prefijo los atrapan. Aquí se
+    # acepta que la palabra clave del importe aparezca EN CUALQUIER POSICIÓN del
+    # encabezado. Se limita a 'debe'/'haber' (los únicos campos donde el prefijo
+    # de otra palabra es habitual) para no reintroducir falsos positivos en los
+    # campos de texto, y se sigue descartando la columna combinada/neta.
+    _TOKENS_IMPORTE = {"debe": _TOKENS_DEBE, "haber": _TOKENS_HABER}
+    for campo, tokens in _TOKENS_IMPORTE.items():
+        if campo in mapeo:
+            continue
+        for i, texto in enumerate(normalizadas):
+            if i in usadas or not texto:
+                continue
+            if _es_columna_combinada(texto):
+                continue
+            palabras = texto.split()
+            if any(tok in palabras for tok in tokens):
+                mapeo[campo] = i
+                usadas.add(i)
+                break
+
     # Último recurso (defecto 6): si 'cuenta' (nombre de la cuenta) no se
     # resolvió por NINGÚN sinónimo propio pero sí hay una columna
     # 'descripcion' mapeada, esa columna es probablemente el nombre de la
@@ -398,7 +420,82 @@ def _leer_hoja(ws, mapeo: dict[str, int], fila_encabezado: int, lectura: Lectura
         )
 
 
-def leer_mayor(contenido: bytes) -> LecturaMayor:
+def _mejor_candidato_por_hoja(wb) -> list[tuple[str, int, dict[str, int], int]]:
+    """Por cada hoja, la fila de encabezado de mejor puntaje.
+
+    Devuelve [(hoja, fila_encabezado, mapeo, puntaje), ...].
+    """
+    candidatos = []
+    for nombre in wb.sheetnames:
+        ws = wb[nombre]
+        mejor_de_hoja = None  # (fila, mapeo, puntaje)
+        for fila_idx, fila in enumerate(
+            ws.iter_rows(max_row=MAX_FILAS_BUSQUEDA_ENCABEZADO, values_only=True),
+            start=1,
+        ):
+            mapeo = _mapear_encabezado(list(fila))
+            puntaje = len(mapeo)
+            if mejor_de_hoja is None or puntaje > mejor_de_hoja[2]:
+                mejor_de_hoja = (fila_idx, mapeo, puntaje)
+        if mejor_de_hoja is not None:
+            fila_idx, mapeo, puntaje = mejor_de_hoja
+            candidatos.append((nombre, fila_idx, mapeo, puntaje))
+    return candidatos
+
+
+def _fila_valores(ws, fila_idx: int) -> list:
+    """Los valores de una fila concreta (1-based) de una hoja."""
+    for i, fila in enumerate(ws.iter_rows(values_only=True), start=1):
+        if i == fila_idx:
+            return list(fila)
+        if i > fila_idx:
+            break
+    return []
+
+
+def inspeccionar_encabezado(contenido: bytes) -> dict:
+    """Describe el encabezado de un mayor SIN leer sus movimientos.
+
+    Pensado para el mapeo manual de columnas de la UI: devuelve los textos de
+    la fila de encabezado detectada, el mapeo automático (campo → índice de
+    columna) y qué columnas mínimas faltan, para que el auditor asigne a mano
+    las que el detector no reconoció.
+
+    Devuelve un dict con: ``hoja``, ``fila_encabezado`` (1-based), ``headers``
+    (lista de textos por columna), ``columnas_detectadas`` ({campo: índice}),
+    ``columnas_faltantes`` y, si no se pudo, ``error``.
+    """
+    try:
+        wb = load_workbook(BytesIO(contenido), data_only=True, read_only=True)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"No se pudo abrir el Excel: {e}", "headers": []}
+    try:
+        candidatos = _mejor_candidato_por_hoja(wb)
+        if not candidatos or max(c[3] for c in candidatos) == 0:
+            # Sin ninguna columna reconocida: devolvemos el encabezado de la
+            # primera fila de la primera hoja para que el auditor mapee todo.
+            nombre = wb.sheetnames[0] if wb.sheetnames else ""
+            headers = _fila_valores(wb[nombre], 1) if nombre else []
+            return {
+                "hoja": nombre, "fila_encabezado": 1,
+                "headers": ["" if h is None else str(h) for h in headers],
+                "columnas_detectadas": {}, "columnas_faltantes": list(COLUMNAS_MINIMAS),
+            }
+        mejor = max(candidatos, key=lambda c: c[3])
+        nombre, fila_idx, mapeo, _p = mejor
+        headers = _fila_valores(wb[nombre], fila_idx)
+        return {
+            "hoja": nombre,
+            "fila_encabezado": fila_idx,
+            "headers": ["" if h is None else str(h) for h in headers],
+            "columnas_detectadas": mapeo,
+            "columnas_faltantes": [c for c in COLUMNAS_MINIMAS if c not in mapeo],
+        }
+    finally:
+        wb.close()
+
+
+def leer_mayor(contenido: bytes, mapeo_manual: dict[str, int] | None = None) -> LecturaMayor:
     """Lee un mayor en .xlsx/.xlsm y devuelve sus movimientos normalizados.
 
     Si el mayor viene repartido en varias hojas con el mismo encabezado
@@ -406,11 +503,24 @@ def leer_mayor(contenido: bytes) -> LecturaMayor:
     comprobante), se leen TODAS las que alcancen el mapeo mínimo: elegir
     solo la de mejor puntaje perdería los movimientos de las demás sin
     avisar.
+
+    ``mapeo_manual`` ({campo: índice de columna 0-based}) es el mapeo que el
+    auditor asignó a mano cuando el detector no reconoció el encabezado. Se
+    FUSIONA sobre el mapeo automático de cada hoja (el manual gana), así el
+    auditor solo necesita indicar las columnas que faltaban (p. ej. débito y
+    haber) y el resto sigue detectándose solo.
     """
     try:
         wb = load_workbook(BytesIO(contenido), data_only=True, read_only=True)
     except Exception as e:  # noqa: BLE001
         return LecturaMayor(errores=[f"No se pudo abrir el Excel: {e}"])
+
+    # Mapeo manual válido: solo campos conocidos con índice entero >= 0.
+    manual = {
+        campo: idx
+        for campo, idx in (mapeo_manual or {}).items()
+        if campo in SINONIMOS and isinstance(idx, int) and idx >= 0
+    }
 
     # Defecto 4: cualquier excepción durante el barrido de hojas o la
     # lectura de filas debe dejar el workbook (y su ZipFile/handles)
@@ -418,27 +528,22 @@ def leer_mayor(contenido: bytes) -> LecturaMayor:
     # larga vida. try/finally garantiza el cierre en TODOS los caminos,
     # incluida una excepción que se propaga hacia arriba.
     try:
-        candidatos = []  # [(hoja, fila_encabezado, mapeo, puntaje), ...]
-        for nombre in wb.sheetnames:
-            ws = wb[nombre]
-            mejor_de_hoja = None  # (fila, mapeo, puntaje)
-            for fila_idx, fila in enumerate(
-                ws.iter_rows(max_row=MAX_FILAS_BUSQUEDA_ENCABEZADO, values_only=True),
-                start=1,
-            ):
-                mapeo = _mapear_encabezado(list(fila))
-                puntaje = len(mapeo)
-                if mejor_de_hoja is None or puntaje > mejor_de_hoja[2]:
-                    mejor_de_hoja = (fila_idx, mapeo, puntaje)
-            if mejor_de_hoja is not None:
-                fila_idx, mapeo, puntaje = mejor_de_hoja
-                candidatos.append((nombre, fila_idx, mapeo, puntaje))
+        candidatos = _mejor_candidato_por_hoja(wb)
 
-        if not candidatos or max(c[3] for c in candidatos) == 0:
+        if not candidatos or (max(c[3] for c in candidatos) == 0 and not manual):
             return LecturaMayor(
                 errores=["No se detectó una fila de encabezado reconocible."],
                 columnas_faltantes=list(COLUMNAS_MINIMAS),
             )
+
+        # El mapeo manual se fusiona sobre el automático de cada hoja (gana el
+        # manual). Comparten encabezado, así que los mismos índices valen para
+        # todas las hojas.
+        if manual:
+            candidatos = [
+                (nombre, fila, {**mapeo, **manual}, len({**mapeo, **manual}))
+                for nombre, fila, mapeo, _p in candidatos
+            ]
 
         # Hoja de referencia para reportar columnas detectadas/faltantes
         # cuando NINGUNA hoja alcanza el mapeo mínimo (el auditor mapea a

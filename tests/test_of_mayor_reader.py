@@ -7,7 +7,10 @@ from openpyxl import load_workbook
 
 from tests._mayor_fixtures import ENCABEZADO_REAL, mayor_xlsx, mayor_xlsx_multihoja
 import backend.app.aud.obligaciones_fiscales.mayor.reader as reader_mod
-from backend.app.aud.obligaciones_fiscales.mayor.reader import leer_mayor
+from backend.app.aud.obligaciones_fiscales.mayor.reader import (
+    inspeccionar_encabezado,
+    leer_mayor,
+)
 
 
 def test_construye_un_xlsx_con_el_encabezado_en_la_fila_indicada():
@@ -73,6 +76,27 @@ def test_acepta_sinonimos_de_otros_erp():
     assert lectura.columnas_detectadas["codigo"] == 0
     assert lectura.columnas_detectadas["cuenta"] == 1
     assert lectura.columnas_detectadas["debe"] == 4
+
+
+def test_reconoce_importes_con_prefijo_monto_debito_credito():
+    """ERP que antepone una palabra al importe ('Monto débito', 'Monto
+    Crédito'): antes no coincidía ni por igualdad ni por prefijo y el mayor
+    quedaba ilegible ('faltan debe, haber'). Regresión del caso real de otra
+    compañía (2026-10-13). La columna NETO contigua NO debe robar el mapeo."""
+    lectura = leer_mayor(
+        mayor_xlsx(
+            [["1-1-2-04-01-01", "IVA compras", "2026-01-06", "FCC01",
+              8.95, 0, 8.95]],
+            encabezado=("Número de Cuenta", "Descripción cuenta", "Fecha Trans.",
+                        "Num_Documento", "Monto débito", "Monto Crédito",
+                        "NETO AUDITORIA"),
+        )
+    )
+    assert lectura.mapeo_suficiente
+    assert lectura.columnas_detectadas["debe"] == 4   # 'Monto débito'
+    assert lectura.columnas_detectadas["haber"] == 5  # 'Monto Crédito', no NETO
+    (mov,) = lectura.movimientos
+    assert (mov.debe, mov.haber) == (8.95, 0.0)
 
 
 @pytest.mark.parametrize(
@@ -422,3 +446,54 @@ def test_el_haber_negativo_del_erp_se_lee_como_magnitud_y_el_neto_sale_credito()
     assert mov.cuenta == "CORRETAJES CON IVA 0%"
     assert mov.haber == 102828.45      # magnitud positiva
     assert mov.neto == -102828.45      # crédito → neto negativo
+
+
+# --- Mapeo manual de columnas (cuando el detector no reconoce el encabezado) ---
+
+_ENC_ILEGIBLE = ("Cuenta Contable", "Nombre", "Fecha", "Comprobante", "Valor1", "Valor2")
+
+
+def test_inspeccionar_encabezado_devuelve_headers_detectadas_y_faltantes():
+    data = mayor_xlsx([["1.1.5.1.1", "IVA", "2025-01-05", "A1", 10, 0]],
+                      encabezado=_ENC_ILEGIBLE)
+    info = inspeccionar_encabezado(data)
+    assert info["headers"] == list(_ENC_ILEGIBLE)
+    assert info["columnas_detectadas"]["codigo"] == 0
+    # 'Valor1'/'Valor2' no se reconocen como débito/haber:
+    assert info["columnas_faltantes"] == ["debe", "haber"]
+    assert info["fila_encabezado"] == 1
+
+
+def test_mapeo_manual_permite_leer_un_mayor_con_columnas_irreconocibles():
+    data = mayor_xlsx(
+        [["1.1.5.1.1", "IVA", "2025-01-05", "A1", 10, 0],
+         ["2.1.7.4.2", "RET", "2025-01-06", "A2", 0, 25]],
+        encabezado=_ENC_ILEGIBLE,
+    )
+    # Sin mapeo manual: ilegible.
+    assert not leer_mayor(data).mapeo_suficiente
+    # Con mapeo manual de débito/haber: lee los movimientos.
+    lec = leer_mayor(data, mapeo_manual={"debe": 4, "haber": 5})
+    assert lec.mapeo_suficiente
+    assert [(m.codigo, m.debe, m.haber) for m in lec.movimientos] == [
+        ("1.1.5.1.1", 10.0, 0.0),
+        ("2.1.7.4.2", 0.0, 25.0),
+    ]
+
+
+def test_mapeo_manual_se_fusiona_sobre_lo_autodetectado():
+    """El auditor solo mapea débito/haber; código/fecha siguen autodetectados."""
+    data = mayor_xlsx([["1.1.5.1.1", "IVA", "2025-01-05", "A1", 10, 0]],
+                      encabezado=_ENC_ILEGIBLE)
+    det = leer_mayor(data, mapeo_manual={"debe": 4, "haber": 5}).columnas_detectadas
+    assert det["codigo"] == 0 and det["fecha"] == 2       # autodetectado
+    assert det["debe"] == 4 and det["haber"] == 5          # manual
+
+
+def test_mapeo_manual_ignora_indices_invalidos_o_campos_desconocidos():
+    data = mayor_xlsx([["1.1.5.1.1", "IVA", "2025-01-05", "A1", 10, 0]],
+                      encabezado=_ENC_ILEGIBLE)
+    # 'inexistente' no es un campo; debe=-1 es inválido → ambos se ignoran y
+    # el mayor sigue ilegible (no hay débito válido).
+    lec = leer_mayor(data, mapeo_manual={"inexistente": 4, "debe": -1, "haber": 5})
+    assert not lec.mapeo_suficiente

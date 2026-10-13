@@ -200,7 +200,10 @@ export default function ObligacionesFiscalesWorkspace({ projectId }) {
   // El Mayor General ya no es indispensable: basta con el general O al menos un
   // Mayor específico mapeado.
   const tieneAlgunMayor = tieneMayorGeneral || tieneMayorEspecifico;
-  const jobEditable = job && (job.status === "borrador" || job.status === "revision");
+  // 'failed' también es editable: permite corregir los inputs (reemplazar un
+  // mayor que no se leyó o mapearle las columnas a mano) y volver a Procesar.
+  const jobEditable =
+    job && (job.status === "borrador" || job.status === "revision" || job.status === "failed");
   const puedeProcesar = jobEditable && tieneAlgunMayor && !procesando;
   let procesarTitle;
   if (!jobEditable) procesarTitle = STRINGS.of_ws_procesar_disabled_no_borrador;

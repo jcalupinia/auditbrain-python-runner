@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as api from "../../api.js";
 import { STRINGS } from "../strings.js";
+import MapeoColumnasModal from "./MapeoColumnasModal.jsx";
 
 /*
  * Carga de Mayores específicos: varios archivos, cada uno mapeado a SU
@@ -21,11 +22,16 @@ import { STRINGS } from "../strings.js";
  */
 export default function MayorEspecificoUploader({ jobId, estado, disabled, onChanged }) {
   const inputRef = useRef(null);
+  const reemplazarRef = useRef(null);
   const [categoria, setCategoria] = useState("");
   const [categorias, setCategorias] = useState([]);
   const [loadingCat, setLoadingCat] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Archivo cuyo modal de mapeo de columnas está abierto.
+  const [mapeoDe, setMapeoDe] = useState(null);
+  // Reemplazo en curso: { nombre, categoria } del archivo a reemplazar.
+  const [reemplazando, setReemplazando] = useState(null);
 
   const archivos = estado?.archivos || [];
 
@@ -75,6 +81,34 @@ export default function MayorEspecificoUploader({ jobId, estado, disabled, onCha
     setError("");
     try {
       await api.quitarSlotOF(jobId, "mayor_especifico", nombre);
+      onChanged?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ③ Reemplazar: se elige el archivo nuevo y se sustituye al de la fila,
+  // conservando su categoría. Borra el viejo y sube el nuevo.
+  function pedirReemplazo(a) {
+    if (disabled || busy) return;
+    setError("");
+    setReemplazando({ nombre: a.nombre, categoria: a.categoria });
+    reemplazarRef.current?.click();
+  }
+
+  async function handleReemplazo(e) {
+    const archivo = e.target.files?.[0];
+    const objetivo = reemplazando;
+    e.target.value = "";
+    setReemplazando(null);
+    if (!archivo || !objetivo) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.quitarSlotOF(jobId, "mayor_especifico", objetivo.nombre);
+      await api.subirSlotOF(jobId, "mayor_especifico", [archivo], objetivo.categoria);
       onChanged?.();
     } catch (err) {
       setError(err.message);
@@ -151,12 +185,30 @@ export default function MayorEspecificoUploader({ jobId, estado, disabled, onCha
                   {a.categoria ? nombreCategoria(a.categoria) : STRINGS.of_esp_sin_categoria}
                 </span>
                 {!disabled && (
-                  <button
-                    type="button"
-                    className="link danger"
-                    onClick={() => quitar(a.nombre)}
-                    title={STRINGS.of_esp_quitar_title}
-                  >×</button>
+                  <>
+                    <button
+                      type="button"
+                      className="pc-chip"
+                      style={{ padding: "2px 8px", fontSize: 11 }}
+                      onClick={() => setMapeoDe(a.nombre)}
+                      disabled={busy}
+                      title="Si el archivo no se leyó bien, asigna a mano qué columna es débito, crédito, código…"
+                    >Mapear columnas</button>
+                    <button
+                      type="button"
+                      className="pc-chip"
+                      style={{ padding: "2px 8px", fontSize: 11 }}
+                      onClick={() => pedirReemplazo(a)}
+                      disabled={busy}
+                      title="Sustituir este mayor por otro archivo, conservando su categoría"
+                    >Reemplazar</button>
+                    <button
+                      type="button"
+                      className="link danger"
+                      onClick={() => quitar(a.nombre)}
+                      title={STRINGS.of_esp_quitar_title}
+                    >×</button>
+                  </>
                 )}
               </span>
             </li>
@@ -164,7 +216,26 @@ export default function MayorEspecificoUploader({ jobId, estado, disabled, onCha
         </ul>
       )}
 
+      {/* Input oculto para el reemplazo de un mayor (③). */}
+      <input
+        ref={reemplazarRef}
+        type="file"
+        accept=".xlsx,.xls,.csv"
+        style={{ display: "none" }}
+        onChange={handleReemplazo}
+      />
+
       {error && <div className="err" style={{ fontSize: 11, marginTop: 8 }}>{error}</div>}
+
+      {mapeoDe && (
+        <MapeoColumnasModal
+          jobId={jobId}
+          slot="mayor_especifico"
+          nombre={mapeoDe}
+          onClose={() => setMapeoDe(null)}
+          onSaved={() => { setMapeoDe(null); onChanged?.(); }}
+        />
+      )}
     </div>
   );
 }

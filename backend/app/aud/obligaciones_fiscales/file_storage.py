@@ -29,6 +29,10 @@ INPUTS_DIR = "inputs"
 # la raíz del job (fuera de inputs/), así list_inputs nunca lo devuelve como un
 # input más.
 MAYOR_ESPECIFICO_MAPEO_FILE = "mayor_especifico_mapeo.json"
+# Sidecar con el mapeo MANUAL de columnas {archivo: {campo: índice}} que el
+# auditor asignó cuando el detector no reconoció el encabezado de un mayor
+# (general o específico). Vive también en la raíz del job, fuera de inputs/.
+MAYOR_COLUMNAS_MAPEO_FILE = "mayor_columnas_mapeo.json"
 
 
 def _root() -> Path:
@@ -133,6 +137,56 @@ def unset_mayor_especifico_categoria(job_dir: Path, filename: str | None = None)
     mapeo = read_mayor_especifico_mapeo(job_dir)
     mapeo.pop(_safe_filename(filename), None)
     write_mayor_especifico_mapeo(job_dir, mapeo)
+
+
+def _columnas_mapeo_path(job_dir: Path) -> Path:
+    return job_dir / MAYOR_COLUMNAS_MAPEO_FILE
+
+
+def read_mayor_columnas_mapeo(job_dir: Path) -> dict[str, dict[str, int]]:
+    """Lee el mapeo manual {archivo: {campo: índice}} de columnas."""
+    p = _columnas_mapeo_path(job_dir)
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return {}
+        out: dict[str, dict[str, int]] = {}
+        for archivo, campos in data.items():
+            if isinstance(campos, dict):
+                out[str(archivo)] = {
+                    str(k): int(v)
+                    for k, v in campos.items()
+                    if isinstance(v, int) or (isinstance(v, str) and v.lstrip("-").isdigit())
+                }
+        return out
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def set_mayor_columnas_mapeo(job_dir: Path, filename: str, mapeo: dict[str, int]) -> None:
+    """Registra el mapeo manual de columnas de UN archivo de mayor."""
+    actual = read_mayor_columnas_mapeo(job_dir)
+    actual[_safe_filename(filename)] = {str(k): int(v) for k, v in mapeo.items()}
+    job_dir.mkdir(parents=True, exist_ok=True)
+    _columnas_mapeo_path(job_dir).write_text(
+        json.dumps(actual, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def unset_mayor_columnas_mapeo(job_dir: Path, filename: str | None = None) -> None:
+    """Quita el mapeo manual de columnas de un archivo (o todos si es None)."""
+    if filename is None:
+        p = _columnas_mapeo_path(job_dir)
+        if p.exists():
+            p.unlink()
+        return
+    actual = read_mayor_columnas_mapeo(job_dir)
+    if actual.pop(_safe_filename(filename), None) is not None:
+        _columnas_mapeo_path(job_dir).write_text(
+            json.dumps(actual, ensure_ascii=False), encoding="utf-8"
+        )
 
 
 def output_path(job_dir: Path) -> Path:
