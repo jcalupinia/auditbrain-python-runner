@@ -24,6 +24,10 @@ from backend.app.aud.niif.procesadores.nomina.rutas import Rutas
 VERSION = "nomina_beneficios 2.0"
 RUBRO = "NOMINA"
 ESTADO = "en desarrollo"   # QA con cliente piloto; la actuarial sale del catálogo
+# Marca la herramienta como bespoke a nivel del MÓDULO VIVO (no solo en el flag
+# congelado de ``definicion()``). ``procesadores.es_bespoke`` lo usa para enrutar
+# correctamente incluso pruebas creadas antes de que el flag existiera.
+BESPOKE = True
 
 # Las 15 cédulas que produce el motor (orden del papel).
 CEDULAS = [

@@ -49,3 +49,21 @@ def de(definicion: dict):
     if nombre not in PROCESADORES:
         raise ValueError(f"Procesador desconocido: {nombre}.")
     return PROCESADORES[nombre]
+
+
+def es_bespoke(definicion: dict) -> bool:
+    """¿La herramienta es bespoke (cara propia + motor, sin el flujo genérico de
+    ``libro``/datasets)? Robusto ante definiciones VIEJAS que se congelaron antes de
+    que ``definicion()`` incluyera el flag: consulta el flag guardado y, si falta,
+    al procesador VIVO (constante ``BESPOKE`` del módulo).
+
+    Motivo: el panel se abre por ``processor == 'nomina_beneficios'`` (nombre), pero
+    el procesamiento enrutaba por el flag congelado. Una prueba creada antes del flag
+    abría el panel pero caía al pipeline declarativo (→ «Número inválido» / PRINCIPAL).
+    """
+    d = definicion or {}
+    if d.get("bespoke"):
+        return True
+    nombre = d.get("processor")
+    mod = PROCESADORES.get(nombre) if nombre else None
+    return bool(getattr(mod, "BESPOKE", False))

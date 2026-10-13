@@ -577,7 +577,7 @@ def descargar_libro(prueba_id: int, formato: str = "xlsx", seccion: str | None =
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Formato no disponible.")
     mime, funcion, ext = tipos[formato]
     p = _prueba(db, user, prueba_id)
-    if (p.definicion or {}).get("bespoke"):
+    if procesadores.es_bespoke(p.definicion):
         # Las herramientas bespoke tienen su propia cara (panel) y sus propias descargas.
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             detail="«Pasivos Acumulados y Gastos de Nómina» usa su propio panel; "
