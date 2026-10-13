@@ -75,6 +75,27 @@ def test_acepta_sinonimos_de_otros_erp():
     assert lectura.columnas_detectadas["debe"] == 4
 
 
+def test_reconoce_importes_con_prefijo_monto_debito_credito():
+    """ERP que antepone una palabra al importe ('Monto débito', 'Monto
+    Crédito'): antes no coincidía ni por igualdad ni por prefijo y el mayor
+    quedaba ilegible ('faltan debe, haber'). Regresión del caso real de otra
+    compañía (2026-10-13). La columna NETO contigua NO debe robar el mapeo."""
+    lectura = leer_mayor(
+        mayor_xlsx(
+            [["1-1-2-04-01-01", "IVA compras", "2026-01-06", "FCC01",
+              8.95, 0, 8.95]],
+            encabezado=("Número de Cuenta", "Descripción cuenta", "Fecha Trans.",
+                        "Num_Documento", "Monto débito", "Monto Crédito",
+                        "NETO AUDITORIA"),
+        )
+    )
+    assert lectura.mapeo_suficiente
+    assert lectura.columnas_detectadas["debe"] == 4   # 'Monto débito'
+    assert lectura.columnas_detectadas["haber"] == 5  # 'Monto Crédito', no NETO
+    (mov,) = lectura.movimientos
+    assert (mov.debe, mov.haber) == (8.95, 0.0)
+
+
 @pytest.mark.parametrize(
     "texto,esperado",
     [

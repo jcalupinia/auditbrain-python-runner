@@ -164,6 +164,28 @@ def _mapear_encabezado(celdas: list) -> dict[str, int]:
                 usadas.add(i)
                 break
 
+    # Tercera pasada, SOLO para los importes débito/haber: muchos ERP anteponen
+    # una palabra al encabezado del importe ('Monto débito', 'Valor Crédito',
+    # 'Importe Debe'), así que ni la igualdad ni el prefijo los atrapan. Aquí se
+    # acepta que la palabra clave del importe aparezca EN CUALQUIER POSICIÓN del
+    # encabezado. Se limita a 'debe'/'haber' (los únicos campos donde el prefijo
+    # de otra palabra es habitual) para no reintroducir falsos positivos en los
+    # campos de texto, y se sigue descartando la columna combinada/neta.
+    _TOKENS_IMPORTE = {"debe": _TOKENS_DEBE, "haber": _TOKENS_HABER}
+    for campo, tokens in _TOKENS_IMPORTE.items():
+        if campo in mapeo:
+            continue
+        for i, texto in enumerate(normalizadas):
+            if i in usadas or not texto:
+                continue
+            if _es_columna_combinada(texto):
+                continue
+            palabras = texto.split()
+            if any(tok in palabras for tok in tokens):
+                mapeo[campo] = i
+                usadas.add(i)
+                break
+
     # Último recurso (defecto 6): si 'cuenta' (nombre de la cuenta) no se
     # resolvió por NINGÚN sinónimo propio pero sí hay una columna
     # 'descripcion' mapeada, esa columna es probablemente el nombre de la
