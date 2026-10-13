@@ -25,6 +25,9 @@ SBU = 470.0
 EJ = 2025
 DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "public", "ejemplos", "nomina_beneficios")
 DIR = os.path.abspath(DIR)
+# Nº de cuentas de gasto de «Vacaciones» (centros de costo). Por defecto 2; un test lo pone en 1
+# para cubrir el caso límite de la prorrata del DO-12 (ver mk_do12.py). Lo fija generar().
+N_VAC = 2
 
 # --- Empleados ficticios (relación 06 = Código del Trabajo) -------------------
 # (cédula, nombre, sueldo mensual, ingreso, salida)
@@ -132,7 +135,7 @@ def consolidado():
         we.append([None])
     we.append(["N°", "Cédula", "Nombre", "D13", "D14", "Vac", "FR", "Motivo"])  # fila 5
     we.append([None, "(opcional)", "(copie de la hoja «Nombres del IESS»)", None, None, None, None, None])
-    wb.save(os.path.join(DIR, "RQ-003_consolidado_iess_por_region_y_exclusiones.xlsx"))
+    wb.save(os.path.join(DIR, "RQ-003_consolidado_iess_por_region.xlsx"))
 
 
 # --- RQ-004 mayores (gasto, IESS por pagar, beneficios por pagar) ------------
@@ -164,15 +167,18 @@ def mayores():
         ("5PYG.51040.001", "Décimo Tercer Sueldo", round(base_mes / 12, 2)),
         ("5PYG.51050.001", "Décimo Cuarto Sueldo", round(SBU * len(EMP) / 12, 2)),
         ("5PYG.51060.001", "Fondos de Reserva", fr_m),
-        # Vacaciones en dos centros de costo (la prorrata del ajuste DO-12 necesita ≥2 cuentas).
-        ("5PYG.51070.001", "Vacaciones", round(base_mes / 24 * 0.6, 2)),
-        ("5PYG.51070.002", "Vacaciones", round(base_mes / 24 * 0.4, 2)),
         ("5PYG.51080.001", "Bono Desempeño", 50.0),
         ("5PYG.51090.001", "Comisiones", 40.0),
         ("5PYG.51100.001", "Premios", 20.0),
         ("5PYG.51110.001", "Estipendio Pasantes", PAS[0][2]),
         ("5PYG.51120.001", "Aporte Patronal Pasantes", round(SBU * 0.176, 2)),
     ]
+    # Vacaciones repartidas en N_VAC centros de costo (una o varias cuentas de gasto). La prorrata
+    # del ajuste DO-12 debe cuadrar con 1 o con varias cuentas (ver mk_do12.py); por defecto 2.
+    vac_total = round(base_mes / 24, 2)
+    for i in range(max(1, N_VAC)):
+        imp = round(vac_total / max(1, N_VAC), 2)
+        GAS.append((f"5PYG.51070.{i + 1:03d}", "Vacaciones", imp))
     fg = []
     for mes in range(1, 13):
         fecha = datetime.datetime(EJ, mes, 28)
@@ -314,7 +320,13 @@ def comprobantes_pdf():
     os.rmdir(tmp)
 
 
-def main():
+def generar(destino=None, n_vac=2):
+    """Escribe los 9 ejemplos en ``destino`` (por defecto la carpeta pública). ``n_vac`` = nº de
+    cuentas de gasto de vacaciones (un test lo pone en 1 para el caso límite del DO-12)."""
+    global DIR, N_VAC
+    if destino:
+        DIR = destino
+    N_VAC = n_vac
     os.makedirs(DIR, exist_ok=True)
     # Limpia los ejemplos de la versión 1.0 (actuarial) antes de escribir los de la 2.0.
     for f in os.listdir(DIR):
@@ -324,6 +336,11 @@ def main():
                                     or "registro_de_vacaciones" in f):
             os.remove(os.path.join(DIR, f))
     rol(); consolidado(); mayores(); anexo(); modelos(); comprobantes_pdf()
+    return DIR
+
+
+def main():
+    generar()
     print("Ejemplos de nómina 2.0 escritos en", DIR)
     for f in sorted(os.listdir(DIR)):
         print("  -", f)

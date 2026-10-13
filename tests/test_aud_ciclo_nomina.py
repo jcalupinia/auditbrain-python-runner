@@ -549,6 +549,52 @@ def test_ejemplos_nomina_2_0_existen_abren_sin_reparar_y_sin_piloto():
                             assert not any(t in v.lower() for t in piloto), f"{nombre}: dato del piloto"
 
 
+def test_do12_prorrata_vacaciones_una_sola_cuenta_no_es_circular(tmp_path):
+    """Regresión del blindaje DO-12: con UNA sola cuenta de gasto de vacaciones, la prorrata del
+    ajuste AJ-1 NO debe autorreferenciarse (antes: =_aj1-SUM(E9:E8) → referencia circular →
+    #¡VALOR! al recalcular). Se genera un dataset sintético de 1 cuenta, se corre el motor y se
+    comprueba que ninguna fórmula de «Ajustes propuestos» suma un rango que incluya su propia fila."""
+    import importlib.util
+    import io
+    import os
+    import re
+
+    import openpyxl
+
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    spec = importlib.util.spec_from_file_location(
+        "ejemplos_nomina_gen", os.path.join(raiz, "scripts", "ejemplos_nomina_beneficios.py"))
+    gen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen)
+    dest = str(tmp_path / "ej1vac")
+    gen.generar(dest, n_vac=1)   # <-- una sola cuenta de vacaciones
+
+    def _rq(req, nombre):
+        return {"requerimiento": req, "nombre": nombre, "ruta": os.path.join(dest, nombre)}
+    archivos = [
+        _rq("RQ-002", "RQ-002_anexo_de_nomina_saldos_por_cuenta.xlsx"),
+        _rq("RQ-003", "RQ-003_consolidado_iess_por_region.xlsx"),
+        _rq("RQ-004", "RQ-004_mayor_de_gasto_de_nomina.xlsx"),
+        _rq("RQ-004", "RQ-004_mayor_de_iess_por_pagar.xlsx"),
+        _rq("RQ-004", "RQ-004_mayor_de_beneficios_sociales_por_pagar.xlsx"),
+        _rq("RQ-005", "RQ-005_comprobantes_de_pago_iess.zip"),
+        _rq("RQ-006", "RQ-006_rol_de_pagos_normal_y_pasantes.xlsx"),
+    ]
+    ficha = {"client": "Comercial Andina de Ejemplo S.A.", "ruc": "1790000000001", "year": 2025,
+             "cutoff": "2025-12-31", "visit": "Final", "firm": "AuditConsulting",
+             "framework": "NIIF para las PYMES", "edition": "2015", "preparer": "JV", "reviewer": "Socio"}
+    ced = nb.correr_prueba(archivos, ficha, str(tmp_path / "home"), str(tmp_path / "out"))
+    wb = openpyxl.load_workbook(io.BytesIO(ced["DO-12_Hallazgos_y_Ajustes.xlsx"]), data_only=False)
+    ws = wb["Ajustes propuestos"]
+    for row in ws.iter_rows():
+        for c in row:
+            if isinstance(c.value, str) and c.value.startswith("="):
+                for mref in re.finditer(r"SUM\(([A-Z]+)(\d+):([A-Z]+)(\d+)\)", c.value):
+                    col1, r1, col2, r2 = mref.group(1), int(mref.group(2)), mref.group(3), int(mref.group(4))
+                    if col1 == c.column_letter == col2 and min(r1, r2) <= c.row <= max(r1, r2):
+                        raise AssertionError(f"Fórmula autorreferente en {c.coordinate}: {c.value}")
+
+
 def test_panel_solo_para_la_herramienta_de_nomina(client):
     tok, pid = _staff_con_proyecto(client)
     pr = _ficha_y_prueba_nomina(client, tok, pid, origen="proc:efectivo_equivalentes")

@@ -192,7 +192,15 @@ rows.append(('AJ-1', '5BS.21204.003', 'Vacaciones por pagar', _aj1, None, 'H-1',
 first_vac = len(rows)
 tot_vac = sum(v for _, _, v in VAC)
 for k, (cod, nom, v) in enumerate(VAC):
-    f = f'=ROUND({_aj1}*{v}/{tot_vac},2)' if k < len(VAC) - 1 else f'={_aj1}-SUM(E9:E{7+len(VAC)})'
+    # La ÚLTIMA cuenta cierra el ajuste (AJ-1 − la suma de las anteriores) para que la prorrata
+    # cuadre al centavo. Con una SOLA cuenta no hay anteriores: toma el ajuste entero, sin SUM
+    # (si no, el rango E9:E8 se incluiría a sí mismo → referencia circular / #¡VALOR! al abrir).
+    if k < len(VAC) - 1:
+        f = f'=ROUND({_aj1}*{v}/{tot_vac},2)'
+    elif len(VAC) == 1:
+        f = f'={_aj1}'
+    else:
+        f = f'={_aj1}-SUM(E9:E{7+len(VAC)})'
     rows.append(('AJ-1', cod, f'{nom} (prorrata por centro de costo)', None, f, 'H-1', 'Disminuye gasto'))
 rows.append(('', '', 'Glosa: ajuste de la provisión de vacaciones a 1/24 de la remuneración (Código del Trabajo, art. 69).', None, None, '', ''))
 # RJ-1: reclasificación del FR pagado en rol a cada administrador excluido, con su importe (fr_rol) y su centro de costo.
