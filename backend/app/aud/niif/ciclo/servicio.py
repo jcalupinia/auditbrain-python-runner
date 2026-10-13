@@ -22,7 +22,7 @@ import uuid
 
 log = logging.getLogger(__name__)
 
-from backend.app.aud.niif.ciclo import almacen, datos, reglas
+from backend.app.aud.niif.ciclo import almacen, datos, nomina_cache, reglas
 # Dentro de aplicar_accion el parámetro `datos` (cuerpo de la acción) tapa al
 # módulo: ahí se usa este alias.
 from backend.app.aud.niif.ciclo import datos as datos_mod
@@ -527,13 +527,87 @@ def correr_nomina(db: Session, p: Prueba, con_extras: bool = False):
         shutil.rmtree(home, ignore_errors=True)
 
 
+def _firma_nomina(db: Session, p: Prueba) -> str:
+    """Firma de caché de la prueba de nómina (insumos + ficha)."""
+    eng = (p.registro or {}).get("engagement") or {}
+    return nomina_cache.firma(archivos(db, p.id), eng)
+
+
+def cedulas_nomina(db: Session, p: Prueba, con_extras: bool = False):
+    """Cédulas del motor de nómina CON CACHÉ por prueba + límite de concurrencia.
+
+    Reusa el resultado mientras los insumos/ficha no cambien (evita re-correr el motor en
+    cada descarga/apertura; esa repetición era la que hacía OOM con varios usuarios). En miss,
+    corre el motor bajo el semáforo de proceso pesado. Puede lanzar ``ReglaIncumplida``
+    (faltan insumos) o ``concurrencia.ProcesoOcupado`` (servidor ocupado → 429 en el router)."""
+    from backend.app.aud.niif.procesadores import concurrencia
+
+    f = _firma_nomina(db, p)
+    hit = nomina_cache.obtener(p.id, f)
+    if hit and hit.get("cedulas") is not None and (not con_extras or hit.get("extras") is not None):
+        return (hit["cedulas"], hit["extras"]) if con_extras else hit["cedulas"]
+    with concurrencia.limite_proceso_pesado():
+        hit = nomina_cache.obtener(p.id, f)  # otra petición pudo computarlo durante la espera
+        if hit and hit.get("cedulas") is not None and (not con_extras or hit.get("extras") is not None):
+            return (hit["cedulas"], hit["extras"]) if con_extras else hit["cedulas"]
+        cedulas, extras = correr_nomina(db, p, con_extras=True)  # siempre con extras: puebla bien la caché
+        nomina_cache.guardar_cedulas(p.id, f, cedulas, extras)
+        return (cedulas, extras) if con_extras else cedulas
+
+
+def recalc_nomina(db: Session, p: Prueba):
+    """Carpeta recalculada con LibreOffice para el visor del panel, CON CACHÉ + concurrencia.
+
+    Devuelve ``(carpeta | None, extras)``. ``None`` si la prueba no se procesó, si el servidor
+    está ocupado (el panel se abre igual, sin visor) o si el motor/recalc fallan: el panel
+    nunca deja de abrir por esto (degradación suave, como hoy)."""
+    import os
+
+    from backend.app.aud.niif.procesadores import concurrencia
+    from backend.app.aud.niif.procesadores.nomina import recalc as _recalc
+
+    if not (p.registro or {}).get("run"):
+        return None, None
+    f = _firma_nomina(db, p)
+    hit = nomina_cache.obtener(p.id, f)
+    if hit and hit.get("recalc_dir") and os.path.isdir(hit["recalc_dir"]):
+        return hit["recalc_dir"], hit.get("extras")
+    try:
+        with concurrencia.limite_proceso_pesado():
+            hit = nomina_cache.obtener(p.id, f)
+            if hit and hit.get("recalc_dir") and os.path.isdir(hit["recalc_dir"]):
+                return hit["recalc_dir"], hit.get("extras")
+            cedulas, extras = correr_nomina(db, p, con_extras=True)
+            raiz = nomina_cache.nuevo_dir_recalc()
+            carpeta = _recalc.recalcular(cedulas, raiz)
+            nomina_cache.guardar_cedulas(p.id, f, cedulas, extras)
+            nomina_cache.guardar_recalc(p.id, f, carpeta, extras)
+            return carpeta, extras
+    except Exception:  # noqa: BLE001 - incluye ProcesoOcupado: el panel se abre sin visor
+        return None, None
+
+
 def _run_bespoke(db: Session, p: Prueba) -> dict:
     """«Procesar» una herramienta bespoke (su cálculo no pasa por el flujo genérico de
     ``libro``): corre el motor para validar que los datos procesan y guarda un marcador del
-    ``run`` (los nombres de las cédulas). Las cédulas se regeneran al descargarlas desde el
-    panel, como el papel genérico (que tampoco se persiste). Hoy la única bespoke es la
-    nómina 2.0."""
-    cedulas = correr_nomina(db, p)
+    ``run`` (los nombres de las cédulas). Hoy la única bespoke es la nómina 2.0.
+
+    Además CALIENTA LA CACHÉ (cédulas + recalc) bajo el semáforo de proceso pesado, para que
+    las aperturas de panel y descargas posteriores sean lecturas baratas (no re-corran motor
+    ni LibreOffice). Si el recalc falla aquí, no rompe el Procesar: se reintenta en el panel."""
+    from backend.app.aud.niif.procesadores import concurrencia
+    from backend.app.aud.niif.procesadores.nomina import recalc as _recalc
+
+    f = _firma_nomina(db, p)
+    nomina_cache.invalidar(p.id)  # Procesar fuerza un recómputo fresco
+    with concurrencia.limite_proceso_pesado():
+        cedulas, extras = correr_nomina(db, p, con_extras=True)
+        nomina_cache.guardar_cedulas(p.id, f, cedulas, extras)
+        try:
+            carpeta = _recalc.recalcular(cedulas, nomina_cache.nuevo_dir_recalc())
+            nomina_cache.guardar_recalc(p.id, f, carpeta, extras)
+        except Exception:  # noqa: BLE001 - el recalc se reintenta al abrir el panel
+            pass
     return {"bespoke": True, "processor": (p.definicion or {}).get("processor"),
             "cedulas": sorted(cedulas), "hojas": [], "exceptions": [], "totals": {},
             "detalle": {}, "primary": None}
@@ -1680,6 +1754,7 @@ def encerar(db: Session, p: Prueba, revision: int, datos: dict, actor: str) -> P
     # Los archivos se borran del disco después de confirmar la base: si esto
     # fallara quedaría una carpeta huérfana, nunca una fila sin su archivo.
     almacen.borrar_prueba(p.id)
+    nomina_cache.invalidar(p.id)  # al encerar, la caché del motor ya no sirve
     db.refresh(p)
     return p
 

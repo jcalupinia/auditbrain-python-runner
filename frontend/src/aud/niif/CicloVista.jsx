@@ -954,7 +954,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
           onClick={async () => {
             const nombre = `${d.name.replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}.xlsx`;
             try {
-              descargar(nombre, d.processor ? await api.cicloBajarLibro(prueba.id) : await papelDeclarativo(t, "xlsx"), XLSX);
+              descargar(nombre, d.processor ? await api.cicloBajarLibro(prueba.id, "xlsx", null, true, { timeoutMs: 180000, retries: 1 }) : await papelDeclarativo(t, "xlsx"), XLSX);
             } catch (e) {
               setError(e.message || String(e));
             }
@@ -983,7 +983,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
           <button key={ext} type="button" className="pc-chip" disabled={!reg.run} title={ext === "html" ? "Funciona sin internet y trae dentro Excel, Word y PowerPoint; «Guardar como PDF» lo imprime" : undefined}
             onClick={async () => {
               try {
-                const contenido = d.processor ? await api.cicloBajarLibro(prueba.id, ext) : await papelDeclarativo(t, ext);
+                const contenido = d.processor ? await api.cicloBajarLibro(prueba.id, ext, null, true, { timeoutMs: 180000, retries: 1 }) : await papelDeclarativo(t, ext);
                 descargar(`${d.name.replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}.${ext}`, contenido, tipo);
               } catch (e) {
                 setError(e.message || String(e));
