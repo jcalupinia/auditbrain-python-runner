@@ -172,7 +172,7 @@ def _definicion_procesador(d: dict) -> dict:
         raise ReglaIncumplida(str(e))
     # Las herramientas bespoke (p. ej. nómina 2.0) no usan el esquema genérico de plan
     # (datasets/CAMPOS): su cálculo vive en el motor y su cara es el panel propio.
-    if not d.get("bespoke"):
+    if not procesadores.es_bespoke(d):
         datos._validar_plan(d)
     # Base legal tributaria sugerida por herramienta (viaja con la ficha): pre-llena
     # el recuadro «Tratamiento tributario revisado y su sustento» en la vista.
@@ -624,7 +624,7 @@ def _run_procesador(db: Session, p: Prueba, reg: dict, proc) -> dict:
     «hornea» al ejecutar y ``libro.xlsx`` pinta el ``run`` almacenado)."""
     # Herramienta bespoke (p. ej. nómina 2.0): no usa el flujo genérico; su motor arma las
     # cédulas aparte. Se devuelve un marcador del run (las cédulas se bajan desde el panel).
-    if (p.definicion or {}).get("bespoke"):
+    if procesadores.es_bespoke(p.definicion):
         return _run_bespoke(db, p)
 
     from backend.app.aud.niif.procesadores import datos_cliente
@@ -781,7 +781,7 @@ def aplicar_accion(db: Session, p: Prueba, accion: str, revision: int, datos: di
             return a, sheet
 
         proc = procesadores.de(p.definicion)
-        if proc and (p.definicion or {}).get("bespoke"):
+        if proc and procesadores.es_bespoke(p.definicion):
             # Herramienta bespoke (nómina 2.0): el motor lee los archivos crudos; no hay mapeo de
             # columnas a datasets. map_validate solo confirma los requerimientos mínimos y pasa a
             # DOCUMENTACION_RECIBIDA. El cálculo y las cédulas se hacen al «Procesar»/descargar.

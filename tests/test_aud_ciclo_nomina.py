@@ -7,6 +7,7 @@ piden por endpoints bespoke. El flujo genérico de ``libro`` NO aplica a esta he
 La paridad al centavo del motor y las 15 cédulas en LibreOffice se verifican aparte (con un
 juego de datos ficticio completo, fuera de esta suite). Aquí se prueba el enganche.
 """
+import json
 import re
 
 import pytest
@@ -684,3 +685,52 @@ def test_carga_desde_el_panel_sube_y_aparece_en_el_casillero(client):
     html = client.get(f"{BASE}/pruebas/{prid}/panel-nomina", headers=_h(tok)).text
     assert "Anexo_Nomina.xlsx" in html
     assert '"req": "RQ-002"' in html or '"req":"RQ-002"' in html
+
+
+def test_nomina_sin_flag_bespoke_congelado_igual_enruta_al_motor(client):
+    """Regresión del «Número inválido» al cargar la nómina.
+
+    El panel se abre por ``processor == 'nomina_beneficios'`` (nombre), pero antes el
+    PROCESAMIENTO (map_validate) enrutaba por el flag ``bespoke`` CONGELADO en la
+    definición de la prueba. Una prueba creada antes de que ``definicion()`` incluyera
+    el flag abría el panel pero caía al pipeline declarativo genérico → la validación
+    numérica de filas lanzaba «Número inválido: use punto decimal…» (o ``PRINCIPAL``).
+    Ahora el enrutamiento usa ``procesadores.es_bespoke`` (consulta el procesador VIVO),
+    así que una prueba sin el flag congelado igual se procesa por su motor bespoke."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from backend.app.aud.niif.ciclo.models import Prueba
+    from backend.app.db.session import SessionLocal
+
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    prid = pr["id"]
+    aprob = _a_requerimiento_aprobado(client, tok, prid)
+    rev = aprob["revision"]
+    # Simula la prueba VIEJA: la definición guardada NO trae el flag `bespoke`.
+    with SessionLocal() as db:
+        p = db.get(Prueba, prid)
+        d = dict(p.definicion)
+        d.pop("bespoke", None)
+        p.definicion = d
+        flag_modified(p, "definicion")
+        db.commit()
+    p2 = client.get(f"{BASE}/pruebas/{prid}", headers=_h(tok)).json()
+    assert (p2.get("definicion") or {}).get("bespoke") is None  # flag ausente
+    rev = p2["revision"]
+    # Carga los requerimientos mínimos (contenido ficticio: basta para el map_validate bespoke).
+    for rq in ("RQ-002", "RQ-003", "RQ-004", "RQ-006"):
+        r = client.post(f"{BASE}/pruebas/{prid}/archivos", headers=_h(tok),
+                        data={"revision": str(rev), "requerimiento": rq, "componente": ""},
+                        files={"archivo": (f"{rq}.xlsx", b"PK\x03\x04 contenido ficticio")})
+        assert r.status_code in (200, 201), r.text
+        rev = client.get(f"{BASE}/pruebas/{prid}", headers=_h(tok)).json()["revision"]
+    # map_validate NO debe caer al pipeline declarativo (sin «Número inválido» ni 500).
+    r = client.post(f"{BASE}/pruebas/{prid}/acciones", headers=_h(tok),
+                    json={"accion": "map_validate", "revision": rev, "datos": {}})
+    assert r.status_code == 200, r.text
+    val = (r.json().get("registro") or {}).get("validation") or {}
+    # Enrutó al motor bespoke: valida solo requerimientos mínimos (ok), sin validar filas numéricas.
+    assert val.get("ok") is True, val
+    texto = json.dumps(val, ensure_ascii=False)
+    assert "Número inválido" not in texto
