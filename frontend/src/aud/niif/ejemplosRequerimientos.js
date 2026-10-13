@@ -173,14 +173,19 @@ export const EJEMPLOS_REQUERIMIENTOS = {
     "RQ-009": "RQ-009_garantias_y_refinanciaciones_del_ejercicio.pdf",
   },
   // --- Lote 3 --- (mismos dos generadores; datos + evidencia de soporte)
+  // Nómina 2.0 (bespoke): dataset sintético COHERENTE («Comercial Andina de Ejemplo S.A.»), datos
+  // ficticios, que el motor procesa de punta a punta (15 cédulas, recalc LibreOffice 0 errores).
+  // Se generan con scripts/ejemplos_nomina_beneficios.py. RQ-001 (cuestionario) va incorporado en
+  // la herramienta, sin ejemplo de archivo. RQ-004 ofrece el mayor de gasto como muestra de formato
+  // (los tres mayores comparten columnas; el set completo vive en la carpeta pública).
   nomina_beneficios: {
-    "RQ-001": "RQ-001_empleados.xlsx",
-    "RQ-002": "RQ-002_actuarial.xlsx",
-    "RQ-003": "RQ-003_roles_de_pago_mensuales_y_contratos_de_trabajo.xlsx",
-    "RQ-004": "RQ-004_planillas_y_comprobantes_de_pago_del_iess_aporte.pdf",
-    "RQ-005": "RQ-005_informe_actuarial_completo_y_censo_enviado_al_ac.pdf",
-    "RQ-006": "RQ-006_mayores_de_gasto_de_nomina_y_de_pasivos_laborale.xlsx",
-    "RQ-007": "RQ-007_registro_de_vacaciones_y_comprobantes_de_pago_de.xlsx",
+    "RQ-002": "RQ-002_anexo_de_nomina_saldos_por_cuenta.xlsx",
+    "RQ-003": "RQ-003_consolidado_iess_por_region_y_exclusiones.xlsx",
+    "RQ-004": "RQ-004_mayor_de_gasto_de_nomina.xlsx",
+    "RQ-005": "RQ-005_comprobantes_de_pago_iess.zip",
+    "RQ-006": "RQ-006_rol_de_pagos_normal_y_pasantes.xlsx",
+    "RQ-007": "RQ-007_muestreo_solicitudes_acumulacion_decimos.xlsx",
+    "RQ-008": "RQ-008_kardex_de_vacaciones.xlsx",
   },
   ingresos_contratos: {
     "RQ-001": "RQ-001_contratos.xlsx",

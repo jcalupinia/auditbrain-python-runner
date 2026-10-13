@@ -518,6 +518,37 @@ def test_libro_generico_no_aplica_a_la_bespoke(client):
     assert r.status_code == 400 and "panel" in r.json()["detail"].lower()
 
 
+def test_ejemplos_nomina_2_0_existen_abren_sin_reparar_y_sin_piloto():
+    """Los ejemplos de la 2.0 (dataset sintético ficticio) del manifiesto existen en disco, abren
+    sin «reparaciones» (ninguna celda de texto empieza con =,+,-,@) y no traen datos del piloto."""
+    import os
+    import re
+
+    import openpyxl
+
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    pub = os.path.join(raiz, "frontend", "public", "ejemplos", "nomina_beneficios")
+    manifiesto = open(os.path.join(raiz, "frontend", "src", "aud", "niif", "ejemplosRequerimientos.js"),
+                      encoding="utf-8").read()
+    bloque = re.search(r"\bnomina_beneficios:\s*\{(.*?)\}", manifiesto, re.S).group(1)
+    entradas = dict(re.findall(r'"(RQ-\d+)":\s*"([^"]+)"', bloque))
+    # Cubre los requerimientos que el auditor carga (RQ-002..008; RQ-001 va incorporado).
+    assert {"RQ-002", "RQ-003", "RQ-004", "RQ-006"} <= set(entradas)
+    piloto = ("montesdeoca", "remache", "prophar", "1791859596", "albiño", "quitiaquez", "robalino")
+    for req, nombre in entradas.items():
+        ruta = os.path.join(pub, nombre)
+        assert os.path.exists(ruta), f"falta el ejemplo {nombre}"
+        if nombre.endswith(".xlsx"):
+            wb = openpyxl.load_workbook(ruta)  # abre sin «reparar»
+            for ws in wb.worksheets:
+                for row in ws.iter_rows():
+                    for c in row:
+                        v = c.value
+                        if isinstance(v, str):
+                            assert v[:1] not in ("=", "+", "@"), f"{nombre}!{c.coordinate}: texto que parece fórmula"
+                            assert not any(t in v.lower() for t in piloto), f"{nombre}: dato del piloto"
+
+
 def test_panel_solo_para_la_herramienta_de_nomina(client):
     tok, pid = _staff_con_proyecto(client)
     pr = _ficha_y_prueba_nomina(client, tok, pid, origen="proc:efectivo_equivalentes")
