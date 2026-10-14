@@ -1366,21 +1366,33 @@ def _o2_activo() -> bool:
 
 
 def papel_procesador(db: Session, p: Prueba) -> tuple[bytes, bytes]:
-    args = args_papel(db, p)
     es_plan = (p.definicion or {}).get("processor") == "planificacion_nia"
-    # O2: el armado del libro (libro.xlsx/html) es el paso que más memoria consume; cuando el flag
-    # está activo corre en un SUBPROCESO aislado, bajo el semáforo de proceso pesado (concurrencia),
-    # con tope de memoria y tiempo por trabajo. Así un pico no mata el proceso de uvicorn.
+    # O2 (flag AUD_O2_SUBPROCESO): el armado del papel —el paso que más memoria consume y que disparó
+    # el OOM de uvicorn— corre en un SUBPROCESO aislado, bajo el semáforo de proceso pesado, con tope
+    # de memoria y tiempo por trabajo. Apagado = comportamiento anterior (reversión segura).
     if _o2_activo():
+        from backend.app.aud.niif import procesadores
         from backend.app.aud.niif.procesadores import aislado, concurrencia
-        # El armado del XLSX es el paso que disparó el OOM (openpyxl, ~1 GB de objetos en memoria);
-        # se aísla en el subproceso. El HTML es texto (liviano) y además, bajo `spawn`, el render del
-        # panel (matplotlib) se cuelga a escala, así que el HTML se arma en el PADRE (funciona inline).
+        proc = procesadores.de(p.definicion)
+        # Procesador db-free (PCE y demás pruebas NIIF salvo planificación/bespoke): TODO el pesado
+        # —cálculo + materialización + armado xlsx + html— corre en el hijo, que recibe SOLO los datos
+        # crudos del cliente (NO se llama args_papel en el padre). El proceso de uvicorn queda PLANO
+        # (medido en staging: 2,74 GB → 530 MB a 100k facturas; 0 diferencias de contenido).
+        db_free = (proc is not None and not getattr(proc, "USA_REGISTROS_ENCARGO", False)
+                   and not procesadores.es_bespoke(p.definicion))
+        if db_free:
+            with concurrencia.limite_proceso_pesado():
+                return aislado.generar_aislado_completo(
+                    p.definicion, p.registro, _eventos_papel(db, p), p.version, p.estado, con_html=True)
+        # Procesador db-dependiente (planificación, nómina bespoke): el padre calcula (necesita db);
+        # se aísla solo el armado del XLSX (el hog de memoria); el HTML se arma en el padre.
+        args = args_papel(db, p)
         with concurrencia.limite_proceso_pesado():
             xlsx, _ = aislado.generar_aislado(args, con_html=False)
         html = papel_artefacto_html(db, p) if es_plan else libro.html(*args)
         return xlsx, html
     # Comportamiento anterior (sin aislar): Planificación usa el HTML del artefacto; el resto, libro.html.
+    args = args_papel(db, p)
     if es_plan:
         return libro.xlsx(*args), papel_artefacto_html(db, p)
     return libro.xlsx(*args), libro.html(*args)

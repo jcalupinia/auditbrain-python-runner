@@ -90,10 +90,26 @@ def _trabajo(spec, con_html, dir_salida, cola):
     ``spec`` es ``("args", args)`` (solo armado, el run ya viene en reg) o
     ``("completo", definicion, reg, eventos, version, estado)`` (cálculo + armado en el hijo)."""
     try:
+        # Backend headless de matplotlib ANTES de importar libro. Bajo ``spawn`` el intérprete es
+        # nuevo: el HTML incrusta Word/PowerPoint que renderizan gráficos con matplotlib, y sin un
+        # backend no interactivo matplotlib intenta detectar un display y se CUELGA (verificado:
+        # el hijo se colgaba en ``libro.html`` a escala). Forzar Agg lo evita.
+        os.environ["MPLBACKEND"] = "Agg"
+        try:
+            import matplotlib
+            matplotlib.use("Agg", force=True)
+        except Exception:
+            pass
         from backend.app.aud.niif.procesadores import libro
         if spec[0] == "completo":
             _m, definicion, reg, eventos, version, estado = spec
-            reg = {**reg, "run": computar_run_sin_db(definicion, reg)}
+            try:
+                run = computar_run_sin_db(definicion, reg)
+            except Exception:  # noqa: BLE001 — la descarga no debe romperse por un re-cálculo
+                run = reg.get("run")  # cae al resultado guardado (mismo criterio que _run_fresco)
+                if not run:
+                    raise
+            reg = {**reg, "run": run}
             args = (definicion, reg, eventos, version, estado)
         else:
             args = spec[1]
