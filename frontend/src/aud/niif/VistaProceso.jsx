@@ -235,6 +235,12 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   const [pendientesMapeo, setPendientesMapeo] = useState(null);
   const [modoModal, setModoModal] = useState("revisar"); // "revisar" (al cargar) | "procesar" (al pulsar Procesar)
   const [revisando, setRevisando] = useState(false);
+  // Formato del papel que se está armando en el servidor (xlsx/docx/html), o "" si ninguno.
+  // Sin esto, `bajarFormato` esperaba el build SIN ninguna señal visual: en el worker único de
+  // Render el armado tarda (arranque en frío) y el usuario veía «no pasa nada». Con el indicador
+  // los botones muestran «Generando…» y se deshabilitan mientras se construye. (PDF y «Abrir HTML»
+  // ya daban señal porque abren una pestaña con su propio «Generando…».)
+  const [generando, setGenerando] = useState("");
   const manualMapsRef = useRef({});
   const detalleRef = useRef(null);
   // Ventana del panel de nómina abierta (pestaña nueva con blob URL): se guarda para poder
@@ -445,6 +451,9 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   // Descarga un formato del papel armado por el servidor (Excel con fórmulas y gráficos,
   // Word ejecutivo). Siempre con el mismo diseño del procesador.
   async function bajarFormato(ext, tipo) {
+    if (generando) return;   // un build pesado a la vez (worker único de Render)
+    setError("");
+    setGenerando(ext);       // feedback visible: el botón muestra «Generando…» mientras se arma
     try {
       const base = `${(d.name || "Planificacion").replace(/[^\w-]+/g, "_").slice(0, 60)}_v${prueba.version}`;
       // Timeout largo y UN solo intento: armar el papel (Excel con fórmulas, Word, HTML con los
@@ -454,6 +463,8 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
       descargar(`${base}.${ext}`, await api.cicloBajarLibro(prueba.id, ext, null, true, { timeoutMs: 180000, retries: 1 }), tipo);
     } catch (e) {
       setError(e.message || String(e));
+    } finally {
+      setGenerando("");
     }
   }
 
@@ -949,21 +960,22 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
                 <span className="nf-ef-dl-t">Abrir HTML</span>
                 <span className="nf-ef-dl-s">Ver el tablero · recalcula sin internet</span>
               </button>
-              <button type="button" className="nf-ef-dl" onClick={() => bajarFormato("html", "text/html;charset=utf-8")}>
+              <button type="button" className="nf-ef-dl" disabled={!!generando}
+                onClick={() => bajarFormato("html", "text/html;charset=utf-8")}>
                 <Icono name="dashboard" color="blue" />
                 <span className="nf-ef-dl-t">Descargar HTML</span>
-                <span className="nf-ef-dl-s">Archivo autónomo · funciona sin internet</span>
+                <span className="nf-ef-dl-s">{generando === "html" ? "Generando…" : "Archivo autónomo · funciona sin internet"}</span>
               </button>
-              <button type="button" className="nf-ef-dl" onClick={() => bajarFormato("xlsx", XLSX)}>
+              <button type="button" className="nf-ef-dl" disabled={!!generando} onClick={() => bajarFormato("xlsx", XLSX)}>
                 <Icono name="table" color="green" />
                 <span className="nf-ef-dl-t">Excel</span>
-                <span className="nf-ef-dl-s">Fórmulas trazables + gráficos</span>
+                <span className="nf-ef-dl-s">{generando === "xlsx" ? "Generando…" : "Fórmulas trazables + gráficos"}</span>
               </button>
-              <button type="button" className="nf-ef-dl"
+              <button type="button" className="nf-ef-dl" disabled={!!generando}
                 onClick={() => bajarFormato("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}>
                 <Icono name="doc" color="blue" />
                 <span className="nf-ef-dl-t">Word</span>
-                <span className="nf-ef-dl-s">Ejecutivo · márgenes y cuadros</span>
+                <span className="nf-ef-dl-s">{generando === "docx" ? "Generando…" : "Ejecutivo · márgenes y cuadros"}</span>
               </button>
               <button type="button" className="nf-ef-dl" onClick={() => imprimirPDF(null)}>
                 <Icono name="pdf" color="red" />
@@ -971,6 +983,16 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
                 <span className="nf-ef-dl-s">El HTML impreso (Guardar como PDF)</span>
               </button>
             </div>
+            {/* Estado de la descarga JUNTO a los botones: el aviso de error general (`nf-ef-error`)
+                se pinta arriba del todo, lejos del paso 6, así que una descarga lenta o fallida
+                parecía «no pasa nada». Aquí el usuario ve el progreso y el error sin desplazarse. */}
+            {generando && (
+              <p className="nf-ef-aviso" role="status" aria-live="polite">
+                Generando el papel en {generando.toUpperCase()}… puede tardar unos segundos (el
+                servidor lo arma con fórmulas y gráficos). No cierres esta página.
+              </p>
+            )}
+            {!generando && error && <p className="nf-ef-error" role="alert">{error}</p>}
           </>
         )}
       </section>
