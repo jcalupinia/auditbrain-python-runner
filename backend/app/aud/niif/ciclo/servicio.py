@@ -1359,11 +1359,29 @@ def marcar_descargada(db: Session, p: Prueba) -> None:
     db.commit()
 
 
+def _o2_activo() -> bool:
+    """O2: armar el papel pesado en un subproceso aislado (feature flag; apagado = comportamiento anterior)."""
+    import os
+    return (os.getenv("AUD_O2_SUBPROCESO", "false") or "false").strip().lower() in ("1", "true", "yes", "on")
+
+
 def papel_procesador(db: Session, p: Prueba) -> tuple[bytes, bytes]:
     args = args_papel(db, p)
-    # Planificación: el HTML es el del motor del artefacto (idéntico al de referencia);
-    # el Excel con fórmulas sigue saliendo del motor propio.
-    if (p.definicion or {}).get("processor") == "planificacion_nia":
+    es_plan = (p.definicion or {}).get("processor") == "planificacion_nia"
+    # O2: el armado del libro (libro.xlsx/html) es el paso que más memoria consume; cuando el flag
+    # está activo corre en un SUBPROCESO aislado, bajo el semáforo de proceso pesado (concurrencia),
+    # con tope de memoria y tiempo por trabajo. Así un pico no mata el proceso de uvicorn.
+    if _o2_activo():
+        from backend.app.aud.niif.procesadores import aislado, concurrencia
+        # El armado del XLSX es el paso que disparó el OOM (openpyxl, ~1 GB de objetos en memoria);
+        # se aísla en el subproceso. El HTML es texto (liviano) y además, bajo `spawn`, el render del
+        # panel (matplotlib) se cuelga a escala, así que el HTML se arma en el PADRE (funciona inline).
+        with concurrencia.limite_proceso_pesado():
+            xlsx, _ = aislado.generar_aislado(args, con_html=False)
+        html = papel_artefacto_html(db, p) if es_plan else libro.html(*args)
+        return xlsx, html
+    # Comportamiento anterior (sin aislar): Planificación usa el HTML del artefacto; el resto, libro.html.
+    if es_plan:
         return libro.xlsx(*args), papel_artefacto_html(db, p)
     return libro.xlsx(*args), libro.html(*args)
 
