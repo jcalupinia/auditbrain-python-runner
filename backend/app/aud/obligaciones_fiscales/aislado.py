@@ -52,10 +52,21 @@ def _rss_mb(pid: int) -> float:
         return 0.0
 
 
-def _trabajo(job_id: int, cola) -> None:
-    """Corre en el HIJO: abre su propia sesión de BD, arma el Libro DM (lee mayores del disco +
-    clasificación de la BD, escribe ``output.xlsx``) y manda el ``summary`` por la cola. NO marca
-    el estado del job (eso lo hace el padre)."""
+def _trabajo_libro(job_id: int, cola) -> None:
+    """HIJO: abre su propia sesión de BD, arma el Libro DM (lee mayores del disco + clasificación
+    de la BD, escribe ``output.xlsx``) y manda el ``summary`` por la cola."""
+    _correr_en_hijo(job_id, cola, lambda jobs, db, job: jobs._generar_output_libro(db, job, job_id))
+
+
+def _trabajo_clasificar(job_id: int, cola) -> None:
+    """HIJO: lee los mayores (grandes) del disco, perfila y clasifica, y devuelve el payload
+    PEQUEÑO (por cuenta, no por movimiento) para que el padre guarde + marque estado. Los
+    movimientos viven y mueren en el hijo."""
+    _correr_en_hijo(job_id, cola, lambda jobs, db, job: jobs._clasificar_payload(db, job, job_id))
+
+
+def _correr_en_hijo(job_id: int, cola, fn) -> None:
+    """Esqueleto común de los targets del hijo: sesión de BD propia + manejo de errores → cola."""
     try:
         from backend.app.aud.obligaciones_fiscales import jobs
         from backend.app.aud.obligaciones_fiscales.models import ToolJob
@@ -66,8 +77,7 @@ def _trabajo(job_id: int, cola) -> None:
             if job is None:
                 cola.put(("err", f"ToolJob {job_id} no encontrado en el subproceso", ""))
                 return
-            summary = jobs._generar_output_libro(db, job, job_id)
-            cola.put(("ok", summary))
+            cola.put(("ok", fn(jobs, db, job)))
         finally:
             db.close()
     except MemoryError:
@@ -80,11 +90,25 @@ def generar_libro_aislado(job_id: int, mem_mb: int | None = None,
                           timeout_s: float | None = None) -> dict:
     """Arma el Libro DM del ``job_id`` en un subproceso aislado. El hijo escribe ``output.xlsx``;
     esta función devuelve el ``summary`` o lanza ``GeneracionLibroAislada`` (error/OOM/timeout)."""
+    return _ejecutar(_trabajo_libro, job_id, mem_mb, timeout_s)
+
+
+def clasificar_aislado(job_id: int, mem_mb: int | None = None,
+                       timeout_s: float | None = None) -> dict:
+    """Lee + clasifica los mayores del ``job_id`` en un subproceso aislado. Devuelve el payload
+    (resultados/perfiles por cuenta + meta) para que el padre guarde y marque estado, o lanza
+    ``GeneracionLibroAislada``."""
+    return _ejecutar(_trabajo_clasificar, job_id, mem_mb, timeout_s)
+
+
+def _ejecutar(target, job_id: int, mem_mb: int | None, timeout_s: float | None) -> dict:
+    """Motor de aislamiento: lanza ``target(job_id, cola)`` en un subproceso ``spawn``, con
+    watchdog de RSS y timeout, y devuelve el payload ``ok`` o lanza ``GeneracionLibroAislada``."""
     mem_mb = MEM_MB if mem_mb is None else mem_mb
     timeout_s = TIMEOUT_S if timeout_s is None else timeout_s
     ctx = mp.get_context("spawn")
     cola = ctx.Queue()
-    hijo = ctx.Process(target=_trabajo, args=(job_id, cola), daemon=True)
+    hijo = ctx.Process(target=target, args=(job_id, cola), daemon=True)
     hijo.start()
     limite = time.monotonic() + timeout_s
     pico = 0.0

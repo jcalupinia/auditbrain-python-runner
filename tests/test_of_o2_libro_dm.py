@@ -151,3 +151,33 @@ def test_o2_libro_dm_identico_con_mayor_y_clasificacion(tmp_root, monkeypatch):
     difs = [k for k in set(celdas_inline) | set(celdas_o2)
             if celdas_inline.get(k) != celdas_o2.get(k)]
     assert not difs, f"{len(difs)} celdas difieren inline vs O2 (con mayor); p.ej. {difs[:5]}"
+
+
+def _clasificacion_resumen(job_id) -> dict:
+    """{codigo: (categoria_sugerida, categoria_final, n_movimientos)} de la clasificación en BD."""
+    from backend.app.aud.obligaciones_fiscales.mayor.clasificacion_service import clasificacion_de_job
+    db = SessionLocal()
+    try:
+        return {f.codigo_cuenta: (f.categoria_sugerida, f.categoria_final, f.n_movimientos)
+                for f in clasificacion_de_job(db, job_id=job_id)}
+    finally:
+        db.close()
+
+
+def test_o2_clasificar_mayor_identico_a_inline(tmp_root, monkeypatch):
+    """La fase 1 (lee los mayores grandes + clasifica) aislada en subproceso deja la MISMA
+    clasificación en BD que en proceso. El payload (resultados/perfiles) debe viajar por la cola
+    spawn sin perder nada."""
+    job_id, job_dir = _sembrar_job_con_f104(tmp_root)
+    file_storage.save_input(job_dir, "mayor_general", "mayor.xlsx", mayor_xlsx(_MAYOR))
+
+    monkeypatch.setenv("OF_O2_SUBPROCESO", "")
+    jobs.clasificar_mayor_job(job_id)
+    inline = _clasificacion_resumen(job_id)
+    assert inline, "la clasificación inline quedó vacía"
+
+    monkeypatch.setenv("OF_O2_SUBPROCESO", "true")
+    jobs.clasificar_mayor_job(job_id)   # reemplaza la clasificación del mismo job
+    o2 = _clasificacion_resumen(job_id)
+
+    assert o2 == inline, f"la clasificación difiere inline vs O2:\n inline={inline}\n o2={o2}"
