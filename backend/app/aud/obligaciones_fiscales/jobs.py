@@ -63,16 +63,66 @@ def leer_mayores_del_job(job_id: int):
     return movimientos, declaradas, hojas, errores, ilegibles
 
 
-def clasificar_mayor_job(job_id: int) -> None:
-    """FASE 1: lee los mayores (general y/o específicos), clasifica sus cuentas
-    y deja el job en 'revision' para que el auditor apruebe."""
-    from backend.app.aud.obligaciones_fiscales.mayor import (
-        clasificacion_service,
-        homologaciones,
-    )
+def _clasificar_payload(db, job: ToolJob, job_id: int) -> dict:
+    """Trabajo PESADO de la fase 1: lee los mayores (general y/o específicos, GRANDES), perfila y
+    clasifica. Devuelve un payload PEQUEÑO (por cuenta, no por movimiento) para que el llamador
+    guarde la clasificación y marque el estado. Lo usan AMBOS caminos (en-proceso y el subproceso
+    ``aislado._trabajo_clasificar``); no toca el estado del job.
+
+    ``{"ok": False, "error": msg}`` si no hay movimientos legibles; si no, ``{"ok": True,
+    "resultados": [...], "perfiles": {...}, "meta": {...}}``."""
+    from backend.app.aud.obligaciones_fiscales.mayor import homologaciones
     from backend.app.aud.obligaciones_fiscales.mayor.clasificador import clasificar
     from backend.app.aud.obligaciones_fiscales.mayor.cuentas import perfilar
     from backend.app.context.models import Project
+
+    movimientos, declaradas, hojas, errores, ilegibles = leer_mayores_del_job(job_id)
+
+    if not movimientos:
+        if ilegibles:
+            nombre, faltan = ilegibles[0]
+            return {"ok": False, "error": f"{nombre}: no se reconocieron las columnas mínimas "
+                    f"(faltan {', '.join(faltan)})."}
+        return {"ok": False, "error":
+                "No hay un Mayor General ni Mayores específicos legibles cargados."}
+    # Archivos que no se pudieron leer, pero había otros que sí: se avisa.
+    for nombre, faltan in ilegibles:
+        errores.append(f"{nombre}: no se reconocieron las columnas (faltan {', '.join(faltan)}).")
+
+    proyecto = db.get(Project, job.project_id)
+    historial = homologaciones.historial_de_cliente(db, client_id=proyecto.client_id)
+
+    perfiles = perfilar(movimientos)
+    resultados = clasificar(perfiles, historial=historial, declaradas=declaradas)
+
+    por_confianza: dict[str, int] = {}
+    for r in resultados:
+        por_confianza[r.confianza] = por_confianza.get(r.confianza, 0) + 1
+
+    return {
+        "ok": True,
+        "resultados": resultados,
+        "perfiles": perfiles,
+        "meta": {
+            "movimientos_leidos": len(movimientos),
+            "cuentas": len(perfiles),
+            "hojas_leidas": hojas,
+            "por_confianza": por_confianza,
+            "requieren_revision": sum(
+                n for c, n in por_confianza.items() if c in ("media", "baja")
+            ),
+            "errores_lectura": errores[:10],
+        },
+    }
+
+
+def clasificar_mayor_job(job_id: int) -> None:
+    """FASE 1: lee los mayores (general y/o específicos), clasifica sus cuentas
+    y deja el job en 'revision' para que el auditor apruebe.
+
+    Con ``OF_O2_SUBPROCESO`` la lectura + clasificación (que carga TODOS los movimientos del mayor
+    en RAM) corre en un subproceso aislado bajo el semáforo de proceso pesado; apagado, en proceso."""
+    from backend.app.aud.obligaciones_fiscales.mayor import clasificacion_service
 
     db = SessionLocal()
     try:
@@ -82,50 +132,30 @@ def clasificar_mayor_job(job_id: int) -> None:
             log.error("clasificar_mayor_job: ToolJob %s not found", job_id)
             return
 
-        movimientos, declaradas, hojas, errores, ilegibles = leer_mayores_del_job(job_id)
+        if _o2_activo():
+            from backend.app.aud.niif.procesadores.concurrencia import (
+                ProcesoOcupado,
+                limite_proceso_pesado,
+            )
+            from backend.app.aud.obligaciones_fiscales import aislado
+            try:
+                with limite_proceso_pesado():
+                    payload = aislado.clasificar_aislado(job_id)
+            except ProcesoOcupado as e:
+                service.mark_failed(db, job_id, str(e))
+                return
+        else:
+            payload = _clasificar_payload(db, job, job_id)
 
-        if not movimientos:
-            if ilegibles:
-                nombre, faltan = ilegibles[0]
-                service.mark_failed(
-                    db, job_id,
-                    f"{nombre}: no se reconocieron las columnas mínimas "
-                    f"(faltan {', '.join(faltan)}).",
-                )
-            else:
-                service.mark_failed(
-                    db, job_id,
-                    "No hay un Mayor General ni Mayores específicos legibles cargados.",
-                )
+        if not payload["ok"]:
+            service.mark_failed(db, job_id, payload["error"])
             return
-        # Archivos que no se pudieron leer, pero había otros que sí: se avisa.
-        for nombre, faltan in ilegibles:
-            errores.append(f"{nombre}: no se reconocieron las columnas (faltan {', '.join(faltan)}).")
 
-        proyecto = db.get(Project, job.project_id)
-        historial = homologaciones.historial_de_cliente(db, client_id=proyecto.client_id)
-
-        perfiles = perfilar(movimientos)
-        resultados = clasificar(perfiles, historial=historial, declaradas=declaradas)
         clasificacion_service.guardar_clasificacion(
-            db, job_id=job_id, resultados=resultados, perfiles=perfiles
+            db, job_id=job_id, resultados=payload["resultados"], perfiles=payload["perfiles"]
         )
-
-        por_confianza: dict[str, int] = {}
-        for r in resultados:
-            por_confianza[r.confianza] = por_confianza.get(r.confianza, 0) + 1
-
-        service.mark_revision(db, job_id, {
-            "movimientos_leidos": len(movimientos),
-            "cuentas": len(perfiles),
-            "hojas_leidas": hojas,
-            "por_confianza": por_confianza,
-            "requieren_revision": sum(
-                n for c, n in por_confianza.items() if c in ("media", "baja")
-            ),
-            "errores_lectura": errores[:10],
-        })
-        log.info("job %s clasificado: %s cuentas", job_id, len(perfiles))
+        service.mark_revision(db, job_id, payload["meta"])
+        log.info("job %s clasificado: %s cuentas", job_id, payload["meta"]["cuentas"])
     except Exception as e:  # noqa: BLE001
         log.exception("clasificar_mayor_job %s failed", job_id)
         try:
@@ -136,8 +166,12 @@ def clasificar_mayor_job(job_id: int) -> None:
         db.close()
 
 
-def process_job(job_id: int) -> None:
-    """Procesa un job: lee inputs de /tmp, arma el libro DM, escribe output.xlsx."""
+def _generar_output_libro(db, job: ToolJob, job_id: int) -> dict:
+    """Trabajo PESADO del Libro DM: lee inputs del disco, arma el libro (openpyxl, una celda
+    por movimiento del mayor) y escribe ``output.xlsx``. Devuelve el ``summary``.
+
+    Lo usan AMBOS caminos: el proceso de uvicorn (flag O2 apagado) y el subproceso aislado
+    (``aislado._trabajo``, flag O2 encendido). No toca el estado del job (lo marca el llamador)."""
     from backend.app.aud.obligaciones_fiscales.libro.ensamblador import armar_libro
     from backend.app.aud.obligaciones_fiscales.libro.fuentes import (
         leer_ats,
@@ -145,6 +179,56 @@ def process_job(job_id: int) -> None:
     )
     from backend.app.aud.obligaciones_fiscales.mayor import clasificacion_service
 
+    job_dir = file_storage.job_dir(job_id)
+    inputs = {
+        "f103": file_storage.list_inputs(job_dir, "f103"),
+        "f104": file_storage.list_inputs(job_dir, "f104"),
+        "ats": file_storage.list_inputs(job_dir, "ats"),
+        "mayor_general": file_storage.list_inputs(job_dir, "mayor_general"),
+        "mayor_especifico": file_storage.list_inputs(job_dir, "mayor_especifico"),
+        "f101": file_storage.list_inputs(job_dir, "f101"),
+    }
+
+    # Movimientos del Mayor General y de los Mayores específicos (ambos
+    # entran a los cruces; el general ya no es indispensable).
+    movimientos, _declaradas, _hojas, _errores, _ilegibles = leer_mayores_del_job(job_id)
+    f104_monthly, f103_monthly = leer_declaraciones(job_dir)
+
+    excel_bytes = armar_libro(
+        clasificacion=clasificacion_service.clasificacion_de_job(db, job_id=job_id),
+        movimientos=movimientos,
+        f104_monthly=f104_monthly,
+        f103_monthly=f103_monthly,
+        ats_resumenes=leer_ats(job_dir),
+        cliente=job.cliente_name,
+        periodo=job.period_label,
+        preparado_por=job.prepared_by_name,
+        revisado_por=job.reviewed_by_name,
+    )
+
+    out = file_storage.output_path(job_dir)
+    out.write_bytes(excel_bytes)
+
+    return {
+        "movimientos": len(movimientos),
+        "f104_files_received": len(inputs.get("f104", [])),
+        "f103_files_received": len(inputs.get("f103", [])),
+        "excel_size_bytes": len(excel_bytes),
+    }
+
+
+def _o2_activo() -> bool:
+    """Flag ``OF_O2_SUBPROCESO``: aislar el armado del Libro DM en un subproceso (anti-OOM).
+    Apagado por defecto = comportamiento anterior (armado en el proceso de uvicorn)."""
+    import os
+    return (os.getenv("OF_O2_SUBPROCESO", "") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def process_job(job_id: int) -> None:
+    """Procesa un job: lee inputs de /tmp, arma el libro DM, escribe output.xlsx.
+
+    Con ``OF_O2_SUBPROCESO`` el armado corre en un subproceso aislado (vive y muere su pico de
+    memoria, sin tumbar uvicorn) bajo el semáforo de proceso pesado; apagado, corre en proceso."""
     db = SessionLocal()
     try:
         service.mark_running(db, job_id)
@@ -153,42 +237,21 @@ def process_job(job_id: int) -> None:
             log.error("process_job: ToolJob %s not found", job_id)
             return
 
-        job_dir = file_storage.job_dir(job_id)
-        inputs = {
-            "f103": file_storage.list_inputs(job_dir, "f103"),
-            "f104": file_storage.list_inputs(job_dir, "f104"),
-            "ats": file_storage.list_inputs(job_dir, "ats"),
-            "mayor_general": file_storage.list_inputs(job_dir, "mayor_general"),
-            "mayor_especifico": file_storage.list_inputs(job_dir, "mayor_especifico"),
-            "f101": file_storage.list_inputs(job_dir, "f101"),
-        }
+        if _o2_activo():
+            from backend.app.aud.niif.procesadores.concurrencia import (
+                ProcesoOcupado,
+                limite_proceso_pesado,
+            )
+            from backend.app.aud.obligaciones_fiscales import aislado
+            try:
+                with limite_proceso_pesado():
+                    summary = aislado.generar_libro_aislado(job_id)
+            except ProcesoOcupado as e:
+                service.mark_failed(db, job_id, str(e))
+                return
+        else:
+            summary = _generar_output_libro(db, job, job_id)
 
-        # Movimientos del Mayor General y de los Mayores específicos (ambos
-        # entran a los cruces; el general ya no es indispensable).
-        movimientos, _declaradas, _hojas, _errores, _ilegibles = leer_mayores_del_job(job_id)
-        f104_monthly, f103_monthly = leer_declaraciones(job_dir)
-
-        excel_bytes = armar_libro(
-            clasificacion=clasificacion_service.clasificacion_de_job(db, job_id=job_id),
-            movimientos=movimientos,
-            f104_monthly=f104_monthly,
-            f103_monthly=f103_monthly,
-            ats_resumenes=leer_ats(job_dir),
-            cliente=job.cliente_name,
-            periodo=job.period_label,
-            preparado_por=job.prepared_by_name,
-            revisado_por=job.reviewed_by_name,
-        )
-
-        out = file_storage.output_path(job_dir)
-        out.write_bytes(excel_bytes)
-
-        summary = {
-            "movimientos": len(movimientos),
-            "f104_files_received": len(inputs.get("f104", [])),
-            "f103_files_received": len(inputs.get("f103", [])),
-            "excel_size_bytes": len(excel_bytes),
-        }
         service.mark_done(db, job_id, summary)
         log.info("job %s done", job_id)
     except Exception as e:  # noqa: BLE001
