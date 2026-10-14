@@ -811,7 +811,7 @@ def hojas(res: dict) -> list[dict]:
         e_b = sum(exp[s][b] for s in SEG)
         pce_b = sum(mm["pce"] for mm in matriz if mm["banda"] == b)
         porbanda.append([b, fx(f"SUMIF({_rango(MAT, 'B', nmat)},A{fila},{_rango(MAT, 'D', nmat)})", n2(e_b)),
-                         fx(f"SUMIF({_rango(MAT, 'B', nmat)},A{fila},{_rango(MAT, 'I', nmat)})", n2(pce_b)),
+                         fx(f"SUMIF({_rango(MAT, 'B', nmat)},A{fila},{_rango(MAT, 'H', nmat)})", n2(pce_b)),
                          fx(f'IF(B{fila}=0,"",C{fila}/B{fila})', (pce_b / e_b) if e_b else None)])
     fin_ban = FILA0 + nbanda - 1
 
@@ -862,7 +862,7 @@ def hojas(res: dict) -> list[dict]:
     MOV = ref("09_Movimiento")
 
     # 08 · Controles y conciliación
-    con_pce = f"SUM({_rango(MAT, 'I', nmat)})"
+    con_pce = f"SUM({_rango(MAT, 'H', nmat)})"
     con_cart = f"SUM({_rango(MAT, 'D', nmat)})"
     cont_ref = f"({P}$B${PARFILA['eNR_t']}+{P}$B${PARFILA['eR_t']})" if d["anchor"] else con_cart
     cont_val = (d["eNR"] + d["eR"]) if d["anchor"] else t["cartera"]
@@ -893,7 +893,7 @@ def hojas(res: dict) -> list[dict]:
     # 01 · Resumen
     resumen = [
         [res["labels"]["cartera"], fx(f"SUM({_rango(MAT, 'D', nmat)})", n2(t["cartera"]))],
-        [res["labels"]["pce"], fx(f"SUM({_rango(MAT, 'I', nmat)})", n2(t["pce"]))],
+        [res["labels"]["pce"], fx(f"SUM({_rango(MAT, 'H', nmat)})", n2(t["pce"]))],
         [res["labels"]["provisionRegistrada"], fx(f"'08_Conciliacion'!B{FILA0 + 3}", n2(t["provisionRegistrada"]))],
         [res["labels"]["ajuste"], fx(f"B{FILA0 + 1}-B{FILA0 + 2}", n2(t["ajuste"]))],
     ]
@@ -913,7 +913,7 @@ def hojas(res: dict) -> list[dict]:
         hoja("05_Matriz_PCE", "Matriz de pérdida esperada",
              [["Segmento", "t"], ["Banda de mora", "t"], ["Clave", "t"], ["Exposición anclada", "n"],
               ["Tasa observada", "p"], ["Factor prospectivo", "x"], ["Tasa aplicada", "p"], ["Pérdida esperada", "n"]],
-             matriz_rows, ["TOTAL", "", "", suma("D", fin_mat, t["cartera"]), None, None, None, suma("I", fin_mat, t["pce"])],
+             matriz_rows, ["TOTAL", "", "", suma("D", fin_mat, t["cartera"]), None, None, None, suma("H", fin_mat, t["pce"])],
              explica=EXPLICA["05_Matriz_PCE"]),
         hoja("06_Por_banda", "Pérdida por banda de mora",
              [["Banda de mora", "t"], ["Exposición anclada", "n"], ["Pérdida esperada", "n"], ["Tasa promedio", "p"]],
