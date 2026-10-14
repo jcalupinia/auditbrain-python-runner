@@ -370,8 +370,16 @@ def _tabla_word(doc, h, L):
     sz = 8 if n <= 7 else 7 if n <= 11 else 6.5
     t = doc.add_table(rows=1 + len(filas), cols=n)
     _sin_bordes(t)
+    # Rendimiento: ``t.rows`` reconstruye la lista de filas recorriendo el XML en CADA acceso, y lo
+    # mismo ``row.cells``; indexar ``t.rows[i].cells[j]`` por celda es O(n²) y con miles de filas de
+    # detalle (p. ej. PCE con cartera grande) dispara el tiempo del Word a minutos (medido: 341 s a
+    # 9.000 filas). Se materializan las filas y las celdas UNA sola vez → O(n). El contenido y el
+    # formato de cada celda quedan idénticos.
+    filas_tbl = list(t.rows)
+    celdas_por_fila = [list(fila_tbl.cells) for fila_tbl in filas_tbl]
+    hdr = celdas_por_fila[0]
     for j, (nombre, _) in enumerate(h["cols"]):
-        c = t.rows[0].cells[j]
+        c = hdr[j]
         _sombra(c, C["card2"])
         _bordes(c, bottom=(16, C["oro"]))
         _texto(c.paragraphs[0], nombre, sz, C["texto"], True)
@@ -382,8 +390,9 @@ def _tabla_word(doc, h, L):
     for i, (fila, total) in enumerate(filas, start=1):
         ef = {} if total else estilo_fila(h, i - 1)
         tipo = "total" if total else ef.get("tipo")
+        celdas = celdas_por_fila[i]
         for j, ((nombre_col, fmt), v) in enumerate(zip(h["cols"], fila)):
-            c = t.rows[i].cells[j]
+            c = celdas[j]
             if tipo == "total":
                 _sombra(c, C["card2"])
                 _bordes(c, top=(16, C["oro"]), bottom=(4, C["borde"]))
@@ -406,8 +415,8 @@ def _tabla_word(doc, h, L):
             _texto(par, _html.unescape(L._celda(v, fmt)), sz,
                    ROL_COLOR[rol][1] if rol else C["texto2"] if tipo == "control" else C["texto"],
                    tipo in ("total", "titulo") or bool(rol), "Consolas" if num else None, cursiva=(tipo == "control"))
-    for fila in t.rows:
-        _no_partir(fila)
+    for fila_tbl in filas_tbl:
+        _no_partir(fila_tbl)
 
 
 # =============================================================================================
