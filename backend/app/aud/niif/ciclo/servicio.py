@@ -1359,11 +1359,41 @@ def marcar_descargada(db: Session, p: Prueba) -> None:
     db.commit()
 
 
+def _o2_activo() -> bool:
+    """O2: armar el papel pesado en un subproceso aislado (feature flag; apagado = comportamiento anterior)."""
+    import os
+    return (os.getenv("AUD_O2_SUBPROCESO", "false") or "false").strip().lower() in ("1", "true", "yes", "on")
+
+
 def papel_procesador(db: Session, p: Prueba) -> tuple[bytes, bytes]:
+    es_plan = (p.definicion or {}).get("processor") == "planificacion_nia"
+    # O2 (flag AUD_O2_SUBPROCESO): el armado del papel —el paso que más memoria consume y que disparó
+    # el OOM de uvicorn— corre en un SUBPROCESO aislado, bajo el semáforo de proceso pesado, con tope
+    # de memoria y tiempo por trabajo. Apagado = comportamiento anterior (reversión segura).
+    if _o2_activo():
+        from backend.app.aud.niif import procesadores
+        from backend.app.aud.niif.procesadores import aislado, concurrencia
+        proc = procesadores.de(p.definicion)
+        # Procesador db-free (PCE y demás pruebas NIIF salvo planificación/bespoke): TODO el pesado
+        # —cálculo + materialización + armado xlsx + html— corre en el hijo, que recibe SOLO los datos
+        # crudos del cliente (NO se llama args_papel en el padre). El proceso de uvicorn queda PLANO
+        # (medido en staging: 2,74 GB → 530 MB a 100k facturas; 0 diferencias de contenido).
+        db_free = (proc is not None and not getattr(proc, "USA_REGISTROS_ENCARGO", False)
+                   and not procesadores.es_bespoke(p.definicion))
+        if db_free:
+            with concurrencia.limite_proceso_pesado():
+                return aislado.generar_aislado_completo(
+                    p.definicion, p.registro, _eventos_papel(db, p), p.version, p.estado, con_html=True)
+        # Procesador db-dependiente (planificación, nómina bespoke): el padre calcula (necesita db);
+        # se aísla solo el armado del XLSX (el hog de memoria); el HTML se arma en el padre.
+        args = args_papel(db, p)
+        with concurrencia.limite_proceso_pesado():
+            xlsx, _ = aislado.generar_aislado(args, con_html=False)
+        html = papel_artefacto_html(db, p) if es_plan else libro.html(*args)
+        return xlsx, html
+    # Comportamiento anterior (sin aislar): Planificación usa el HTML del artefacto; el resto, libro.html.
     args = args_papel(db, p)
-    # Planificación: el HTML es el del motor del artefacto (idéntico al de referencia);
-    # el Excel con fórmulas sigue saliendo del motor propio.
-    if (p.definicion or {}).get("processor") == "planificacion_nia":
+    if es_plan:
         return libro.xlsx(*args), papel_artefacto_html(db, p)
     return libro.xlsx(*args), libro.html(*args)
 
