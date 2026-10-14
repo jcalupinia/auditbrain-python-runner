@@ -359,14 +359,37 @@ def _calc_word(doc, bloque, ancho):
     doc.add_paragraph().paragraph_format.space_after = Pt(4)
 
 
+# Tope de filas de detalle en Word y PowerPoint. El detalle masivo (miles de facturas/movimientos)
+# pertenece al Excel (libro.xlsx lo conserva COMPLETO con sus fórmulas); en el Word/PPT, que son el
+# resumen ejecutivo, una tabla de miles de filas es ilegible y dispara el tiempo de armado. Se muestran
+# las primeras TOPE_DETALLE filas + una nota + las filas de total. Las cédulas chicas no se tocan.
+TOPE_DETALLE = 300
+
+
+def _acotar(filas, n):
+    """Acota el detalle de una cédula para Word/PPT: primeras TOPE_DETALLE filas + nota + totales.
+    El Excel conserva todas las filas; aquí solo se recorta la VISTA ejecutiva."""
+    if len(filas) <= TOPE_DETALLE:
+        return filas
+    cabeza = filas[:TOPE_DETALLE]
+    resto = filas[TOPE_DETALLE:]
+    totales = [x for x in resto if x[1]]          # conservar las filas TOTAL del tramo omitido
+    omit = len(resto) - len(totales)
+    if omit <= 0:
+        return filas
+    nota_txt = f"… y {omit:,} filas más — el detalle completo está en el Excel".replace(",", ".")
+    nota = ([nota_txt] + [""] * (n - 1), False)   # texto en la 1.ª columna; el resto vacío
+    return cabeza + [nota] + totales
+
+
 def _tabla_word(doc, h, L):
     """Tabla de la cédula con el estilo del HTML: cabecera gris con filete dorado, filas
     alternas, cifras a la derecha y total en negrita con filete dorado arriba."""
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
     C = CLARO
-    filas = L._filas(h)
     n = len(h["cols"])
+    filas = _acotar(L._filas(h), n)
     sz = 8 if n <= 7 else 7 if n <= 11 else 6.5
     t = doc.add_table(rows=1 + len(filas), cols=n)
     _sin_bordes(t)
@@ -646,6 +669,7 @@ def _tabla_ppt(diap, prs, h, filas, L):
 
     T = OSCURO
     n = len(h["cols"])
+    filas = _acotar(filas, n)
     sz = 10 if n <= 7 else 9 if n <= 10 else 8
     alto_fila = Inches(0.3)
     forma = diap.shapes.add_table(1 + len(filas), n, Inches(0.55), Inches(1.5), prs.slide_width - Inches(1.1),
