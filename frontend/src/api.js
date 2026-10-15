@@ -2,13 +2,15 @@
 
 // Resolución de la URL base del backend. FALLA CERRADO: ante un hostname que no
 // reconoce, NO asume producción (null). Casos:
-//  1) Preview de Render (auditbrain-{frontend,clientes}-pr-<n>.onrender.com):
-//     deriva el backend del MISMO preview (auditbrain-python-runner-pr-<n>).
-//     OJO: confirmar el patrón real de la URL en el primer preview.
+//  1) Preview (Coolify: <n>.consola.preview.audit-ia.ec; Render, mientras conviva:
+//     auditbrain-{frontend,clientes}-pr-<n>.onrender.com): deriva el backend del
+//     MISMO PR con previewResolver.js (hostname normalizado, patrones exactos).
 //  2) Host de PRODUCCIÓN/DEV conocido (lista blanca): usa VITE_API_BASE o la
 //     URL de producción (comportamiento idéntico al anterior).
 //  3) Cualquier otro host (p. ej. un preview cuyo patrón cambió): null => se
 //     bloquean las llamadas y se avisa; NUNCA se cae a producción.
+import { normalizeHost, resolvePreviewBackend } from "./previewResolver.js";
+
 const PROD_DEV_HOSTS = [
   "consola.audit-ia.ec",
   "clientes.audit-ia.ec",
@@ -20,14 +22,14 @@ const PROD_DEV_HOSTS = [
 ];
 
 function resolveApiBase() {
-  const host =
+  const raw =
     typeof window !== "undefined" && window.location
       ? window.location.hostname
       : "";
-  const m = host.match(
-    /^auditbrain-(?:frontend|clientes)-pr-(\d+)\.onrender\.com$/
-  );
-  if (m) return `https://auditbrain-python-runner-pr-${m[1]}.onrender.com`;
+  const preview = resolvePreviewBackend(raw);
+  if (preview) return preview.apiBase;
+  // Sin window (tests/SSR) el host queda "" y se trata como dev conocido.
+  const host = raw ? normalizeHost(raw) || raw.trim().toLowerCase() : "";
   if (PROD_DEV_HOSTS.includes(host)) {
     return (
       import.meta.env.VITE_API_BASE ??

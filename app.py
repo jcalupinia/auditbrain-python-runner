@@ -83,54 +83,24 @@ app = FastAPI(
 # Ejemplo: CORS_ALLOW_ORIGINS="https://auditbrain-app.onrender.com,https://auditbrain-clientes.onrender.com"
 #
 # Preview Environments (APP_ENV=preview): además de la lista exacta de
-# producción, se permiten por regex los frontends de preview
-# (auditbrain-frontend-pr-<n> / auditbrain-clientes-pr-<n>). En producción
-# (APP_ENV != "preview") el regex es None => comportamiento BYTE-idéntico al
-# actual. Ver _preview_cors_origin_regex para el anclaje al MISMO PR.
+# producción, se permiten por regex SOLO los frontends del MISMO PR (Coolify:
+# <n>.consola|clientes.preview.audit-ia.ec; Render, mientras conviva:
+# auditbrain-frontend|clientes-pr-<n>.onrender.com). La identidad del PR la
+# valida backend/app/core/preview.py::preview_bootstrap al importar: si está
+# ausente, no coincide o es ambigua, el proceso NO arranca (código 3). No hay
+# ningún fallback a «cualquier PR». En producción (APP_ENV != "preview")
+# preview_bootstrap devuelve {"preview": False} y el regex es None =>
+# comportamiento BYTE-idéntico al histórico.
 # ==========================================================
+from backend.app.core.preview import cors_origin_regex_for, preview_bootstrap  # noqa: E402
+
 _cors_origins = [
     o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()
 ]
-_app_env = os.getenv("APP_ENV", "production").strip().lower()
-
-# Patrón de los frontends de preview. Render nombra cada servicio del preview
-# con el sufijo "-pr-<n>" (mismo n para backend y frontends del mismo PR).
-# El patrón debe CONFIRMARSE en el primer preview.
-_PREVIEW_FRONTEND_ORIGIN_RE = r"^https://auditbrain-(?:frontend|clientes)-pr-{pr}\.onrender\.com$"
-
-
-def _preview_cors_origin_regex(app_env: str, render_hostname: str) -> str | None:
-    """Regex de orígenes CORS SOLO para Preview Environments; None fuera de ellos.
-
-    Render expone el hostname público del servicio en RENDER_EXTERNAL_HOSTNAME
-    (p. ej. "auditbrain-python-runner-pr-123.onrender.com"). Si de ahí se puede
-    leer el número de PR, el regex queda ANCLADO a los frontends de ESE preview
-    (…-pr-123). Si no se puede (variable ausente o patrón distinto), se cae a
-    cualquier PR del repositorio (…-pr-<n>) y se avisa por log: es menos
-    estricto, pero sigue limitado a subdominios con el prefijo auditbrain-* y
-    nunca afecta a producción (APP_ENV != "preview" => None).
-    """
-    if app_env != "preview":
-        return None
-    import re as _re
-
-    m = _re.search(r"-pr-(\d+)\.onrender\.com$", (render_hostname or "").strip().lower())
-    if m:
-        return _PREVIEW_FRONTEND_ORIGIN_RE.format(pr=m.group(1))
-    import logging as _logging
-
-    _logging.getLogger("auditbrain").warning(
-        "APP_ENV=preview pero RENDER_EXTERNAL_HOSTNAME=%r no termina en "
-        "-pr-<n>.onrender.com: CORS acepta los frontends de CUALQUIER preview "
-        "del repo (no solo los de este PR).",
-        render_hostname,
-    )
-    return _PREVIEW_FRONTEND_ORIGIN_RE.format(pr=r"\d+")
-
-
-_cors_origin_regex = _preview_cors_origin_regex(
-    _app_env, os.getenv("RENDER_EXTERNAL_HOSTNAME", "")
-)
+_PREVIEW = preview_bootstrap()  # en preview: valida todo o termina el proceso
+_cors_origin_regex = cors_origin_regex_for(_PREVIEW)
+# Alias conservado para quien importe el nombre histórico desde app.
+_preview_cors_origin_regex = cors_origin_regex_for
 if _cors_origins or _cors_origin_regex:
     app.add_middleware(
         CORSMiddleware,

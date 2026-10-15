@@ -1,0 +1,18 @@
+# Dockerignore específico de frontend/Dockerfile.preview (BuildKit lo aplica a ese Dockerfile).
+# El .dockerignore de la raíz excluye los frontends porque sirve a la imagen del backend.
+.git
+**/node_modules
+**/dist
+**/.vite
+backend
+tests
+docs
+e2e
+e2e-portal-cliente
+papeles_muestra
+scripts
+skills
+workflows
+server
+frontend-client
+*.md

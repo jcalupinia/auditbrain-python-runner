@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1
+# Imagen de PREVIEW del portal de clientes. Contexto de build: RAÍZ del repositorio, porque
+# frontend-client depende de "@auditbrain/shared": "file:../frontend-shared" y npm resuelve esa
+# ruta relativa en el momento del `npm ci`: ambos directorios deben ser hermanos dentro de /src.
+# Se construye en GitHub Actions (nunca en el servidor) y se publica en GHCR como
+# ghcr.io/jcalupinia/auditbrain-clientes:sha-<commit del PR>.
+
+ARG GIT_SHA=unknown
+
+FROM node:20-alpine AS build
+ARG GIT_SHA
+ARG VITE_API_BASE=https://preview-backend-no-resuelto.invalid
+ENV VITE_API_BASE=$VITE_API_BASE \
+    VITE_BUILD_COMMIT=$GIT_SHA \
+    CI=true
+WORKDIR /src
+COPY frontend-shared/package.json frontend-shared/package-lock.json ./frontend-shared/
+RUN cd frontend-shared && npm ci --no-audit --no-fund
+COPY frontend-shared/ ./frontend-shared/
+COPY frontend-client/package.json frontend-client/package-lock.json ./frontend-client/
+RUN cd frontend-client && npm ci --no-audit --no-fund
+COPY frontend-client/ ./frontend-client/
+RUN cd frontend-client && npm run build
+
+FROM nginx:1.27-alpine
+ARG GIT_SHA
+LABEL org.opencontainers.image.revision=$GIT_SHA \
+      org.opencontainers.image.source="https://github.com/jcalupinia/auditbrain-python-runner" \
+      org.opencontainers.image.title="auditbrain-clientes-preview"
+ENV BUILD_COMMIT=$GIT_SHA
+COPY frontend-client/nginx.preview.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /src/frontend-client/dist /usr/share/nginx/html
+RUN printf '{"service":"clientes","commit":"%s"}\n' "$GIT_SHA" > /usr/share/nginx/html/build-info.json

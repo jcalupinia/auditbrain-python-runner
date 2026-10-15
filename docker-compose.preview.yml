@@ -1,0 +1,185 @@
+# docker-compose.preview.yml — Preview Environments por Pull Request en Coolify (mismo servidor).
+#
+# NO es el despliegue de producción. Lo usa SOLO la aplicación «auditbrain-preview» del entorno
+# `previews` de Coolify (build pack Docker Compose). Un preview = cinco servicios aislados por PR:
+#   init     genera, una sola vez, la contraseña de Postgres y el secreto JWT en el volumen `secrets`
+#   db       PostgreSQL 18 exclusivo del PR (sin puerto publicado; volumen `pgdata` del PR)
+#   backend  FastAPI (APP_ENV=preview; arma DATABASE_URL desde el archivo de secretos)
+#   consola  Command Center (nginx + dist de Vite)
+#   clientes Portal de clientes (nginx + dist de Vite, incluye frontend-shared)
+#
+# Garantías de diseño (ver docs/previews-coolify.md):
+# - Ninguna imagen se construye en el servidor: las tres propias vienen de GHCR etiquetadas con el
+#   commit exacto del PR. La etiqueta llega en PREVIEW_IMAGE_TAG (obligatoria: `${VAR:?}` hace que
+#   `docker compose` falle si falta o está vacía) y el backend verifica al arrancar que su
+#   BUILD_COMMIT coincide con esa etiqueta; si no, no arranca.
+# - Ningún secreto pasa por variables de Coolify ni por el repositorio. No se usa SERVICE_PASSWORD_*
+#   porque Coolify lo comparte entre previews.
+# - Ninguna variable apunta a producción (CORS vacío, portal centinela, DOCUMENT_SERVICE en sumidero).
+# - Límites de memoria y CPU por servicio; oom_score_adj alto y cpu_shares bajos para que, ante
+#   presión en el host compartido, el kernel sacrifique el preview antes que producción.
+# - Un único preview activo (política del controlador de ciclo de vida; workflows deshabilitados
+#   hasta aprobación administrativa).
+#
+# Red: `preview_internal` (internal: true) para init y db; Coolify añade su red por preview y la red
+# del proxy a los servicios con dominio. Si Coolify sobrescribe las redes definidas aquí (pendiente
+# de verificar en el piloto, P-08), el aislamiento de red hacia producción se garantiza con la regla
+# DOCKER-USER documentada en docs/previews-coolify.md (no aplicada todavía).
+
+services:
+
+  init:
+    image: alpine:3.20
+    command: >
+      sh -c '
+        set -eu
+        mkdir -p /secrets && chmod 700 /secrets
+        if [ ! -s /secrets/pg_password ]; then
+          head -c 48 /dev/urandom | base64 | tr -dc "A-Za-z0-9" | cut -c1-40 > /secrets/pg_password
+          chmod 600 /secrets/pg_password
+        fi
+        if [ ! -s /secrets/jwt_secret ]; then
+          head -c 64 /dev/urandom | base64 | tr -dc "A-Za-z0-9" | cut -c1-64 > /secrets/jwt_secret
+          chmod 600 /secrets/jwt_secret
+        fi
+        echo "secrets listos"'
+    volumes:
+      - secrets:/secrets
+    networks:
+      - preview_internal
+    exclude_from_hc: true
+    mem_limit: 16m
+    memswap_limit: 16m
+    cpus: 0.1
+    pids_limit: 32
+
+  db:
+    image: postgres:18-alpine
+    # PostgreSQL 18: la imagen oficial monta el volumen en /var/lib/postgresql y coloca PGDATA en
+    # /var/lib/postgresql/18/docker (verificar en el piloto con `SHOW data_directory`).
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=30"]
+    environment:
+      POSTGRES_DB: auditbrain
+      POSTGRES_USER: auditbrain
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - secrets:/run/secrets:ro
+    networks:
+      - preview_internal
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auditbrain -d auditbrain"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    mem_limit: 192m
+    memswap_limit: 192m
+    cpus: 0.5
+    cpu_shares: 256
+    oom_score_adj: 700
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
+
+  backend:
+    image: ghcr.io/jcalupinia/auditbrain-backend:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
+    # Arma DATABASE_URL con la contraseña generada dentro del preview y arranca uvicorn (sin cambio de código).
+    command: >
+      sh -c 'export DATABASE_URL="postgresql://auditbrain:$(cat /run/secrets/pg_password)@db:5432/auditbrain";
+             exec uvicorn app:app --host 0.0.0.0 --port 10000'
+    environment:
+      - SERVICE_FQDN_BACKEND_10000
+      - APP_ENV=preview
+      # Identidad del PR: única fuente primaria, rellenada por Coolify con el dominio del preview.
+      - PREVIEW_PUBLIC_HOST=${SERVICE_FQDN_BACKEND_10000}
+      # La imagen debe corresponder al commit del PR: el backend compara con su BUILD_COMMIT.
+      - PREVIEW_EXPECTED_IMAGE_TAG=${PREVIEW_IMAGE_TAG}
+      - PREVIEW_SECRETS_DIR=/run/secrets
+      - CLIENT_PORTAL_SESSION_CHECK_ENABLED=false
+      - CLIENT_PORTAL_DEVICE_CHECK_ENABLED=false
+      - AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL=${PREVIEW_ADMIN_EMAIL:?PREVIEW_ADMIN_EMAIL obligatoria}
+      - AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD=${PREVIEW_ADMIN_PASSWORD:?PREVIEW_ADMIN_PASSWORD obligatoria}
+      - AUDITBRAIN_API_KEY=${PREVIEW_API_KEY:?PREVIEW_API_KEY obligatoria}
+      - AUD_CICLO_DIR=/var/data/aud_pruebas
+      - AUD_OF_TMP_DIR=/var/data/of_tmp
+      - AUD_PROCESO_PESADO_MAX=1
+      - DOCUMENT_SERVICE=http://127.0.0.1:9
+      - CORS_ALLOW_ORIGINS=
+      - CLIENT_PORTAL_URL=https://preview-portal-no-resuelto.invalid
+    volumes:
+      - appdata:/var/data
+      - secrets:/run/secrets:ro
+    networks:
+      - preview_internal
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:10000/healthz', timeout=3).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    mem_limit: 1024m
+    memswap_limit: 1024m
+    cpus: 1.5
+    cpu_shares: 256
+    oom_score_adj: 900
+    pids_limit: 256
+    ulimits:
+      nofile: 4096
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
+
+  consola:
+    image: ghcr.io/jcalupinia/auditbrain-consola:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
+    environment:
+      - SERVICE_FQDN_CONSOLA_80
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/build-info.json"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    mem_limit: 32m
+    memswap_limit: 32m
+    cpus: 0.2
+    cpu_shares: 128
+    oom_score_adj: 600
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
+
+  clientes:
+    image: ghcr.io/jcalupinia/auditbrain-clientes:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
+    environment:
+      - SERVICE_FQDN_CLIENTES_80
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/build-info.json"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    mem_limit: 32m
+    memswap_limit: 32m
+    cpus: 0.2
+    cpu_shares: 128
+    oom_score_adj: 600
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
+
+networks:
+  preview_internal:
+    internal: true
+
+volumes:
+  secrets:
+  pgdata:
+  appdata:

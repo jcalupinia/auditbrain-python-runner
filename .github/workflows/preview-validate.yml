@@ -1,0 +1,123 @@
+name: preview-validate
+
+# Validación de los artefactos de Preview Environments SIN desplegar ni publicar nada:
+#  - `docker compose config` del Compose de previews con valores ficticios;
+#  - construcción (sin push) de las tres imágenes con el commit del PR, comprobando que el
+#    commit queda en la metadata OCI y en build-info.json;
+#  - pruebas de resolución del backend por hostname en los dos frontends.
+# Corre solo cuando cambian esos artefactos. No usa secretos ni tokens.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - docker-compose.preview.yml
+      - Dockerfile.render
+      - frontend/Dockerfile.preview
+      - frontend/Dockerfile.preview.dockerignore
+      - frontend/nginx.preview.conf
+      - frontend/src/previewResolver.js
+      - frontend/src/previewResolver.test.js
+      - frontend/src/api.js
+      - frontend-client/Dockerfile.preview
+      - frontend-client/Dockerfile.preview.dockerignore
+      - frontend-client/nginx.preview.conf
+      - frontend-client/src/previewResolver.js
+      - frontend-client/src/previewResolver.test.mjs
+      - frontend-client/src/api.js
+      - backend/app/core/preview.py
+      - backend/app/core/hostnames.py
+      - .github/workflows/preview-*.yml
+  workflow_dispatch: {}
+
+concurrency:
+  group: preview-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  compose-config:
+    name: docker compose config (valores ficticios)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar el Compose con valores ficticios (no se levanta nada)
+        env:
+          PREVIEW_IMAGE_TAG: sha-0000000000000000000000000000000000000000
+          PREVIEW_ADMIN_EMAIL: admin@preview.invalid
+          PREVIEW_ADMIN_PASSWORD: ficticia-solo-para-validar
+          PREVIEW_API_KEY: ficticia-solo-para-validar
+          SERVICE_FQDN_BACKEND_10000: 0.api.preview.audit-ia.ec
+          SERVICE_FQDN_CONSOLA_80: 0.consola.preview.audit-ia.ec
+          SERVICE_FQDN_CLIENTES_80: 0.clientes.preview.audit-ia.ec
+        run: |
+          docker compose -f docker-compose.preview.yml config -q
+          docker compose -f docker-compose.preview.yml config | tee /tmp/compose-resuelto.yml | head -c 0
+          echo "Servicios:"; docker compose -f docker-compose.preview.yml config --services
+          # Fallo seguro: sin PREVIEW_IMAGE_TAG el Compose debe rechazarse
+          if PREVIEW_IMAGE_TAG= docker compose -f docker-compose.preview.yml config -q 2>/dev/null; then
+            echo "ERROR: el Compose aceptó PREVIEW_IMAGE_TAG vacío"; exit 1; fi
+          echo "OK: PREVIEW_IMAGE_TAG vacío es rechazado"
+          grep -q 'ghcr.io/jcalupinia/auditbrain-backend:sha-0000' /tmp/compose-resuelto.yml
+
+  build-images:
+    name: build sin push · ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend
+            dockerfile: Dockerfile.render
+            check: 'python -c "import os,sys; sys.exit(0 if os.environ.get(\"BUILD_COMMIT\")==os.environ[\"ESPERADO\"] else 1)"'
+          - service: consola
+            dockerfile: frontend/Dockerfile.preview
+            check: 'sh -c "grep -q \"$ESPERADO\" /usr/share/nginx/html/build-info.json && grep -q preview-backend-no-resuelto.invalid /usr/share/nginx/html/assets/*.js"'
+          - service: clientes
+            dockerfile: frontend-client/Dockerfile.preview
+            check: 'sh -c "grep -q \"$ESPERADO\" /usr/share/nginx/html/build-info.json && grep -q preview-backend-no-resuelto.invalid /usr/share/nginx/html/assets/*.js"'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Construir (sin publicar) con el commit del PR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: true
+          tags: local/auditbrain-${{ matrix.service }}:validate
+          build-args: |
+            GIT_SHA=${{ github.event.pull_request.head.sha || github.sha }}
+          cache-from: type=gha,scope=preview-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=preview-${{ matrix.service }}
+      - name: Verificar commit en metadata OCI y en la imagen
+        env:
+          ESPERADO: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          REV=$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' local/auditbrain-${{ matrix.service }}:validate)
+          echo "revision=$REV esperado=$ESPERADO"
+          test "$REV" = "$ESPERADO"
+          docker run --rm -e ESPERADO="$ESPERADO" local/auditbrain-${{ matrix.service }}:validate ${{ matrix.check }}
+          docker image ls local/auditbrain-${{ matrix.service }}:validate
+
+  resolvers:
+    name: pruebas de resolución del backend (frontends)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Consola (vitest)
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund && npx vitest run src/previewResolver.test.js
+      - name: Portal (node:test, sin dependencias)
+        run: node --test frontend-client/src/previewResolver.test.mjs
