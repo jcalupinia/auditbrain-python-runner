@@ -96,6 +96,9 @@ services:
 
   backend:
     image: ghcr.io/jcalupinia/auditbrain-backend:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
+    # Puerto interno declarado para que Coolify reconozca el puerto del dominio (no se publica en el host).
+    expose:
+      - "10000"
     # Arma DATABASE_URL con la contraseña generada dentro del preview y arranca uvicorn (sin cambio de código).
     command: >
       sh -c 'export DATABASE_URL="postgresql://auditbrain:$(cat /run/secrets/pg_password)@db:5432/auditbrain";
@@ -147,6 +150,9 @@ services:
 
   consola:
     image: ghcr.io/jcalupinia/auditbrain-consola:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
+    # Puerto interno declarado para que Coolify reconozca el puerto del dominio (no se publica en el host).
+    expose:
+      - "80"
     environment:
       - SERVICE_FQDN_CONSOLA_80
     healthcheck:
@@ -166,6 +172,9 @@ services:
 
   clientes:
     image: ghcr.io/jcalupinia/auditbrain-clientes:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
+    # Puerto interno declarado para que Coolify reconozca el puerto del dominio (no se publica en el host).
+    expose:
+      - "80"
     environment:
       - SERVICE_FQDN_CLIENTES_80
     healthcheck:
