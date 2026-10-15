@@ -18,7 +18,7 @@ Dominios por servicio con la plantilla `{{pr_id}}.{{domain}}` de Coolify: `<n>.a
 
 ## 2. Mismo commit en todos los servicios (y por qué no se confía en `SOURCE_COMMIT`)
 
-1. `preview-images` construye las tres imágenes del `head.sha` del PR en GitHub Actions y las publica con la etiqueta inmutable `sha-<sha completo>` (alias `pr-<n>`, nunca referenciado). Cada imagen lleva `org.opencontainers.image.revision=<sha>` y `ENV BUILD_COMMIT=<sha>` (en los frontends, además `/build-info.json`).
+1. `preview-images` construye las tres imágenes del `head.sha` del PR en GitHub Actions y las publica con una sola etiqueta inmutable por imagen, `sha-<sha completo>` (sin `latest` ni alias). Cada imagen lleva `org.opencontainers.image.revision=<sha>` y `ENV BUILD_COMMIT=<sha>` (en los frontends, además `/build-info.json`).
 2. El Compose referencia `${PREVIEW_IMAGE_TAG:?…}`: si la variable falta o está vacía, `docker compose` falla antes de arrancar nada. Coolify no aplica `:?` al recoger variables, pero Docker Compose sí al interpolar.
 3. `PREVIEW_IMAGE_TAG` la fija el controlador (`scripts/preview_lifecycle.py admitir`) como variable **de preview** con el valor `sha-<head.sha>` y solo después despliega. Mientras el despliegue por API esté inhabilitado, la fija el administrador a mano en la variable de preview antes de desplegar.
 4. El backend comprueba al arrancar que `PREVIEW_EXPECTED_IMAGE_TAG` (= `${PREVIEW_IMAGE_TAG}`) es exactamente `sha-<BUILD_COMMIT>`; si no, **no arranca**. Si Coolify entrega además `SOURCE_COMMIT`, también debe coincidir, pero no se depende de él.
@@ -67,7 +67,7 @@ Verificación en el piloto: `scripts/preview_isolation_check.sh` dentro del back
 | Workflow | Disparo | Puertas | Qué hace |
 |---|---|---|---|
 | `preview-validate.yml` | PR que toque los artefactos de preview | Ninguna (no usa secretos) | `docker compose config` con valores ficticios y prueba de fallo con etiqueta vacía; build sin push de las tres imágenes verificando el commit en la metadata; pruebas de resolución de ambos frontends |
-| `preview-images.yml` | Solo `workflow_dispatch` | `vars.PREVIEW_PIPELINE_ENABLED == "true"`; rechaza forks | Publica las imágenes `sha-<sha>` y `pr-<n>` en GHCR |
+| `preview-images.yml` | `workflow_dispatch`, o `push` de una etiqueta `ghcr-preview-pr384-<sha>` (publicación única autorizada el 2026-10-15) | Dispatch: `vars.PREVIEW_PIPELINE_ENABLED == "true"` y sin forks. Etiqueta: repositorio exacto, SHA de 40 caracteres igual al commit apuntado, PR #384 abierto, sin fusionar, contra `main`, sin fork y con ese HEAD exacto; cualquier discrepancia termina sin publicar | Publica solo `sha-<sha>` en GHCR (sin `latest` ni alias) con la label OCI `revision` |
 | `preview-lifecycle.yml` | Solo `workflow_dispatch` | `PREVIEW_PIPELINE_ENABLED`; `COOLIFY_URL` debe ser `https://`; `dry_run=true` por defecto | `admitir` (cupo `MAX_ACTIVE_PREVIEWS=1`, imágenes presentes, crear sin desplegar, fijar etiqueta, desplegar, comentar), `liberar`, `caducidad` (3 días sin commit, comentario humano ni despliegue; `preview:keep` exime) |
 
 El despliegue por API queda **inhabilitado** hasta que el panel de Coolify tenga un dominio HTTPS: el script aborta ante una `COOLIFY_URL` que no empiece por `https://`. Hoy el panel responde en `http://IP:8000`.
