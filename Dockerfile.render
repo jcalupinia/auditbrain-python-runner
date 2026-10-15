@@ -22,6 +22,15 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Librerías nativas de WeasyPrint (>= 53 ya no usa cairo) + fuentes base.
+#
+# libreoffice-calc: la herramienta de Nómina ("Pasivos Acumulados y Gastos de
+# Nómina") recalcula las cédulas Excel ejecutando en runtime
+# `soffice --headless --calc --convert-to xlsx` (backend/app/aud/niif/
+# procesadores/nomina/recalc.py y nomina_beneficios.py). Sin este paquete la
+# consola responde 500 FileNotFoundError: 'soffice'. Va aquí para que el binario
+# sea permanente y no dependa de una instalación manual que un redeploy borra.
+# --no-install-recommends mantiene la imagen razonable (crece ~350 MB; evita
+# Java y extras que la conversión headless no necesita).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpango-1.0-0 \
         libpangoft2-1.0-0 \
@@ -32,6 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-liberation \
         shared-mime-info \
         poppler-utils \
+        libreoffice-calc \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-prod.txt requirements-pdf.txt ./
