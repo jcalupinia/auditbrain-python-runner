@@ -13,10 +13,13 @@ Deja las cédulas recalculadas en una carpeta (``<destino>/recalc``) que se pasa
 from __future__ import annotations
 
 import io
+import logging
 import os
 import subprocess
 
 import openpyxl
+
+log = logging.getLogger(__name__)
 
 
 def _forzar_recalculo(data: bytes) -> bytes:
@@ -56,8 +59,20 @@ def recalcular(cedulas: dict[str, bytes], destino: str, timeout: int = 300) -> s
 
     # Un perfil de usuario propio evita choques entre corridas concurrentes de soffice.
     perfil = os.path.join(destino, "_lo")
-    subprocess.run(
-        ["soffice", f"-env:UserInstallation=file://{perfil}", "--headless", "--calc",
-         "--convert-to", "xlsx", "--outdir", recalc, *rutas],
-        check=True, capture_output=True, timeout=timeout)
+    try:
+        subprocess.run(
+            ["soffice", f"-env:UserInstallation=file://{perfil}", "--headless", "--calc",
+             "--convert-to", "xlsx", "--outdir", recalc, *rutas],
+            check=True, capture_output=True, timeout=timeout)
+    except FileNotFoundError:
+        # LibreOffice no está instalado en esta imagen (p. ej. la de producción). No se puede
+        # recalcular el visor, pero el papel/cédulas sí se generan: se degrada «sin visor» en vez
+        # de romper, igual que ``servicio.recalc_nomina``. El Excel descargado recalcula al abrirse.
+        log.warning("soffice no está instalado: el panel de nómina se mostrará sin visor "
+                    "(las cédulas se generan igual; Excel recalcula al abrir).")
+        return recalc  # vacío: el visor queda sin valores precalculados, pero nada rompe
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        log.warning("soffice falló al recalcular el visor de nómina (%s): se muestra sin visor.",
+                    type(e).__name__)
+        return recalc
     return recalc
