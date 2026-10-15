@@ -133,17 +133,15 @@ def _ensure_forge_append_only_triggers() -> None:
         )
 
 
-def init_db() -> None:
-    """Crea las tablas si no existen y aplica migraciones ligeras.
+def importar_modelos() -> None:
+    """Importa todos los módulos de modelos para REGISTRAR sus tablas y mapeos en ``Base``.
 
-    Migraciones formales (Alembic) quedan en el roadmap. Para Fase 2 · M1
-    añadimos columnas de contexto operativo a ``users`` con ALTER TABLE
-    idempotente (SQLite y Postgres lo soportan con la misma sintaxis).
+    No toca la base de datos (no hace ``create_all``). Es indispensable para cualquier proceso
+    que consulte la ORM FUERA de la app (p. ej. ``scripts/refrescar_todas_las_pruebas.py``):
+    sin estos imports, SQLAlchemy no puede resolver las llaves foráneas entre tablas de módulos
+    distintos (p. ej. ``aud_pruebas.project_id`` → ``projects``) y lanza ``NoReferencedTableError``.
+    El orden importa: organizations y projects antes de que users referencie sus columnas.
     """
-    from sqlalchemy import inspect, text
-
-    # Registrar todas las tablas conocidas (orden importa: organizations y
-    # projects deben existir antes de que users referencie sus columnas).
     from backend.app.auth import models as _auth_models  # noqa: F401
     from backend.app.aud.obligaciones_fiscales import models as _aud_of_models  # noqa: F401
     from backend.app.aud.obligaciones_fiscales.mayor import models as _mayor_models  # noqa: F401
@@ -156,6 +154,20 @@ def init_db() -> None:
     from backend.app.events import models as _events_models  # noqa: F401
     from backend.app.recursos import models as _recursos_models  # noqa: F401
     from backend.app.forge import models as _forge_models  # noqa: F401
+
+
+def init_db() -> None:
+    """Crea las tablas si no existen y aplica migraciones ligeras.
+
+    Migraciones formales (Alembic) quedan en el roadmap. Para Fase 2 · M1
+    añadimos columnas de contexto operativo a ``users`` con ALTER TABLE
+    idempotente (SQLite y Postgres lo soportan con la misma sintaxis).
+    """
+    from sqlalchemy import inspect, text
+
+    # Registrar todas las tablas conocidas (orden importa: organizations y
+    # projects deben existir antes de que users referencie sus columnas).
+    importar_modelos()
 
     Base.metadata.create_all(bind=engine)
 

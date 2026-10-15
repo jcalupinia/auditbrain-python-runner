@@ -142,7 +142,12 @@ def main(argv=None):
 
     ids = {int(x) for x in args.ids.split(",") if x.strip()} if args.ids else None
 
-    from backend.app.db.session import SessionLocal, engine
+    from backend.app.db.session import SessionLocal, engine, importar_modelos
+
+    # Fuera de la app (uvicorn) hay que registrar TODOS los modelos para que SQLAlchemy resuelva
+    # las llaves foráneas entre módulos (p. ej. aud_pruebas.project_id → projects); si no, el
+    # refresco falla con NoReferencedTableError al tocar la relación.
+    importar_modelos()
 
     print(f"Base de datos destino: {engine.url.render_as_string(hide_password=True)}")
     if not args.dry_run:
