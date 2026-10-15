@@ -88,7 +88,8 @@ def test_secretos_dentro_del_preview_y_nunca_de_coolify(compose):
         assert "AUDITBRAIN_JWT_SECRET" not in volcado, f"{nombre}: el secreto JWT no va por variables"
     assert s["db"]["environment"]["POSTGRES_PASSWORD_FILE"] == "/run/secrets/pg_password"
     assert "secrets:/run/secrets:ro" in s["db"]["volumes"] and "secrets:/run/secrets:ro" in s["backend"]["volumes"]
-    assert s["db"]["depends_on"]["init"]["condition"] == "service_completed_successfully"
+    assert s["db"]["depends_on"]["init"]["condition"] == "service_healthy"
+    assert "pg_password" in s["init"]["healthcheck"]["test"][-1] and "jwt_secret" in s["init"]["healthcheck"]["test"][-1]
     assert s["backend"]["depends_on"]["db"]["condition"] == "service_healthy"
     assert _env(s["backend"])["PREVIEW_SECRETS_DIR"] == "/run/secrets"
     assert "cat /run/secrets/pg_password" in s["backend"]["command"] and "@db:5432/auditbrain" in s["backend"]["command"]
@@ -118,3 +119,9 @@ def test_red_interna_para_init_y_db(compose):
     for n in ("init", "db"):
         assert compose["services"][n]["networks"] == ["preview_internal"]
     assert set(compose["volumes"]) == {"secrets", "pgdata", "appdata"}
+
+
+def test_sin_claves_propias_de_coolify(compose):
+    """`docker compose config` rechaza claves ajenas al esquema (p. ej. `exclude_from_hc` de Coolify)."""
+    for nombre, svc in compose["services"].items():
+        assert "exclude_from_hc" not in svc, f"{nombre}: clave propia de Coolify, inválida para docker compose"

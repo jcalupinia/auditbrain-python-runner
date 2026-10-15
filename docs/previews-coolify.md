@@ -8,7 +8,7 @@ Por cada Pull Request, un conjunto aislado de cinco contenedores en el mismo ser
 
 | Servicio | Imagen | Para qué |
 |---|---|---|
-| `init` | `alpine:3.20` | Genera una sola vez, en el volumen `secrets` del PR, la contraseña de Postgres y el secreto JWT (modo 600). Termina. |
+| `init` | `alpine:3.20` | Genera una sola vez, en el volumen `secrets` del PR, la contraseña de Postgres y el secreto JWT (modo 600) y queda en espera (`sleep`) con un healthcheck que confirma ambos archivos; `db` arranca cuando ese healthcheck pasa. Sin claves propias de Coolify (`exclude_from_hc`), para que el Compose sea estándar. |
 | `db` | `postgres:18-alpine` | Base exclusiva del PR. Volumen `pgdata` montado en `/var/lib/postgresql` (PostgreSQL 18 coloca `PGDATA` en `/var/lib/postgresql/18/docker`; verificar con `SHOW data_directory`). Sin puerto publicado. |
 | `backend` | `ghcr.io/jcalupinia/auditbrain-backend:sha-<commit>` | FastAPI con `APP_ENV=preview`. Arma `DATABASE_URL` desde el archivo de secretos en su `command`. |
 | `consola` | `ghcr.io/jcalupinia/auditbrain-consola:sha-<commit>` | nginx con el `dist` de Vite. Resuelve el backend por hostname. |
