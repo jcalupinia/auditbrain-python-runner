@@ -60,7 +60,8 @@ def test_imagenes_por_commit_exacto_y_sin_build_en_el_servidor(compose):
     s = compose["services"]
     for n in ("backend", "consola", "clientes"):
         assert "build" not in s[n], f"{n}: nada se construye en el servidor"
-        assert s[n]["image"].startswith(f"ghcr.io/jcalupinia/auditbrain-{n}:${{PREVIEW_IMAGE_TAG:?")
+        assert s[n]["image"].startswith(f"ghcr.io/jcalupinia/auditbrain-preview-{n}:${{PREVIEW_IMAGE_TAG:?")
+        assert "auditbrain-preview-" in s[n]["image"], "los paquetes públicos antiguos auditbrain-<svc> no se reutilizan"
     assert s["db"]["image"] == "postgres:18-alpine"
     assert s["init"]["image"].startswith("alpine:")
     env = _env(s["backend"])

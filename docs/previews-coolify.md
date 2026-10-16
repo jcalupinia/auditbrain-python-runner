@@ -10,9 +10,9 @@ Por cada Pull Request, un conjunto aislado de cinco contenedores en el mismo ser
 |---|---|---|
 | `init` | `alpine:3.20` | Genera una sola vez, en el volumen `secrets` del PR, la contraseña de Postgres y el secreto JWT (modo 600) y queda en espera (`sleep`) con un healthcheck que confirma ambos archivos; `db` arranca cuando ese healthcheck pasa. Sin claves propias de Coolify (`exclude_from_hc`), para que el Compose sea estándar. |
 | `db` | `postgres:18-alpine` | Base exclusiva del PR. Volumen `pgdata` montado en `/var/lib/postgresql` (PostgreSQL 18 coloca `PGDATA` en `/var/lib/postgresql/18/docker`; verificar con `SHOW data_directory`). Sin puerto publicado. |
-| `backend` | `ghcr.io/jcalupinia/auditbrain-backend:sha-<commit>` | FastAPI con `APP_ENV=preview`. Arma `DATABASE_URL` desde el archivo de secretos en su `command`. |
-| `consola` | `ghcr.io/jcalupinia/auditbrain-consola:sha-<commit>` | nginx con el `dist` de Vite. Resuelve el backend por hostname. |
-| `clientes` | `ghcr.io/jcalupinia/auditbrain-clientes:sha-<commit>` | nginx con el `dist` del portal (incluye `frontend-shared`). |
+| `backend` | `ghcr.io/jcalupinia/auditbrain-preview-backend:sha-<commit>` | FastAPI con `APP_ENV=preview`. Arma `DATABASE_URL` desde el archivo de secretos en su `command`. |
+| `consola` | `ghcr.io/jcalupinia/auditbrain-preview-consola:sha-<commit>` | nginx con el `dist` de Vite. Resuelve el backend por hostname. |
+| `clientes` | `ghcr.io/jcalupinia/auditbrain-preview-clientes:sha-<commit>` | nginx con el `dist` del portal (incluye `frontend-shared`). |
 
 Dominios por servicio con la plantilla `{{pr_id}}.{{domain}}` de Coolify: `<n>.api.preview.audit-ia.ec` (puerto 10000), `<n>.consola.preview.audit-ia.ec`, `<n>.clientes.preview.audit-ia.ec`.
 
@@ -58,7 +58,10 @@ Verificación en el piloto: `scripts/preview_isolation_check.sh` dentro del back
 
 ## 6. GHCR privado y credencial de solo lectura (sin crear nada ahora)
 
-- Paquetes `auditbrain-backend`, `auditbrain-consola`, `auditbrain-clientes` en `ghcr.io/jcalupinia`: **privados** (configurar visibilidad en *Packages → Package settings*; enlazar al repositorio para que `GITHUB_TOKEN` pueda publicar).
+- Paquetes **`auditbrain-preview-backend`, `auditbrain-preview-consola`, `auditbrain-preview-clientes`** en `ghcr.io/jcalupinia`: **privados**.
+- **Nunca se publican con `GITHUB_TOKEN`.** Según la documentación de GitHub Packages, un paquete publicado desde un workflow con `GITHUB_TOKEN` «hereda el modelo de visibilidad y permisos del repositorio donde corre el workflow»; este repositorio es público, y así nacieron PÚBLICOS los paquetes `auditbrain-backend|consola|clientes` publicados el 2026-10-15 (no se reutilizan ni se borran sin autorización). El workflow `preview-images` concede a `GITHUB_TOKEN` solo `contents: read`.
+- La publicación usa una **credencial dedicada de alcance mínimo**: un token personal classic del propietario con el alcance `write:packages` (los tokens fine-grained no sirven para GHCR), guardado por el propietario como secreto de Actions `GHCR_PUBLISH_TOKEN` (Settings → Secrets and variables → Actions). Un paquete nuevo creado con un token personal nace privado; vincularlo al repositorio (manual o por la etiqueta OCI `source`) hereda permisos, no visibilidad. La credencial se revoca cuando termina la publicación, con confirmación del propietario.
+- **Publicación por etapas y verificada:** primero solo el backend; el propio job comprueba con la credencial que `visibility == private` y que el manifiesto no se descarga de forma anónima (`ghcr.io/v2/...`: 401/403, nunca 200); si falla, no se publica nada más. Los frontends solo se publican si el backend de ese commit existe y es privado.
 - El servidor necesita una credencial de **solo lectura** (`read:packages`): un token de GitHub de alcance mínimo o una GitHub App con ese permiso, registrado en Coolify como credencial de registro (*Servers → Registries*) o `docker login ghcr.io` en el servidor. Se crea en una acción administrativa posterior; no está en este PR.
 - `scripts/preview_lifecycle.py` comprueba por `HEAD` del manifiesto que las tres imágenes existen antes de desplegar.
 
@@ -67,7 +70,7 @@ Verificación en el piloto: `scripts/preview_isolation_check.sh` dentro del back
 | Workflow | Disparo | Puertas | Qué hace |
 |---|---|---|---|
 | `preview-validate.yml` | PR que toque los artefactos de preview | Ninguna (no usa secretos) | `docker compose config` con valores ficticios y prueba de fallo con etiqueta vacía; build sin push de las tres imágenes verificando el commit en la metadata; pruebas de resolución de ambos frontends |
-| `preview-images.yml` | `workflow_dispatch`, o `push` de una etiqueta `ghcr-preview-pr384-<sha>` (publicación única autorizada el 2026-10-15) | Dispatch: `vars.PREVIEW_PIPELINE_ENABLED == "true"` y sin forks. Etiqueta: repositorio exacto, SHA de 40 caracteres igual al commit apuntado, PR #384 abierto, sin fusionar, contra `main`, sin fork y con ese HEAD exacto; cualquier discrepancia termina sin publicar | Publica solo `sha-<sha>` en GHCR (sin `latest` ni alias) con la label OCI `revision` |
+| `preview-images.yml` | `workflow_dispatch`, o `push` de una etiqueta `ghcr-preview-pr384-backend-<sha>` / `ghcr-preview-pr384-frontends-<sha>` (publicación por etapas autorizada el 2026-10-15) | Credencial dedicada `GHCR_PUBLISH_TOKEN` presente, del propietario y con `write:packages`. Dispatch: `vars.PREVIEW_PIPELINE_ENABLED == "true"` y sin forks. Etiqueta: repositorio exacto, SHA de 40 caracteres igual al commit apuntado, PR #384 abierto, sin fusionar, contra `main`, sin fork y con ese HEAD exacto; etapa `frontends` solo si el backend del commit existe y es privado; cualquier discrepancia termina sin publicar | Publica solo `sha-<sha>` de `auditbrain-preview-*` (sin `latest` ni alias) con la label OCI `revision`, y verifica tras el push visibilidad `private` y rechazo del acceso anónimo |
 | `preview-lifecycle.yml` | Solo `workflow_dispatch` | `PREVIEW_PIPELINE_ENABLED`; `COOLIFY_URL` debe ser `https://`; `dry_run=true` por defecto | `admitir` (cupo `MAX_ACTIVE_PREVIEWS=1`, imágenes presentes, crear sin desplegar, fijar etiqueta, desplegar, comentar), `liberar`, `caducidad` (3 días sin commit, comentario humano ni despliegue; `preview:keep` exime) |
 
 El despliegue por API queda **inhabilitado** hasta que el panel de Coolify tenga un dominio HTTPS: el script aborta ante una `COOLIFY_URL` que no empiece por `https://`. Hoy el panel responde en `http://IP:8000`.

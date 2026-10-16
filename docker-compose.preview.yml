@@ -95,7 +95,7 @@ services:
       options: { max-size: "5m", max-file: "2" }
 
   backend:
-    image: ghcr.io/jcalupinia/auditbrain-backend:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
+    image: ghcr.io/jcalupinia/auditbrain-preview-backend:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
     # Puerto interno declarado para que Coolify reconozca el puerto del dominio (no se publica en el host).
     expose:
       - "10000"
@@ -149,7 +149,7 @@ services:
       options: { max-size: "5m", max-file: "2" }
 
   consola:
-    image: ghcr.io/jcalupinia/auditbrain-consola:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
+    image: ghcr.io/jcalupinia/auditbrain-preview-consola:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
     # Puerto interno declarado para que Coolify reconozca el puerto del dominio (no se publica en el host).
     expose:
       - "80"
@@ -171,7 +171,7 @@ services:
       options: { max-size: "5m", max-file: "2" }
 
   clientes:
-    image: ghcr.io/jcalupinia/auditbrain-clientes:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
+    image: ghcr.io/jcalupinia/auditbrain-preview-clientes:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
     # Puerto interno declarado para que Coolify reconozca el puerto del dominio (no se publica en el host).
     expose:
       - "80"

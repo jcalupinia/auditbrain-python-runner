@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Imagen de PREVIEW de la consola (Command Center). Contexto de build: RAÍZ del repositorio.
 # Se construye en GitHub Actions (nunca en el servidor) y se publica en GHCR como
-# ghcr.io/jcalupinia/auditbrain-consola:sha-<commit del PR>.
+# ghcr.io/jcalupinia/auditbrain-preview-consola:sha-<commit del PR>.
 #
 # VITE_API_BASE lleva un centinela: la URL real del backend la decide el navegador a partir del
 # hostname del preview (frontend/src/previewResolver.js), nunca el build.

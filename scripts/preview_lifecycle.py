@@ -147,14 +147,14 @@ def imagenes_existen(sha: str, token: str) -> bool:
     """Comprueba en GHCR que las tres imágenes sha-<sha> existen (manifest HEAD)."""
     ok = True
     for svc in ("backend", "consola", "clientes"):
-        url = f"https://ghcr.io/v2/jcalupinia/auditbrain-{svc}/manifests/sha-{sha}"
+        url = f"https://ghcr.io/v2/jcalupinia/auditbrain-preview-{svc}/manifests/sha-{sha}"
         req = urllib.request.Request(url, method="HEAD", headers={
             "Authorization": f"Bearer {token}", "Accept": "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json"})
         try:
             with urllib.request.urlopen(req, timeout=20) as r:
                 ok = ok and r.status == 200
         except Exception:  # noqa: BLE001
-            log(f"imagen ausente en GHCR: auditbrain-{svc}:sha-{sha[:12]}")
+            log(f"imagen ausente en GHCR: auditbrain-preview-{svc}:sha-{sha[:12]}")
             ok = False
     return ok
 

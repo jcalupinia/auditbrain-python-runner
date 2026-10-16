@@ -61,7 +61,7 @@ jobs:
           if PREVIEW_IMAGE_TAG= docker compose -f docker-compose.preview.yml config -q 2>/dev/null; then
             echo "ERROR: el Compose aceptó PREVIEW_IMAGE_TAG vacío"; exit 1; fi
           echo "OK: PREVIEW_IMAGE_TAG vacío es rechazado"
-          grep -q 'ghcr.io/jcalupinia/auditbrain-backend:sha-0000' /tmp/compose-resuelto.yml
+          grep -q 'ghcr.io/jcalupinia/auditbrain-preview-backend:sha-0000' /tmp/compose-resuelto.yml
 
   build-images:
     name: build sin push · ${{ matrix.service }}

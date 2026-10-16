@@ -3,7 +3,7 @@
 # frontend-client depende de "@auditbrain/shared": "file:../frontend-shared" y npm resuelve esa
 # ruta relativa en el momento del `npm ci`: ambos directorios deben ser hermanos dentro de /src.
 # Se construye en GitHub Actions (nunca en el servidor) y se publica en GHCR como
-# ghcr.io/jcalupinia/auditbrain-clientes:sha-<commit del PR>.
+# ghcr.io/jcalupinia/auditbrain-preview-clientes:sha-<commit del PR>.
 
 ARG GIT_SHA=unknown
 
