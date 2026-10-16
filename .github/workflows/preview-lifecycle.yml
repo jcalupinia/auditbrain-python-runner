@@ -1,0 +1,76 @@
+name: preview-lifecycle
+
+# Ciclo de vida de los previews en Coolify por API: admisión (crear + desplegar el preview de un PR
+# si hay cupo), liberación (desplegar el PR en cola más antiguo) y caducidad (eliminar previews con
+# 3 días de inactividad). Implementado en scripts/preview_lifecycle.py.
+#
+# DESHABILITADO PARA EJECUCIÓN REAL:
+#  - solo workflow_dispatch (ningún evento automático);
+#  - exige la variable de repositorio PREVIEW_PIPELINE_ENABLED == "true" (no existe todavía);
+#  - exige que COOLIFY_URL empiece por https:// (el token de Coolify NUNCA viaja por HTTP plano;
+#    hoy el panel solo responde por http://IP:8000, así que el despliegue por API queda inhabilitado
+#    hasta que exista un transporte seguro);
+#  - dry_run=true por defecto: informa sin llamar a ningún endpoint que modifique estado.
+
+on:
+  workflow_dispatch:
+    inputs:
+      accion:
+        description: "admitir | liberar | caducidad"
+        required: true
+        type: choice
+        options: [admitir, liberar, caducidad]
+      pr_number:
+        description: "Número de PR (solo para admitir)"
+        required: false
+        type: string
+      dry_run:
+        description: "true = solo informa (no crea, no despliega, no borra)"
+        required: true
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+
+concurrency:
+  group: preview-lifecycle
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Puerta de habilitación y transporte seguro
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+        run: |
+          if [ "${{ vars.PREVIEW_PIPELINE_ENABLED }}" != "true" ]; then
+            echo "::notice::PREVIEW_PIPELINE_ENABLED no es 'true': ciclo de vida deshabilitado"; echo "HABILITADO=false" >> "$GITHUB_ENV"; exit 0; fi
+          case "$COOLIFY_URL" in
+            https://*) echo "HABILITADO=true" >> "$GITHUB_ENV" ;;
+            *) echo "::error::COOLIFY_URL no es https:// — el token no se envía por HTTP plano. Abortado."; exit 1 ;;
+          esac
+      - uses: actions/setup-python@v5
+        if: env.HABILITADO == 'true'
+        with:
+          python-version: "3.12"
+      - name: Ejecutar
+        if: env.HABILITADO == 'true'
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          COOLIFY_PREVIEW_APP_UUID: ${{ secrets.COOLIFY_PREVIEW_APP_UUID }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          MAX_ACTIVE_PREVIEWS: "1"
+          DIAS_INACTIVIDAD: "3"
+        run: |
+          python scripts/preview_lifecycle.py "${{ inputs.accion }}" \
+            ${{ inputs.pr_number && format('--pr {0}', inputs.pr_number) || '' }} \
+            $([ "${{ inputs.dry_run }}" = "true" ] && echo "--dry-run")

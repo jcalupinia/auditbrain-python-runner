@@ -942,6 +942,15 @@ Busca las URLs reales en las fuentes disponibles, como:
 - La sección de despliegues del Pull Request.
 - El enlace `View deployment`.
 - El Preview Environment y sus servicios en el Dashboard de Render.
+- En Coolify (previews del mismo servidor, `docker-compose.preview.yml`): el comentario que
+  publica la GitHub App de Coolify en el PR y la API `GET /api/v1/applications/{uuid}/previews/{pr}`
+  (token de solo lectura en la variable `COOLIFY_API_TOKEN` del equipo; nunca en el repositorio y
+  nunca enviado a un panel por HTTP plano).
+- Los healthchecks reales del preview: `GET /healthz` y `GET /api/v1/health` del backend (el bloque
+  `preview` debe traer `pr` igual al número del PR y `config: "ok"`, y `build.commit` igual al
+  `head.sha` del PR), la raíz de la consola y del portal (200) y el preflight CORS con el origen del
+  mismo PR. Un backend de preview sin identidad válida NO arranca (`PREVIEW: configuración inválida`
+  en el log, código 3): en ese caso no hay URL que entregar y se reporta el fallo.
 
 Debes presentar los resultados en una sección visible llamada:
 

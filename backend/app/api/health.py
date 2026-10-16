@@ -135,6 +135,22 @@ def _forge_status() -> dict:
         return {"mounted": False}
 
 
+def _preview_status() -> dict:
+    """Identidad del Preview Environment (sin excepciones; en producción: active=False)."""
+    try:
+        from backend.app.core.preview import preview_health_info
+        return preview_health_info()
+    except Exception:  # pragma: no cover - defensa
+        return {"active": False}
+
+
+def _build_status() -> dict:
+    """Commit con el que se construyó la imagen (ARG GIT_SHA -> ENV BUILD_COMMIT); None si no se fijó."""
+    import os
+    commit = (os.getenv("BUILD_COMMIT") or "").strip() or None
+    return {"commit": commit}
+
+
 @router.get("/health")
 async def health():
     return {
@@ -142,6 +158,8 @@ async def health():
         "service": "AuditBrain Platform v1",
         "version": settings.APP_VERSION,
         "auth_enabled": settings.auth_enabled,
+        "preview": _preview_status(),
+        "build": _build_status(),
         "llm": _llm_providers(),
         "ocr": _ocr_status(),
         "canva": _canva_status(),

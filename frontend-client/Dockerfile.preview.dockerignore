@@ -1,0 +1,18 @@
+# Dockerignore específico de frontend-client/Dockerfile.preview (BuildKit lo aplica a ese Dockerfile).
+# Debe DEJAR ENTRAR frontend-shared (dependencia file:../frontend-shared) y frontend-client.
+.git
+**/node_modules
+**/dist
+**/.vite
+backend
+tests
+docs
+e2e
+e2e-portal-cliente
+papeles_muestra
+scripts
+skills
+workflows
+server
+frontend
+*.md

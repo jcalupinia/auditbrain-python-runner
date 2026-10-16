@@ -2,66 +2,73 @@
 
 import datetime
 import os
+from pathlib import Path
 
 import jwt
 
 _ALGO = "HS256"
 _ACCESS_TTL_MIN = int(os.getenv("AUDITBRAIN_JWT_EXPIRE_MINUTES", "60"))
 
-
-# Secreto efímero de los Preview Environments de Render (ver _secret()).
-# Se genera UNA vez por proceso y se cachea aquí.
+# Secreto del preview leído del volumen de secretos del PR; se cachea por proceso.
 _PREVIEW_SECRET: str | None = None
 
 
 def _preview_secret() -> str:
-    """Secreto aleatorio por proceso para un preview sin AUDITBRAIN_JWT_SECRET.
+    """Secreto JWT de un Preview Environment: exclusivo del PR y persistente.
 
-    Las variables ``sync: false`` NO se copian a los Preview Environments del
-    Blueprint, así que el secreto de producción nunca llega a un preview (y no
-    debe llegar). Un preview tampoco puede usar el literal de desarrollo: sería
-    público y permitiría forjar tokens. Se genera un secreto de 384 bits con
-    ``secrets`` al primer uso y se reutiliza mientras viva el proceso: los
-    tokens valen solo en esa instancia del preview y caducan con cada
-    redeploy, lo que es aceptable para un entorno temporal. Si el equipo define
-    AUDITBRAIN_JWT_SECRET en el preview (grupo de variables de entorno), ese
-    valor tiene prioridad (ver _secret()).
+    Lo genera el servicio ``init`` del Compose dentro del volumen ``secrets`` del
+    preview (``PREVIEW_SECRETS_DIR/jwt_secret``, modo 600). Persiste entre
+    redespliegues del mismo PR (el volumen persiste) y es distinto en cada PR
+    (volumen por PR). Nunca se usa el literal de desarrollo ni un secreto de
+    producción. Si el archivo falta o es inválido, el preview NO arranca
+    (``preview_bootstrap`` ya lo comprueba al importar la app; aquí se vuelve a
+    exigir por si se llama fuera de ese flujo).
     """
     global _PREVIEW_SECRET
-    if _PREVIEW_SECRET is None:
+    if _PREVIEW_SECRET:
+        return _PREVIEW_SECRET
+    path = Path(os.getenv("PREVIEW_SECRETS_DIR", "/run/secrets")) / "jwt_secret"
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError as e:
         import logging
-        import secrets
 
-        _PREVIEW_SECRET = secrets.token_urlsafe(48)
-        logging.getLogger("auditbrain").warning(
-            "APP_ENV=preview sin AUDITBRAIN_JWT_SECRET: se generó un secreto "
-            "JWT aleatorio para este proceso (los tokens caducan al redesplegar)."
+        logging.getLogger("auditbrain").critical(
+            "PREVIEW: no se puede leer el secreto JWT en %s (%s). El servicio no arranca.",
+            path, e.__class__.__name__,
         )
-    return _PREVIEW_SECRET
+        raise SystemExit(3) from e
+    if len(value) < 32:
+        import logging
+
+        logging.getLogger("auditbrain").critical("PREVIEW: secreto JWT demasiado corto. El servicio no arranca.")
+        raise SystemExit(3)
+    _PREVIEW_SECRET = value
+    return value
 
 
 def _secret() -> str:
     """Secreto de firma. OBLIGATORIO en producción.
 
-    Si no está definido: en un Preview Environment (APP_ENV=preview) se usa un
-    secreto aleatorio por proceso, NUNCA el literal de desarrollo; fuera de
-    preview se usa el valor de desarrollo y se avisa: NO es seguro en
-    producción (permitiría forjar tokens).
+    - ``AUDITBRAIN_JWT_SECRET`` definido: se usa (producción).
+    - Preview (``APP_ENV=preview``) sin esa variable: secreto del volumen del PR.
+    - Otro entorno sin esa variable: valor de desarrollo con aviso (INSEGURO en
+      producción; permitiría forjar tokens).
     """
     secret = os.getenv("AUDITBRAIN_JWT_SECRET", "").strip()
-    if not secret:
-        from backend.app.core.preview import is_preview
+    if secret:
+        return secret
+    from backend.app.core.preview import is_preview
 
-        if is_preview():
-            return _preview_secret()
-        import logging
+    if is_preview():
+        return _preview_secret()
+    import logging
 
-        logging.getLogger("auditbrain").warning(
-            "AUDITBRAIN_JWT_SECRET no definido: usando secreto de desarrollo "
-            "INSEGURO. Definir en producción."
-        )
-        return "dev-insecure-secret-change-me"
-    return secret
+    logging.getLogger("auditbrain").warning(
+        "AUDITBRAIN_JWT_SECRET no definido: usando secreto de desarrollo "
+        "INSEGURO. Definir en producción."
+    )
+    return "dev-insecure-secret-change-me"
 
 
 def create_access_token(
