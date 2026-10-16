@@ -79,9 +79,11 @@ jobs:
           SERVICE_FQDN_CLIENTES_80: 0.clientes.preview.audit-ia.ec
         run: |
           set -euo pipefail
-          # El guion es exactamente el del Compose (sin el sleep final que lo mantiene vivo)
+          # El guion es exactamente el del Compose (sin el sleep final que lo mantiene vivo). `config` re-escapa
+          # `$` como `$$` en su salida; se deshace igual que lo hace Compose al crear el contenedor.
           docker compose -f docker-compose.preview.yml config --format json \
-            | jq -r '.services.init.command[2]' | sed 's/exec sleep infinity//' > /tmp/init.sh
+            | jq -r '.services.init.command[2]' | sed -e 's/exec sleep infinity//' -e 's/\$\$/$/g' > /tmp/init.sh
+          if grep -q '\$\$' /tmp/init.sh; then echo "ERROR: quedan \$\$ sin deshacer en el guion"; exit 1; fi
           grep -q 'gen api_key 48' /tmp/init.sh
           docker volume create pv_a >/dev/null; docker volume create pv_b >/dev/null
           run() { docker run --rm -v "$1:/secrets" -v /tmp/init.sh:/init.sh:ro alpine:3.20 sh /init.sh; }
