@@ -34,10 +34,10 @@ Dominios por servicio con la plantilla `{{pr_id}}.{{domain}}` de Coolify: `<n>.a
 
 ## 4. Secretos exclusivos por preview
 
-- `init` genera `pg_password` (40 caracteres alfanuméricos) y `jwt_secret` (64) con `/dev/urandom` dentro del volumen `secrets` del PR; si existen no los toca (persisten entre redespliegues del mismo PR; mueren con el PR).
+- `init` genera **cuatro** secretos alfanuméricos con `/dev/urandom` dentro del volumen `secrets` del PR: `pg_password` (40), `jwt_secret` (64), `admin_password` (32) y `api_key` (48). Escritura atómica (archivo temporal + `mv`), `umask 077` y modo 600; si un archivo existe no se toca, así que un redespliegue del mismo PR conserva los valores y otro PR, con su propio volumen `-pr-<n>`, obtiene otros. El guion no imprime ningún valor.
 - `db` lee `POSTGRES_PASSWORD_FILE`; el backend arma la URL de conexión en su `command` y `jwt_tokens.py` lee `jwt_secret` del volumen. Nada pasa por variables de Coolify, logs ni repositorio.
 - No se usan `SERVICE_PASSWORD_*` de Coolify: se almacenan en la aplicación con `is_preview=false` y se comparten entre previews (verificado en el código fuente de Coolify 4.4.x).
-- Grupo «Preview» de variables de la aplicación: `PREVIEW_ADMIN_EMAIL`, `PREVIEW_ADMIN_PASSWORD`, `PREVIEW_API_KEY` (valores nuevos de prueba) y `PREVIEW_IMAGE_TAG`. Sin proveedores de IA, correo, Stripe, OCR ni Canva. Nunca valores de producción.
+- Grupo «Preview» de variables de la aplicación: **solo `PREVIEW_IMAGE_TAG`**. La contraseña del administrador de prueba y la API key ya no son variables de Coolify: el `command` del backend exporta `AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD` y `AUDITBRAIN_API_KEY` desde `/run/secrets/admin_password` y `/run/secrets/api_key` (con `set -eu`: sin archivo, no arranca). El correo del administrador es fijo, `preview-admin@audit-ia.ec` (no es una identidad productiva; el admin vive en la base propia del PR), elegido porque el validador `EmailStr` del bootstrap rechaza dominios de uso especial como `.invalid`. Acceso del administrador autorizado, sin pasar por logs: `docker exec <backend-pr-n> sh -c 'cat /run/secrets/admin_password; echo'` (ídem `api_key`). Sin proveedores de IA, correo, Stripe, OCR ni Canva. Nunca valores de producción.
 
 ## 5. Aislamiento de red en el mismo host (mecanismo verificable; nada aplicado todavía)
 
@@ -54,7 +54,7 @@ iptables -I DOCKER-USER -s "$PREVIEW_NET" -d "$PROD_NET" -m conntrack --ctstate 
 # desde la red coolify; sí el saliente NUEVO desde el preview hacia contenedores de producción.
 ```
 
-Verificación en el piloto: `scripts/preview_isolation_check.sh` dentro del backend del preview (intenta conexiones TCP a los objetivos de producción y espera que todas fallen) y `docker inspect` de los cinco contenedores para anotar en qué redes quedan (P-08). El Compose define `preview_internal` (`internal: true`) para `init` y `db`; si Coolify sobrescribe las redes, se registra y manda la regla DOCKER-USER.
+Verificación en el piloto: `scripts/preview_isolation_check.sh` dentro del backend del preview (intenta conexiones TCP a los objetivos de producción y espera que todas fallen) y `docker inspect` de los cinco contenedores para anotar en qué redes quedan (P-08). El Compose define `preview_internal` (`internal: true`) para `init`, `db` y `backend`; si Coolify sobrescribe las redes, se registra y manda la regla DOCKER-USER.
 
 ## 6. GHCR privado y credencial de solo lectura (sin crear nada ahora)
 

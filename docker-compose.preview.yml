@@ -30,25 +30,38 @@ services:
 
   init:
     image: alpine:3.20
+    # Genera, UNA sola vez por PR, los cuatro secretos del preview en el volumen `secrets` (exclusivo
+    # del PR: Coolify lo sufija con -pr-<n>): contraseña de Postgres, secreto JWT, contraseña del
+    # administrador de prueba y API key. gen <archivo> <longitud>: alfanumérico de /dev/urandom,
+    # idempotente (no toca un archivo ya presente, así un redespliegue del mismo PR conserva los
+    # valores) y atómico (archivo temporal + mv), con umask 077 y chmod 600. No imprime ningún valor.
     command: >
       sh -c '
         set -eu
+        umask 077
         mkdir -p /secrets && chmod 700 /secrets
-        if [ ! -s /secrets/pg_password ]; then
-          head -c 48 /dev/urandom | base64 | tr -dc "A-Za-z0-9" | cut -c1-40 > /secrets/pg_password
-          chmod 600 /secrets/pg_password
-        fi
-        if [ ! -s /secrets/jwt_secret ]; then
-          head -c 64 /dev/urandom | base64 | tr -dc "A-Za-z0-9" | cut -c1-64 > /secrets/jwt_secret
-          chmod 600 /secrets/jwt_secret
-        fi
+        gen() {
+          [ -s "/secrets/$1" ] && return 0
+          s=""
+          while [ "${#s}" -lt "$2" ]; do
+            s="$s$(head -c 96 /dev/urandom | base64 | tr -dc "A-Za-z0-9")"
+          done
+          s=$(printf "%s" "$s" | cut -c1-"$2")
+          printf "%s" "$s" > "/secrets/.$1.tmp"
+          [ "$(wc -c < "/secrets/.$1.tmp")" -eq "$2" ] || { echo "init: $1 con longitud incorrecta" >&2; exit 1; }
+          chmod 600 "/secrets/.$1.tmp" && mv "/secrets/.$1.tmp" "/secrets/$1"
+        }
+        gen pg_password 40
+        gen jwt_secret 64
+        gen admin_password 32
+        gen api_key 48
         echo "secrets listos"
         exec sleep infinity'
     # Se queda vivo (sleep) en lugar de terminar: así el Compose es estándar (sin la clave propia
     # de Coolify `exclude_from_hc`, que `docker compose config` rechaza) y Coolify no ve un
     # contenedor "exited" en el preview. db espera a que este healthcheck confirme ambos secretos.
     healthcheck:
-      test: ["CMD-SHELL", "test -s /secrets/pg_password && test -s /secrets/jwt_secret"]
+      test: ["CMD-SHELL", "for f in pg_password jwt_secret admin_password api_key; do test -s /secrets/$f || exit 1; done"]
       interval: 2s
       timeout: 2s
       retries: 15
@@ -99,9 +112,15 @@ services:
     # Puerto interno declarado para que Coolify reconozca el puerto del dominio (no se publica en el host).
     expose:
       - "10000"
-    # Arma DATABASE_URL con la contraseña generada dentro del preview y arranca uvicorn (sin cambio de código).
+    # Arma DATABASE_URL y exporta las credenciales de prueba (administrador y API key) desde los
+    # archivos generados por init dentro del preview; luego arranca uvicorn (sin cambio de código).
+    # `set -eu`: si falta un archivo, el contenedor termina en lugar de arrancar sin API key (con
+    # AUDITBRAIN_API_KEY vacía el backend desactivaría la autenticación por API key).
     command: >
-      sh -c 'export DATABASE_URL="postgresql://auditbrain:$(cat /run/secrets/pg_password)@db:5432/auditbrain";
+      sh -c 'set -eu
+             export DATABASE_URL="postgresql://auditbrain:$(cat /run/secrets/pg_password)@db:5432/auditbrain"
+             export AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD="$(cat /run/secrets/admin_password)"
+             export AUDITBRAIN_API_KEY="$(cat /run/secrets/api_key)"
              exec uvicorn app:app --host 0.0.0.0 --port 10000'
     environment:
       - SERVICE_FQDN_BACKEND_10000
@@ -113,9 +132,11 @@ services:
       - PREVIEW_SECRETS_DIR=/run/secrets
       - CLIENT_PORTAL_SESSION_CHECK_ENABLED=false
       - CLIENT_PORTAL_DEVICE_CHECK_ENABLED=false
-      - AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL=${PREVIEW_ADMIN_EMAIL:?PREVIEW_ADMIN_EMAIL obligatoria}
-      - AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD=${PREVIEW_ADMIN_PASSWORD:?PREVIEW_ADMIN_PASSWORD obligatoria}
-      - AUDITBRAIN_API_KEY=${PREVIEW_API_KEY:?PREVIEW_API_KEY obligatoria}
+      # Administrador de prueba del preview (base de datos propia del PR; no es una identidad productiva).
+      # El dominio debe pasar el validador EmailStr del bootstrap: los de uso especial (.invalid, .test)
+      # se rechazan y el admin no se crearía. La contraseña y la API key NO van por variables: las
+      # exporta el `command` desde /run/secrets (exclusivas por PR).
+      - AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL=preview-admin@audit-ia.ec
       - AUD_CICLO_DIR=/var/data/aud_pruebas
       - AUD_OF_TMP_DIR=/var/data/of_tmp
       - AUD_PROCESO_PESADO_MAX=1

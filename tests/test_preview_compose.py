@@ -15,6 +15,9 @@ import yaml
 COMPOSE = Path(__file__).resolve().parents[1] / "docker-compose.preview.yml"
 PRESUPUESTO_MIB = 1296
 PRODUCCION = ("audit-ia.ec", "onrender.com", "z4wy8ngriiesg6z20n7ftcnj")
+# Secretos generados por init dentro del volumen del PR y su longitud (Etapa 3B).
+SECRETOS = {"pg_password": 40, "jwt_secret": 64, "admin_password": 32, "api_key": 48}
+ADMIN_EMAIL_PREVIEW = "preview-admin@audit-ia.ec"
 
 
 @pytest.fixture(scope="module")
@@ -90,7 +93,8 @@ def test_secretos_dentro_del_preview_y_nunca_de_coolify(compose):
     assert s["db"]["environment"]["POSTGRES_PASSWORD_FILE"] == "/run/secrets/pg_password"
     assert "secrets:/run/secrets:ro" in s["db"]["volumes"] and "secrets:/run/secrets:ro" in s["backend"]["volumes"]
     assert s["db"]["depends_on"]["init"]["condition"] == "service_healthy"
-    assert "pg_password" in s["init"]["healthcheck"]["test"][-1] and "jwt_secret" in s["init"]["healthcheck"]["test"][-1]
+    hc = s["init"]["healthcheck"]["test"][-1]
+    assert all(n in hc for n in SECRETOS), "el healthcheck de init exige los cuatro secretos"
     assert s["backend"]["depends_on"]["db"]["condition"] == "service_healthy"
     assert _env(s["backend"])["PREVIEW_SECRETS_DIR"] == "/run/secrets"
     assert "cat /run/secrets/pg_password" in s["backend"]["command"] and "@db:5432/auditbrain" in s["backend"]["command"]
@@ -107,7 +111,7 @@ def test_ninguna_variable_apunta_a_produccion(compose):
     assert env["CLIENT_PORTAL_URL"].endswith(".invalid")
     assert env["DOCUMENT_SERVICE"] == "http://127.0.0.1:9"
     for k, v in env.items():
-        if k in ("PREVIEW_PUBLIC_HOST",):
+        if k in ("PREVIEW_PUBLIC_HOST", "AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL"):
             continue
         assert not any(p in v for p in PRODUCCION), f"{k}={v} apunta a producción"
     for clave in ("ANTHROPIC_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY", "RESEND_API_KEY", "STRIPE_SECRET_KEY",
@@ -126,3 +130,127 @@ def test_sin_claves_propias_de_coolify(compose):
     """`docker compose config` rechaza claves ajenas al esquema (p. ej. `exclude_from_hc` de Coolify)."""
     for nombre, svc in compose["services"].items():
         assert "exclude_from_hc" not in svc, f"{nombre}: clave propia de Coolify, inválida para docker compose"
+
+
+# ---------------------------------------------------------------------------------------
+# Etapa 3B — credenciales de prueba exclusivas por PR (T1..T6 del diseño aprobado)
+# ---------------------------------------------------------------------------------------
+import os
+import re
+import shutil
+import subprocess
+
+
+def _script_init(compose) -> str:
+    """El guion real de init (sin el `sleep` que lo mantiene vivo)."""
+    cmd = compose["services"]["init"]["command"].strip()
+    m = re.fullmatch(r"sh -c '(.*)'", cmd, re.S)
+    assert m, "el command de init debe ser sh -c '<guion>'"
+    return m.group(1).replace("exec sleep infinity", "")
+
+
+def test_t1_orden_de_inicializacion_y_cuatro_secretos(compose):
+    s = compose["services"]
+    guion = _script_init(compose)
+    for nombre, largo in SECRETOS.items():
+        assert f"gen {nombre} {largo}" in guion, f"init debe generar {nombre} de {largo} caracteres"
+    assert "umask 077" in guion and "chmod 600" in guion and ".tmp" in guion and "mv " in guion
+    assert '[ -s "/secrets/$1" ] && return 0' in guion, "idempotencia: un archivo existente no se regenera"
+    assert "/dev/urandom" in guion
+    hc = s["init"]["healthcheck"]["test"][-1]
+    assert all(n in hc for n in SECRETOS)
+    assert s["db"]["depends_on"]["init"]["condition"] == "service_healthy"
+    assert s["backend"]["depends_on"]["db"]["condition"] == "service_healthy"
+    assert "secrets:/run/secrets:ro" in s["backend"]["volumes"]
+    assert "secrets:/secrets" in s["init"]["volumes"]
+
+
+def test_t2_sin_variables_compartidas_de_credenciales(compose):
+    s = compose["services"]
+    prohibidas = ("PREVIEW_ADMIN_EMAIL", "PREVIEW_ADMIN_PASSWORD", "PREVIEW_API_KEY")
+    for nombre, svc in s.items():
+        env = _env(svc)
+        volcado = " ".join([*env.keys(), *env.values(), str(svc.get("command", ""))])
+        for p in prohibidas:
+            assert p not in volcado, f"{nombre}: {p} es una variable compartida entre previews"
+    env = _env(s["backend"])
+    assert "AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD" not in env and "AUDITBRAIN_API_KEY" not in env
+    cmd = s["backend"]["command"]
+    assert "set -eu" in cmd
+    assert 'export AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD="$(cat /run/secrets/admin_password)"' in cmd
+    assert 'export AUDITBRAIN_API_KEY="$(cat /run/secrets/api_key)"' in cmd
+    assert env["AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL"] == ADMIN_EMAIL_PREVIEW
+    # La única variable obligatoria (:?) que queda es la etiqueta de la imagen.
+    sin_comentarios = "\n".join(l for l in COMPOSE.read_text(encoding="utf-8").splitlines() if not l.lstrip().startswith("#"))
+    assert set(re.findall(r"\$\{([A-Z_]+):\?", sin_comentarios)) == {"PREVIEW_IMAGE_TAG"}
+
+
+def test_t3_nombres_reales_de_las_variables_del_backend(compose):
+    import inspect
+
+    from backend.app.auth import service as auth_service
+    from backend.app.core import config as core_config
+
+    fuente = inspect.getsource(auth_service.ensure_bootstrap_admin)
+    assert "AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL" in fuente and "AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD" in fuente
+    assert "AUDITBRAIN_API_KEY" in inspect.getsource(core_config)
+    cmd = compose["services"]["backend"]["command"]
+    for var in ("AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD", "AUDITBRAIN_API_KEY"):
+        assert f"export {var}=" in cmd
+
+
+def test_t4_el_correo_del_admin_pasa_el_validador_real(compose):
+    from backend.app.auth.service import _email_valido
+
+    assert _email_valido(_env(compose["services"]["backend"])["AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL"])
+    assert not _email_valido("admin@preview.invalid"), "regresión: .invalid lo rechaza EmailStr y el admin no se crearía"
+    # No es una identidad de la configuración productiva del repositorio.
+    render = (COMPOSE.parent / "render.yaml").read_text(encoding="utf-8")
+    assert ADMIN_EMAIL_PREVIEW not in render
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="requiere un sh POSIX")
+def test_t5_generador_local_idempotente_e_independiente(compose, tmp_path):
+    """Aproximación local (sh del sistema, no busybox ash): la versión con alpine:3.20 corre en CI."""
+    guion = _script_init(compose).replace("/secrets", "$SECRETS")
+    script = tmp_path / "init.sh"
+    script.write_text(guion, encoding="utf-8")
+
+    def correr(vol: Path) -> str:
+        env = dict(os.environ, SECRETS=str(vol).replace("\\", "/"))
+        r = subprocess.run(["sh", str(script).replace("\\", "/")], env=env, capture_output=True, text=True, timeout=60)
+        assert r.returncode == 0, r.stderr
+        return r.stdout + r.stderr
+
+    a, b = tmp_path / "a", tmp_path / "b"
+    salida = correr(a)
+    assert salida.strip() == "secrets listos"
+    valores = {}
+    for nombre, largo in SECRETOS.items():
+        v = (a / nombre).read_bytes()
+        assert len(v) == largo, f"{nombre}: {len(v)} bytes, se esperaban {largo} (sin salto de línea final)"
+        assert re.fullmatch(rb"[A-Za-z0-9]+", v), f"{nombre}: solo alfanumérico"
+        valores[nombre] = v
+        if os.name != "nt":
+            assert oct((a / nombre).stat().st_mode & 0o777) == "0o600"
+    assert not list(a.glob(".*.tmp")), "sin temporales residuales"
+    for v in valores.values():
+        assert v.decode() not in salida, "la salida del guion no debe contener secretos"
+    correr(a)  # segunda ejecución = redespliegue del mismo PR
+    for nombre, v in valores.items():
+        assert (a / nombre).read_bytes() == v, f"{nombre} se regeneró en la segunda ejecución"
+    correr(b)  # otro volumen = otro PR
+    for nombre, v in valores.items():
+        assert (b / nombre).read_bytes() != v, f"{nombre} se repite entre dos PR"
+
+
+def test_t6_ningun_archivo_imprime_secretos():
+    raiz = COMPOSE.parent
+    archivos = [COMPOSE, *sorted((raiz / "scripts").glob("preview_*")), *sorted((raiz / ".github/workflows").glob("preview-*.yml"))]
+    patron_lectura = re.compile(r"\bcat\s+(/run)?/secrets/")
+    for f in archivos:
+        for n, linea in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            if patron_lectura.search(linea):
+                # Única lectura permitida: el export del command del backend en el Compose.
+                assert f == COMPOSE and "export " in linea and "$(cat /run/secrets/" in linea, f"{f.name}:{n} lee un secreto fuera del export del backend"
+            assert not re.search(r"echo\s+\"?\$s\b", linea), f"{f.name}:{n} imprime el valor generado"

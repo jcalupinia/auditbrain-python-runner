@@ -47,9 +47,6 @@ jobs:
       - name: Validar el Compose con valores ficticios (no se levanta nada)
         env:
           PREVIEW_IMAGE_TAG: sha-0000000000000000000000000000000000000000
-          PREVIEW_ADMIN_EMAIL: admin@preview.invalid
-          PREVIEW_ADMIN_PASSWORD: ficticia-solo-para-validar
-          PREVIEW_API_KEY: ficticia-solo-para-validar
           SERVICE_FQDN_BACKEND_10000: 0.api.preview.audit-ia.ec
           SERVICE_FQDN_CONSOLA_80: 0.consola.preview.audit-ia.ec
           SERVICE_FQDN_CLIENTES_80: 0.clientes.preview.audit-ia.ec
@@ -62,6 +59,58 @@ jobs:
             echo "ERROR: el Compose aceptó PREVIEW_IMAGE_TAG vacío"; exit 1; fi
           echo "OK: PREVIEW_IMAGE_TAG vacío es rechazado"
           grep -q 'ghcr.io/jcalupinia/auditbrain-preview-backend:sha-0000' /tmp/compose-resuelto.yml
+          # Credenciales de prueba exclusivas por PR: el Compose ya no depende de variables compartidas de Coolify
+          if grep -E 'PREVIEW_ADMIN_(EMAIL|PASSWORD)|PREVIEW_API_KEY' /tmp/compose-resuelto.yml; then
+            echo "ERROR: el Compose aún referencia variables compartidas de credenciales"; exit 1; fi
+          grep -q 'preview-admin@audit-ia.ec' /tmp/compose-resuelto.yml
+          echo "OK: sin PREVIEW_ADMIN_*/PREVIEW_API_KEY; correo del administrador de prueba fijo"
+
+  init-secrets:
+    name: generador de secretos de init (alpine real, dos volúmenes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ejecutar el command real de init en alpine:3.20 (nada se publica ni se despliega)
+        env:
+          PREVIEW_IMAGE_TAG: sha-0000000000000000000000000000000000000000
+          SERVICE_FQDN_BACKEND_10000: 0.api.preview.audit-ia.ec
+          SERVICE_FQDN_CONSOLA_80: 0.consola.preview.audit-ia.ec
+          SERVICE_FQDN_CLIENTES_80: 0.clientes.preview.audit-ia.ec
+        run: |
+          set -euo pipefail
+          # El guion es exactamente el del Compose (sin el sleep final que lo mantiene vivo)
+          docker compose -f docker-compose.preview.yml config --format json \
+            | jq -r '.services.init.command[2]' | sed 's/exec sleep infinity//' > /tmp/init.sh
+          grep -q 'gen api_key 48' /tmp/init.sh
+          docker volume create pv_a >/dev/null; docker volume create pv_b >/dev/null
+          run() { docker run --rm -v "$1:/secrets" -v /tmp/init.sh:/init.sh:ro alpine:3.20 sh /init.sh; }
+          # Inspección sin imprimir valores: permisos, tamaño, bytes no alfanuméricos y huella
+          insp() { docker run --rm -v "$1:/secrets:ro" alpine:3.20 sh -c '
+              cd /secrets; stat -c "dir %a" .; printf "tmp %s\n" "$(ls -A | grep -c "\.tmp$" || true)"
+              for f in pg_password jwt_secret admin_password api_key; do
+                printf "%s perm=%s bytes=%s noalnum=%s\n" "$f" "$(stat -c %a $f)" "$(stat -c %s $f)" "$(tr -d "A-Za-z0-9" < $f | wc -c)"
+              done; sha256sum pg_password jwt_secret admin_password api_key'; }
+          out1=$(run pv_a); echo "salida 1: $out1"; [ "$out1" = "secrets listos" ]
+          insp pv_a | tee /tmp/a1.txt
+          grep -q '^dir 700$' /tmp/a1.txt; grep -q '^tmp 0$' /tmp/a1.txt
+          grep -q '^pg_password perm=600 bytes=40 noalnum=0$' /tmp/a1.txt
+          grep -q '^jwt_secret perm=600 bytes=64 noalnum=0$' /tmp/a1.txt
+          grep -q '^admin_password perm=600 bytes=32 noalnum=0$' /tmp/a1.txt
+          grep -q '^api_key perm=600 bytes=48 noalnum=0$' /tmp/a1.txt
+          out2=$(run pv_a); [ "$out2" = "secrets listos" ]
+          insp pv_a > /tmp/a2.txt; cmp /tmp/a1.txt /tmp/a2.txt && echo "OK: idempotente (redespliegue del mismo PR no regenera nada)"
+          run pv_b >/dev/null; insp pv_b > /tmp/b1.txt
+          for f in pg_password jwt_secret admin_password api_key; do
+            ha=$(grep " $f$" /tmp/a1.txt | cut -c1-64); hb=$(grep " $f$" /tmp/b1.txt | cut -c1-64)
+            [ "$ha" != "$hb" ] || { echo "ERROR: $f coincide entre dos volúmenes (dos PR)"; exit 1; }
+          done
+          echo "OK: independencia por PR (4/4 valores distintos entre dos volúmenes)"
+          # La salida del guion no contiene ningún secreto (se compara dentro del contenedor, sin imprimirlos)
+          docker run --rm -v pv_a:/secrets:ro -e OUT="$out1$out2" alpine:3.20 sh -c '
+            for f in /secrets/*; do v=$(cat "$f"); case "$OUT" in *"$v"*) echo "ERROR: la salida contiene un secreto"; exit 1;; esac; done
+            echo "OK: la salida no contiene secretos"'
+          docker volume rm pv_a pv_b >/dev/null
 
   build-images:
     name: build sin push · ${{ matrix.service }}
