@@ -601,9 +601,12 @@ export async function cicloBajarLibro(pruebaId, formato = "xlsx", seccion = null
   return new Uint8Array(await res.arrayBuffer());
 }
 // Panel propio de la herramienta de nómina (bespoke 2.0): HTML con el encargo inyectado.
-// `fetchOpts` con timeout largo porque el panel es grande; devuelve bytes para armar el blob.
-export async function cicloBajarPanelNomina(pruebaId, fetchOpts = {}) {
-  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/panel-nomina`, { headers: authHeaders() }, fetchOpts);
+// `opts.embed=true` lo pide SIN su barra superior para incrustarlo en el Command Center (iframe);
+// el resto de `opts` son fetchOpts (timeout largo porque el panel es grande). Devuelve bytes.
+export async function cicloBajarPanelNomina(pruebaId, opts = {}) {
+  const { embed = false, ...fetchOpts } = opts;
+  const q = embed ? "?embed=1" : "";
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/panel-nomina${q}`, { headers: authHeaders() }, fetchOpts);
   if (!res.ok) await parse(res);
   return new Uint8Array(await res.arrayBuffer());
 }

@@ -468,6 +468,19 @@ def test_panel_nomina_sirve_html_con_el_encargo(client):
     assert f'"pruebaId": {pr["id"]}' in r.text
 
 
+def test_panel_nomina_embed_oculta_su_barra_para_incrustar(client):
+    """`?embed=1` devuelve el panel listo para INCRUSTARSE en el Command Center (iframe): sin su
+    barra superior propia (`.tb`). Sin el parámetro, es el panel autónomo para una pestaña suelta."""
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    css = ".tb{display:none!important}"
+    normal = client.get(f"{BASE}/pruebas/{pr['id']}/panel-nomina", headers=_h(tok)).text
+    embed = client.get(f"{BASE}/pruebas/{pr['id']}/panel-nomina?embed=1", headers=_h(tok)).text
+    assert css not in normal  # el panel suelto conserva su barra
+    assert embed.count(css) == 1  # el embebido la oculta (una sola inyección, antes de </head>)
+    assert FICHA["client"] in embed and FICHA["ruc"] in embed  # el encargo sigue en ambos
+
+
 def test_do1_se_guarda_en_la_prueba_y_se_precarga(client):
     """El estado del DO-1 se persiste DENTRO de la prueba (no en el localStorage) y el panel lo
     precarga en __NOMINA_DO1__ la próxima vez que se abre."""
