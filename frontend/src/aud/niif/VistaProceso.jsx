@@ -1,3 +1,5 @@
+// rebuild-marker: panel de nómina incrustado — fuerza recompilación del frontend en Coolify
+// (el build reutilizaba una caché que no tomaba este archivo). No cambia el comportamiento.
 import { useEffect, useRef, useState } from "react";
 
 import * as api from "../../api";
