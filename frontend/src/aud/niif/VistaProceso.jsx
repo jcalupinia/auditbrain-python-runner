@@ -241,8 +241,16 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   // los botones muestran «Generando…» y se deshabilitan mientras se construye. (PDF y «Abrir HTML»
   // ya daban señal porque abren una pestaña con su propio «Generando…».)
   const [generando, setGenerando] = useState("");
+  // Panel de nómina INCRUSTADO (bespoke): su HTML (modo embed, sin barra propia) se muestra en un
+  // <iframe> como la vista de la herramienta, en vez de abrirse en pestaña nueva. Se recarga
+  // cuando cambia la prueba (tras procesar/subir/borrar/encerar) y al refrescar a pedido del panel.
+  const [panelHTML, setPanelHTML] = useState("");
+  const [cargandoPanel, setCargandoPanel] = useState(false);
   const manualMapsRef = useRef({});
   const detalleRef = useRef(null);
+  // Evita re-disparar la preparación automática del requerimiento (nómina lo necesita para que la
+  // carga de archivos desde el panel funcione) en cada render mientras aún no existe.
+  const prepReqNominaRef = useRef(false);
   // Ventana del panel de nómina abierta (pestaña nueva con blob URL): se guarda para poder
   // regenerarlo en la MISMA ventana tras procesar/encerar. El ref de procesar siempre apunta a
   // la versión fresca de la función (evita el closure viejo del listener de `message`).
@@ -523,10 +531,20 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   // muestre los datos nuevos. Si la ventana se cerró, no hace nada: el blob URL no se puede
   // reabrir sin un clic del usuario (limitación conocida; vuelve a pulsar «Abrir panel»).
   async function refrescarPanelNomina() {
+    // Vista INCRUSTADA (principal): re-pide el panel embebido con los datos nuevos y lo re-asigna
+    // al iframe. (El efecto por `prueba.version` también lo recarga; esto lo hace de inmediato.)
+    if (esPanel && prueba.id) {
+      try {
+        const bytes = await api.cicloBajarPanelNomina(prueba.id, { embed: true, timeoutMs: 120000, retries: 1 });
+        setPanelHTML(new TextDecoder("utf-8").decode(bytes));
+      } catch { /* no romper el flujo: el efecto por versión lo recarga */ }
+    }
+    // Pestaña APARTE (si el auditor la abrió con «Abrir en pestaña aparte»): recargar esa ventana.
     const win = panelNominaWinRef.current;
-    if (!win || win.closed) return;
-    try { win.document.open(); win.document.write(_placeholderTablero()); win.document.close(); } catch { /* el doc blob puede no permitir write: se navega igual */ }
-    await cargarPanelEn(win);
+    if (win && !win.closed) {
+      try { win.document.open(); win.document.write(_placeholderTablero()); win.document.close(); } catch { /* el doc blob puede no permitir write: se navega igual */ }
+      await cargarPanelEn(win);
+    }
   }
 
   // Procesa la nómina con el motor bespoke a pedido del panel y, al terminar, refresca el panel
@@ -620,9 +638,43 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
     }
   }
 
-  // El panel de nómina (pestaña nueva) postea acciones por postMessage a su opener: descargar una
-  // cédula, procesar (motor real) o encerar. Solo vale con `esPanel` y una prueba identificada.
-  // El despacho vive en nominaPanelBridge (puro, testeado); aquí se conectan los handlers reales.
+  // Carga del panel INCRUSTADO (bespoke/nómina): pide el HTML en modo embed (sin barra propia) y lo
+  // pone en el <iframe>. Se recarga al montar y cada vez que cambia la prueba (procesar/subir/
+  // borrar/encerar suben la versión vía onRecargar), así el iframe refleja siempre el estado real.
+  useEffect(() => {
+    if (!esPanel || !prueba.id) { setPanelHTML(""); return undefined; }
+    let vivo = true;
+    (async () => {
+      setCargandoPanel(true);
+      try {
+        const bytes = await api.cicloBajarPanelNomina(prueba.id, { embed: true, timeoutMs: 120000, retries: 1 });
+        if (vivo) setPanelHTML(new TextDecoder("utf-8").decode(bytes));
+      } catch (e) {
+        if (vivo) setError(e.message || String(e));
+      } finally {
+        if (vivo) setCargandoPanel(false);
+      }
+    })();
+    return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [esPanel, prueba.id, prueba.version]);
+
+  // Nómina necesita el requerimiento generado para que la carga de archivos desde el panel suba a la
+  // prueba. Como el panel ES la vista (sin el botón «Preparar requerimiento» del flujo genérico), se
+  // prepara una sola vez, en automático, cuando aún no existe. El ref evita repetirlo en cada render.
+  useEffect(() => {
+    if (esPanel && prueba.id && !conRequerimiento && !bloqueado && !prepReqNominaRef.current) {
+      prepReqNominaRef.current = true;
+      prepararRequerimiento();
+    }
+    if (conRequerimiento) prepReqNominaRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [esPanel, prueba.id, conRequerimiento]);
+
+  // El panel de nómina (incrustado en un iframe o abierto en pestaña aparte) postea acciones por
+  // postMessage a su parent/opener: descargar una cédula, procesar (motor real), encerar, cargar o
+  // borrar archivos y guardar el DO-1. Solo vale con `esPanel` y una prueba identificada. El
+  // despacho vive en nominaPanelBridge (puro, testeado); aquí se conectan los handlers reales.
   useEffect(() => {
     if (!esPanel) return undefined;
     const onMensaje = (e) => {
@@ -679,6 +731,20 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
     }
   }
 
+  // Formulario de confirmación de encerado (NIA 230). Se define aparte porque el panel INCRUSTADO
+  // dispara `setEncerando` desde su propio botón «Encerar»: el formulario debe aparecer tanto en el
+  // Paso 2 del flujo genérico como en el modo panel.
+  const confirmEncerado = encerando && puedeEncerar(estado) && prueba.es_encargado !== false && (
+    <div className="nf-ef-encerar">
+      <p>Escriba el nombre del cliente tal como está en la ficha («{reg.engagement?.client}») para confirmar. Encerar borra evidencia, resultados e historial.</p>
+      <div className="nf-ef-encerar-row">
+        <input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nombre del cliente" />
+        <button type="button" className="nf-ef-btn rojo" disabled={bloqueado || !cliente.trim()} onClick={encerar}>Confirmar encerado</button>
+        <button type="button" className="nf-ef-btn" onClick={() => setEncerando(false)}>Cancelar</button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="nf-ef">
       <header className="nf-ef-header">
@@ -697,6 +763,35 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
       {error && <p role="alert" className="nf-ef-error">{error}</p>}
       {aviso && <p className="nf-ef-ok">{aviso}</p>}
       {revisando && <p className="nf-ef-aviso">Revisando las columnas del anexo…</p>}
+
+      {/* ===== Nómina (bespoke): el panel propio ES la vista, INCRUSTADO en un iframe ===== */}
+      {/* El panel trae sus secciones ① Requerimientos · ② Procesamiento · ③ Ejecución (visor de
+          cédulas) y habla con esta vista por postMessage (subir/procesar/descargar/DO-1). Por eso
+          para nómina se ocultan los pasos genéricos 1-3 y 6; el ciclo (análisis, revisión y
+          aprobación) sigue abajo en los pasos 4 y 5. */}
+      {esPanel && (
+        <>
+          <section className="nf-ef-paso">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+              <span className="nf-ef-aviso" style={{ margin: 0 }}>
+                Trabaje la prueba en el panel: cargue los requerimientos, procese y revise las cédulas aquí mismo.
+              </span>
+              <button type="button" className="nf-ef-btn" onClick={abrirPanelNomina} title="Abrir el panel completo en una pestaña nueva">
+                Abrir en pestaña aparte ↗
+              </button>
+            </div>
+            {cargandoPanel && !panelHTML && <p className="nf-ef-aviso">Cargando el panel…</p>}
+            {panelHTML && (
+              <iframe
+                title="Panel de nómina"
+                srcDoc={panelHTML}
+                style={{ width: "100%", height: "82vh", border: 0, borderRadius: 12, background: "#071a33" }}
+              />
+            )}
+          </section>
+          {confirmEncerado}
+        </>
+      )}
 
       {/* Visita de auditoría (Preliminar/Final) — corrige las cabeceras de período del papel
           SIN reiniciar la prueba. Solo la planificación. */}
@@ -726,6 +821,9 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
         </section>
       )}
 
+      {/* ===== Pasos 1-3 del flujo genérico: OCULTOS para nómina (su panel incrustado los cubre) ===== */}
+      {!esPanel && (
+      <>
       {/* ===== Paso 1 · Requerimientos de información ===== */}
       <section className="nf-ef-paso">
         <header className="nf-ef-paso-h">
@@ -841,16 +939,7 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
             {prueba.encargado ? ` (${prueba.encargado})` : ""} o de un administrador. Como asistente puedes trabajar y cargar, pero no reiniciar la prueba.
           </p>
         )}
-        {encerando && puedeEncerar(estado) && prueba.es_encargado !== false && (
-          <div className="nf-ef-encerar">
-            <p>Escriba el nombre del cliente tal como está en la ficha («{reg.engagement?.client}») para confirmar. Encerar borra evidencia, resultados e historial.</p>
-            <div className="nf-ef-encerar-row">
-              <input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nombre del cliente" />
-              <button type="button" className="nf-ef-btn rojo" disabled={bloqueado || !cliente.trim()} onClick={encerar}>Confirmar encerado</button>
-              <button type="button" className="nf-ef-btn" onClick={() => setEncerando(false)}>Cancelar</button>
-            </div>
-          </div>
-        )}
+        {confirmEncerado}
       </section>
 
       {/* ===== Paso 3 · Ejecución de auditoría ===== */}
@@ -891,6 +980,8 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
           ))}
         </div>
       </section>
+      </>
+      )}
 
       {/* ===== Paso 4 · Análisis y cierre (envío a revisión) ===== */}
       {["PRUEBA_EJECUTADA", "RESULTADOS_ANALIZADOS"].includes(estado) && (
@@ -931,15 +1022,11 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
         {procesada && esPanel && (
           <>
             <p className="nf-ef-aviso">
-              La cara de la herramienta es el panel (control interno laboral, programa y pruebas). El papel de trabajo
-              son las 15 cédulas que arma el motor; descárguelas una a una desde «Ejecución de auditoría» o todas en un ZIP.
+              La cara de la herramienta es el panel de arriba (control interno laboral, programa y pruebas). El papel de
+              trabajo son las 15 cédulas que arma el motor; descárguelas una a una desde el panel (en «Ejecución») o todas
+              juntas en un ZIP.
             </p>
             <div className="nf-ef-descargas">
-              <button type="button" className="nf-ef-dl" onClick={abrirPanelNomina}>
-                <Icono name="dashboard" color="purple" />
-                <span className="nf-ef-dl-t">Abrir panel de nómina</span>
-                <span className="nf-ef-dl-s">Control interno laboral · programa · pruebas</span>
-              </button>
               <button type="button" className="nf-ef-dl" onClick={bajarCedulasNominaZip}>
                 <Icono name="doc" color="blue" />
                 <span className="nf-ef-dl-t">Descargar las 15 cédulas (ZIP)</span>

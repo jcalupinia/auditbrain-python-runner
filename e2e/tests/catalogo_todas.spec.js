@@ -28,7 +28,8 @@ const TOOLS = [
   { processor: "inversiones_instrumentos", nombre: "Inversiones e Instrumentos Financieros", nEjec: 9, primarias: ["Anexo de Inversiones por Instrumento", "Estados de Cuenta y Confirmaciones"] },
   { processor: "patrimonio", nombre: "Patrimonio", nEjec: 9, primarias: ["Movimiento de Cuentas Patrimoniales", "Actas y Transacciones Patrimoniales"] },
   { processor: "provisiones_contingencias", nombre: "Provisiones y Contingencias", nEjec: 11, primarias: ["Detalle de Provisiones y Contingencias", "Respuestas de los Abogados"] },
-  { processor: "nomina_beneficios", nombre: "Pasivos Acumulados y Gastos de Nómina", nEjec: 11, primarias: ["Anexo de Nómina (saldos por cuenta)", "Consolidado de Planillas del IESS (Sierra/Costa) + Exclusiones"] },
+  // Nómina (nomina_beneficios) ya NO usa la vista genérica de 3 pasos: su panel propio se
+  // INCRUSTA como la vista (iframe). Se verifica en su propio describe al final del archivo.
   { processor: "impuesto_corriente_diferido", nombre: "Impuesto Corriente y Diferido", nEjec: 11, primarias: ["Conciliación Tributaria (F-101)", "Anexo de Diferencias Temporarias"] },
   { processor: "gastos_analisis", nombre: "Análisis de Gastos", nEjec: 11, primarias: ["Sumaria de Cuentas de Gasto", "Muestra de Transacciones de Gasto"] },
   { processor: "seguros_cobertura", nombre: "Seguros y Cobertura", nEjec: 9, primarias: ["Maestro de Activos Asegurables", "Detalle de Pólizas Vigentes y Vencidas"] },
@@ -116,3 +117,33 @@ for (const tool of TOOLS) {
     });
   });
 }
+
+// Nómina: su panel propio se INCRUSTA como la vista (iframe), no el flujo genérico de 3 pasos.
+test.describe("Panel incrustado · Pasivos Acumulados y Gastos de Nómina (nomina_beneficios)", () => {
+  const TOOL = { processor: "nomina_beneficios", nombre: "Pasivos Acumulados y Gastos de Nómina" };
+
+  async function abrirNomina(page, estado) {
+    await mockApi(page, { user: ADMIN_USER });
+    await mockCiclo(page, TOOL, estado);
+    // El panel embebido se pide a /panel-nomina?embed=1; se mockea con un HTML mínimo.
+    await page.route(/\/api\/v1\/aud\/ciclo\/pruebas\/\d+\/panel-nomina/, (route) =>
+      route.fulfill({ status: 200, contentType: "text/html; charset=utf-8",
+        body: "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\"></head><body><h2>Panel de nómina (mock)</h2></body></html>" }));
+    await login(page);
+    await page.locator("aside.cc-side").getByRole("button", { name: /External Audit/i }).click();
+    await page.getByRole("button", { name: /Generación de herramientas NIIF/i }).click();
+    await page.locator("nav.nf-subtabs").getByRole("button", { name: /^Pruebas del encargo$/ }).click();
+    await page.locator("details.nf-registro-colapsado > summary").first().click();
+    await page.getByRole("button", { name: new RegExp(`${TOOL.nombre.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} · v1`) }).click();
+  }
+
+  test("la prueba incrusta el panel en un iframe, no el flujo genérico de 3 pasos", async ({ page }) => {
+    await abrirNomina(page, "PRUEBA_EJECUTADA");
+    // El panel se incrusta: barra con «Abrir en pestaña aparte» + iframe del panel.
+    await expect(page.getByRole("button", { name: /Abrir en pestaña aparte/i })).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('iframe[title="Panel de nómina"]')).toBeVisible();
+    // NO se muestran los headings genéricos de los pasos 1-3 ni las tarjetas de ejecución (los cubre el panel).
+    await expect(page.getByRole("heading", { name: /Requerimientos de información/i })).toHaveCount(0);
+    await expect(page.locator("button.nf-ef-ejec-card")).toHaveCount(0);
+  });
+});

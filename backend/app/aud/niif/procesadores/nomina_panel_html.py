@@ -18,6 +18,12 @@ import re
 
 _TMPL = os.path.join(os.path.dirname(__file__), "..", "assets", "nomina_panel.tmpl.html")
 
+# CSS extra del modo EMBEBIDO: el panel va DENTRO del Command Center (en un <iframe>), no en
+# pestaña suelta. El menú lateral (.side) ya viene oculto en la plantilla; aquí se oculta además
+# la barra superior propia del panel (.tb, el «crumb») porque el Command Center ya pone su
+# cabecera, y se suelta el ancho máximo para que ocupe todo el iframe. Así no se duplica el chrome.
+_EMBED_CSS = '<style>.tb{display:none!important}.pg{max-width:none}</style>'
+
 # Firmas que la plantilla reconoce (constante FIRMS del panel): la del encargo decide cuál.
 _FIRMAS = ("partner", "audit")
 
@@ -284,7 +290,8 @@ def construir_files(archivos: list | None) -> list:
 
 def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/ciclo",
            carpeta_cedulas: str | None = None, extras: dict | None = None,
-           do1_estado: dict | None = None, archivos: list | None = None) -> bytes:
+           do1_estado: dict | None = None, archivos: list | None = None,
+           embed: bool = False) -> bytes:
     """HTML del panel con el encargo inyectado. ``prueba_id`` enlaza los botones al motor.
 
     ``carpeta_cedulas``: carpeta con las cédulas YA RECALCULADAS (LibreOffice) que produjo el
@@ -307,7 +314,11 @@ def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/cic
     navegador. ``None`` → el panel cae a su borrador local, como antes.
 
     Sin ``extras`` ni ``carpeta_cedulas`` (prueba no procesada) el panel inyecta estructuras
-    VACÍAS y las ventanas muestran «PENDIENTE DE PROCESAR», como el visor."""
+    VACÍAS y las ventanas muestran «PENDIENTE DE PROCESAR», como el visor.
+
+    ``embed``: True devuelve el panel listo para INCRUSTARSE en el Command Center (en un
+    ``<iframe>``), sin su barra superior propia para no duplicar la cabecera (ver ``_EMBED_CSS``);
+    False (por defecto) lo deja como HTML autónomo para abrirlo en una pestaña suelta."""
     from backend.app.aud.niif.procesadores.nomina import visor
 
     enc = construir_encargo(engagement)
@@ -340,4 +351,8 @@ def render(engagement: dict, prueba_id: int | None = None, base: str = "/aud/cic
             .replace("__NOMINA_DO1__", json.dumps(do1_estado, ensure_ascii=False))
             .replace("__NOMINA_FILES__", json.dumps(files_init, ensure_ascii=False))
             .replace("__NOMINA_VISOR__", json.dumps(datos_visor)))
+    if embed:
+        # El panel se incrusta en el Command Center (iframe): oculta su propia barra superior
+        # para no duplicar la cabecera del Command Center. Ver ``_EMBED_CSS``.
+        html = html.replace("</head>", _EMBED_CSS + "</head>", 1)
     return html.encode("utf-8")
