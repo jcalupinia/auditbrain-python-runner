@@ -146,7 +146,9 @@ def _script_init(compose) -> str:
     cmd = compose["services"]["init"]["command"].strip()
     m = re.fullmatch(r"sh -c '(.*)'", cmd, re.S)
     assert m, "el command de init debe ser sh -c '<guion>'"
-    return m.group(1).replace("exec sleep infinity", "")
+    # Compose interpola `$var` en command/healthcheck: las variables del shell van como `$$` en el
+    # YAML y Compose las entrega como `$`. Aquí se deshace igual que lo haría `docker compose config`.
+    return m.group(1).replace("$$", "$").replace("exec sleep infinity", "")
 
 
 def test_t1_orden_de_inicializacion_y_cuatro_secretos(compose):
@@ -159,6 +161,9 @@ def test_t1_orden_de_inicializacion_y_cuatro_secretos(compose):
     assert "/dev/urandom" in guion
     hc = s["init"]["healthcheck"]["test"][-1]
     assert all(n in hc for n in SECRETOS)
+    # Nada que Compose pueda interpolar como variable propia (un `$f` sin escapar quedaría vacío en silencio).
+    for texto in (s["init"]["command"], hc):
+        assert not re.findall(r"(?<!\$)\$(?!\$)(?:\{[^}]*\}|[A-Za-z_0-9#]+)", texto), "variables de shell sin escapar ($$) en init"
     assert s["db"]["depends_on"]["init"]["condition"] == "service_healthy"
     assert s["backend"]["depends_on"]["db"]["condition"] == "service_healthy"
     assert "secrets:/run/secrets:ro" in s["backend"]["volumes"]

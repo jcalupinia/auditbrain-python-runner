@@ -35,21 +35,23 @@ services:
     # administrador de prueba y API key. gen <archivo> <longitud>: alfanumérico de /dev/urandom,
     # idempotente (no toca un archivo ya presente, así un redespliegue del mismo PR conserva los
     # valores) y atómico (archivo temporal + mv), con umask 077 y chmod 600. No imprime ningún valor.
+    # Las variables del shell van como `$$` porque Docker Compose interpola `$var`/`${…}` en `command`
+    # y `healthcheck` (`${#s}` lo rechaza y `$f` quedaría vacío en silencio).
     command: >
       sh -c '
         set -eu
         umask 077
         mkdir -p /secrets && chmod 700 /secrets
         gen() {
-          [ -s "/secrets/$1" ] && return 0
+          [ -s "/secrets/$$1" ] && return 0
           s=""
-          while [ "${#s}" -lt "$2" ]; do
-            s="$s$(head -c 96 /dev/urandom | base64 | tr -dc "A-Za-z0-9")"
+          while [ "$${#s}" -lt "$$2" ]; do
+            s="$$s$$(head -c 96 /dev/urandom | base64 | tr -dc "A-Za-z0-9")"
           done
-          s=$(printf "%s" "$s" | cut -c1-"$2")
-          printf "%s" "$s" > "/secrets/.$1.tmp"
-          [ "$(wc -c < "/secrets/.$1.tmp")" -eq "$2" ] || { echo "init: $1 con longitud incorrecta" >&2; exit 1; }
-          chmod 600 "/secrets/.$1.tmp" && mv "/secrets/.$1.tmp" "/secrets/$1"
+          s=$$(printf "%s" "$$s" | cut -c1-"$$2")
+          printf "%s" "$$s" > "/secrets/.$$1.tmp"
+          [ "$$(wc -c < "/secrets/.$$1.tmp")" -eq "$$2" ] || { echo "init: $$1 con longitud incorrecta" >&2; exit 1; }
+          chmod 600 "/secrets/.$$1.tmp" && mv "/secrets/.$$1.tmp" "/secrets/$$1"
         }
         gen pg_password 40
         gen jwt_secret 64
@@ -61,7 +63,7 @@ services:
     # de Coolify `exclude_from_hc`, que `docker compose config` rechaza) y Coolify no ve un
     # contenedor "exited" en el preview. db espera a que este healthcheck confirme ambos secretos.
     healthcheck:
-      test: ["CMD-SHELL", "for f in pg_password jwt_secret admin_password api_key; do test -s /secrets/$f || exit 1; done"]
+      test: ["CMD-SHELL", "for f in pg_password jwt_secret admin_password api_key; do test -s /secrets/$$f || exit 1; done"]
       interval: 2s
       timeout: 2s
       retries: 15
