@@ -118,8 +118,14 @@ services:
     # archivos generados por init dentro del preview; luego arranca uvicorn (sin cambio de código).
     # `set -eu`: si falta un archivo, el contenedor termina en lugar de arrancar sin API key (con
     # AUDITBRAIN_API_KEY vacía el backend desactivaría la autenticación por API key).
+    # Identidad: si Coolify no rellena SERVICE_FQDN_BACKEND_10000 (PREVIEW_PUBLIC_HOST llega vacío, visto en
+    # el primer preview de esta rama), se usa COOLIFY_FQDN, que Coolify sí entrega con el dominio del preview. No se
+    # fija ningún número de PR: el validador fail-closed del backend (preview_bootstrap) sigue exigiendo que
+    # el host cumpla el patrón <n>.api.preview.audit-ia.ec y coincida con COOLIFY_FQDN; vacío, productivo o
+    # contradictorio => el proceso termina con código 3 igual que antes. Variables de shell escapadas con $$.
     command: >
       sh -c 'set -eu
+             export PREVIEW_PUBLIC_HOST="$${PREVIEW_PUBLIC_HOST:-$${COOLIFY_FQDN:-}}"
              export DATABASE_URL="postgresql://auditbrain:$(cat /run/secrets/pg_password)@db:5432/auditbrain"
              export AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD="$(cat /run/secrets/admin_password)"
              export AUDITBRAIN_API_KEY="$(cat /run/secrets/api_key)"

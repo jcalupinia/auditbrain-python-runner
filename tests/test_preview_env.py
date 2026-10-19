@@ -271,3 +271,110 @@ def test_jwt_fuera_de_preview_no_cambia(monkeypatch):
     assert jwt_tokens._secret() == DEV_LITERAL
     monkeypatch.setenv("AUDITBRAIN_JWT_SECRET", "prod")
     assert jwt_tokens._secret() == "prod"
+
+
+# --- respaldo COOLIFY_FQDN -> PREVIEW_PUBLIC_HOST en el command del backend (Compose) -------------
+# Evidencia del preview del PR #384 en Coolify 4.4.6: SERVICE_FQDN_BACKEND_10000 llegó vacío y
+# COOLIFY_FQDN=384.api.preview.audit-ia.ec; el backend terminaba con código 3. El Compose rellena
+# PREVIEW_PUBLIC_HOST desde COOLIFY_FQDN solo cuando está vacía; el validador no cambia.
+
+import re as _re
+import shutil as _shutil
+import subprocess as _subprocess
+from pathlib import Path as _Path
+
+import yaml as _yaml
+
+_COMPOSE = _Path(__file__).resolve().parents[1] / "docker-compose.preview.yml"
+_FALLBACK = 'export PREVIEW_PUBLIC_HOST="${PREVIEW_PUBLIC_HOST:-${COOLIFY_FQDN:-}}"'
+
+
+def _command_backend_interpolado() -> str:
+    """El command del backend tal como lo entrega Compose ($$ -> $)."""
+    c = _yaml.safe_load(_COMPOSE.read_text(encoding="utf-8"))
+    return c["services"]["backend"]["command"].replace("$$", "$")
+
+
+def test_compose_backend_respalda_preview_public_host_con_coolify_fqdn():
+    cmd = _command_backend_interpolado()
+    assert _FALLBACK in cmd, "el command debe rellenar PREVIEW_PUBLIC_HOST desde COOLIFY_FQDN solo si está vacía"
+    assert cmd.index(_FALLBACK) < cmd.index("exec uvicorn"), "el respaldo va antes de arrancar uvicorn"
+    crudo = _yaml.safe_load(_COMPOSE.read_text(encoding="utf-8"))["services"]["backend"]["command"]
+    # Ninguna referencia de shell sin escapar (Compose la tomaría como variable propia); $( no cuenta.
+    assert not _re.findall(r"(?<![$])[$](?![$(])(?:[{][^}]*[}]|[A-Za-z_0-9#]+)", crudo)
+    assert "384" not in crudo, "no se fija ningún número de PR en el Compose"
+
+
+def _host_resuelto_por_el_shell(public_host, coolify_fqdn) -> str:
+    """Ejecuta el respaldo real del command en un sh POSIX y devuelve el PREVIEW_PUBLIC_HOST resultante."""
+    env = {"PATH": os.environ.get("PATH", "")}
+    if public_host is not None:
+        env["PREVIEW_PUBLIC_HOST"] = public_host
+    if coolify_fqdn is not None:
+        env["COOLIFY_FQDN"] = coolify_fqdn
+    r = _subprocess.run(["sh", "-c", "set -eu; " + _FALLBACK + '; printf "%s" "$PREVIEW_PUBLIC_HOST"'],
+                        env=env, capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    return r.stdout
+
+
+_SIN_SH = _shutil.which("sh") is None
+
+
+@pytest.mark.skipif(_SIN_SH, reason="requiere un sh POSIX")
+@pytest.mark.parametrize("public_host,coolify_fqdn,esperado", [
+    ("", "384.api.preview.audit-ia.ec", ("coolify", "384")),        # caso real del PR #384
+    (None, "384.api.preview.audit-ia.ec", ("coolify", "384")),      # variable ausente del todo
+    ("384.api.preview.audit-ia.ec", "384.api.preview.audit-ia.ec", ("coolify", "384")),  # ambas coherentes
+    ("77.api.preview.audit-ia.ec", "", ("coolify", "77")),          # el valor explícito manda
+])
+def test_respaldo_hostname_correcto(monkeypatch, public_host, coolify_fqdn, esperado):
+    host = _host_resuelto_por_el_shell(public_host, coolify_fqdn)
+    monkeypatch.setenv("APP_ENV", "preview")
+    monkeypatch.setenv("PREVIEW_PUBLIC_HOST", host)
+    if coolify_fqdn is not None:
+        monkeypatch.setenv("COOLIFY_FQDN", coolify_fqdn)
+    assert preview.preview_identity() == esperado
+
+
+@pytest.mark.skipif(_SIN_SH, reason="requiere un sh POSIX")
+@pytest.mark.parametrize("public_host,coolify_fqdn,motivo", [
+    ("", "", "ausente"),                                   # hostname ausente: sigue fallando cerrado
+    (None, None, "ausente"),
+    ("", "api.audit-ia.ec", "no coincide"),                # hostname productivo: rechazado
+    ("", "consola.audit-ia.ec", "no coincide"),
+    ("", "auditbrain-python-runner.onrender.com", "no coincide"),
+    ("384.api.preview.audit-ia.ec", "385.api.preview.audit-ia.ec", "ambigua"),   # identidad contradictoria
+    ("", "384.api.preview.audit-ia.ec,385.api.preview.audit-ia.ec", "ambigua"),
+])
+def test_respaldo_no_relaja_el_validador(monkeypatch, public_host, coolify_fqdn, motivo):
+    host = _host_resuelto_por_el_shell(public_host, coolify_fqdn)
+    monkeypatch.setenv("APP_ENV", "preview")
+    monkeypatch.setenv("PREVIEW_PUBLIC_HOST", host)
+    if coolify_fqdn is not None:
+        monkeypatch.setenv("COOLIFY_FQDN", coolify_fqdn)
+    with pytest.raises(preview.PreviewConfigError, match=motivo):
+        preview.preview_identity()
+    with pytest.raises(SystemExit) as e:
+        preview.preview_bootstrap()
+    assert e.value.code == 3
+
+
+@pytest.mark.skipif(_SIN_SH, reason="requiere un sh POSIX")
+def test_respaldo_arranque_completo_del_caso_real(monkeypatch, secretos):
+    """PREVIEW_PUBLIC_HOST vacío + COOLIFY_FQDN del PR #384 + resto de la configuración válida => arranca."""
+    sha = "9175fe82cc4e78e22cfa5a7c4b70c1ea8ecf9e6b"
+    host = _host_resuelto_por_el_shell("", "384.api.preview.audit-ia.ec")
+    monkeypatch.setenv("APP_ENV", "preview")
+    monkeypatch.setenv("PREVIEW_PUBLIC_HOST", host)
+    monkeypatch.setenv("COOLIFY_FQDN", "384.api.preview.audit-ia.ec")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://auditbrain:x@db:5432/auditbrain")
+    monkeypatch.setenv("BUILD_COMMIT", sha)
+    monkeypatch.setenv("PREVIEW_EXPECTED_IMAGE_TAG", f"sha-{sha}")
+    info = preview.preview_bootstrap(exit_on_error=False)
+    assert info["preview"] is True and info["provider"] == "coolify" and info["pr"] == "384"
+    assert info["config"] == "ok" and info["commit"] == sha
+    regex = _re.compile(preview.cors_origin_regex_for(info))
+    assert regex.fullmatch("https://384.consola.preview.audit-ia.ec") and regex.fullmatch("https://384.clientes.preview.audit-ia.ec")
+    for otro in ("https://385.consola.preview.audit-ia.ec", "https://consola.audit-ia.ec", "https://384.consola.preview.audit-ia.ec:8443", "http://384.consola.preview.audit-ia.ec"):
+        assert not regex.fullmatch(otro), otro
