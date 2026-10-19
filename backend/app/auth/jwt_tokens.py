@@ -50,18 +50,26 @@ def _preview_secret() -> str:
 def _secret() -> str:
     """Secreto de firma. OBLIGATORIO en producción.
 
-    - ``AUDITBRAIN_JWT_SECRET`` definido: se usa (producción).
-    - Preview (``APP_ENV=preview``) sin esa variable: secreto del volumen del PR.
+    - Preview en **Coolify** (o preview sin identidad válida): SIEMPRE el secreto del volumen del
+      PR (``/run/secrets/jwt_secret``); una ``AUDITBRAIN_JWT_SECRET`` heredada del entorno se
+      ignora aquí (defensa en profundidad) y además hace fallar ``preview_bootstrap`` (F1, S-06).
+    - Preview en **Render**: ``AUDITBRAIN_JWT_SECRET`` generada por Render para ese preview si
+      existe; si no, el volumen (compatibilidad con los previews existentes).
+    - Producción: ``AUDITBRAIN_JWT_SECRET``.
     - Otro entorno sin esa variable: valor de desarrollo con aviso (INSEGURO en
       producción; permitiría forjar tokens).
     """
+    from backend.app.core.preview import is_preview, preview_provider
+
+    if is_preview():
+        if preview_provider() == "render":
+            secret = os.getenv("AUDITBRAIN_JWT_SECRET", "").strip()
+            if secret:
+                return secret
+        return _preview_secret()
     secret = os.getenv("AUDITBRAIN_JWT_SECRET", "").strip()
     if secret:
         return secret
-    from backend.app.core.preview import is_preview
-
-    if is_preview():
-        return _preview_secret()
     import logging
 
     logging.getLogger("auditbrain").warning(

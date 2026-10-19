@@ -10,7 +10,7 @@
 #
 # Garantías de diseño (ver docs/previews-coolify.md):
 # - Ninguna imagen se construye en el servidor: las tres propias vienen de GHCR etiquetadas con el
-#   commit exacto del PR. La etiqueta llega en PREVIEW_IMAGE_TAG (obligatoria: `${VAR:?}` hace que
+#   commit exacto del PR. La etiqueta es sha-${SOURCE_COMMIT} (obligatoria: `${VAR:?}` hace que
 #   `docker compose` falle si falta o está vacía) y el backend verifica al arrancar que su
 #   BUILD_COMMIT coincide con esa etiqueta; si no, no arranca.
 # - Ningún secreto pasa por variables de Coolify ni por el repositorio. No se usa SERVICE_PASSWORD_*
@@ -18,7 +18,8 @@
 # - Ninguna variable apunta a producción (CORS vacío, portal centinela, DOCUMENT_SERVICE en sumidero).
 # - Límites de memoria y CPU por servicio; oom_score_adj alto y cpu_shares bajos para que, ante
 #   presión en el host compartido, el kernel sacrifique el preview antes que producción.
-# - Un único preview activo (política del controlador de ciclo de vida; workflows deshabilitados
+# - Concurrencia decidida por capacidad real del host (F2, admisión dinámica conservadora): este archivo NO
+#   fija ningún máximo de previews; la antigua política «un único preview activo» queda obsoleta (workflows deshabilitados
 #   hasta aprobación administrativa).
 #
 # Red: `preview_internal` (internal: true) para init y db; Coolify añade su red por preview y la red
@@ -110,14 +111,16 @@ services:
       options: { max-size: "5m", max-file: "2" }
 
   backend:
-    image: ghcr.io/jcalupinia/auditbrain-preview-backend:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
+    image: ghcr.io/jcalupinia/auditbrain-preview-backend:sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}
     # Puerto interno declarado para que Coolify reconozca el puerto del dominio (no se publica en el host).
     expose:
       - "10000"
-    # Arma DATABASE_URL y exporta las credenciales de prueba (administrador y API key) desde los
-    # archivos generados por init dentro del preview; luego arranca uvicorn (sin cambio de código).
-    # `set -eu`: si falta un archivo, el contenedor termina en lugar de arrancar sin API key (con
-    # AUDITBRAIN_API_KEY vacía el backend desactivaría la autenticación por API key).
+    # Arranque seguro (F1, hallazgo S-05): `export VAR="$(cat f)"` bajo `set -e` NO aborta si falla
+    # `cat` (el estado es el de `export`), y con AUDITBRAIN_API_KEY vacía el backend desactivaría la
+    # autenticación por API key. Por eso el guion: (1) rechaza credenciales heredadas del entorno de
+    # Coolify (JWT, API key, contraseña de admin) ANTES de sobrescribirlas; (2) exige que los cuatro
+    # archivos de /run/secrets existan y no estén vacíos; (3) lee cada valor con una asignación
+    # independiente (`v=$(cat f) || exit 3`) y solo entonces exporta; (4) nunca imprime valores.
     # Identidad: si Coolify no rellena SERVICE_FQDN_BACKEND_10000 (PREVIEW_PUBLIC_HOST llega vacío, visto en
     # el primer preview de esta rama), se usa COOLIFY_FQDN, que Coolify sí entrega con el dominio del preview. No se
     # fija ningún número de PR: el validador fail-closed del backend (preview_bootstrap) sigue exigiendo que
@@ -126,17 +129,34 @@ services:
     command: >
       sh -c 'set -eu
              export PREVIEW_PUBLIC_HOST="$${PREVIEW_PUBLIC_HOST:-$${COOLIFY_FQDN:-}}"
-             export DATABASE_URL="postgresql://auditbrain:$(cat /run/secrets/pg_password)@db:5432/auditbrain"
-             export AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD="$(cat /run/secrets/admin_password)"
-             export AUDITBRAIN_API_KEY="$(cat /run/secrets/api_key)"
+             if [ -n "$${AUDITBRAIN_JWT_SECRET:-}$${AUDITBRAIN_API_KEY:-}$${AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD:-}" ]; then
+               echo "preview: credencial heredada del entorno (JWT, API key o admin); el backend no arranca" >&2
+               exit 3
+             fi
+             for f in pg_password admin_password api_key jwt_secret; do
+               [ -s "/run/secrets/$$f" ] || { echo "preview: falta el secreto $$f; el backend no arranca" >&2; exit 3; }
+             done
+             pg=$$(cat /run/secrets/pg_password) || exit 3
+             adm=$$(cat /run/secrets/admin_password) || exit 3
+             key=$$(cat /run/secrets/api_key) || exit 3
+             [ -n "$$pg" ] && [ -n "$$adm" ] && [ -n "$$key" ] || exit 3
+             export DATABASE_URL="postgresql://auditbrain:$$pg@db:5432/auditbrain"
+             export AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD="$$adm"
+             export AUDITBRAIN_API_KEY="$$key"
+             unset pg adm key
              exec uvicorn app:app --host 0.0.0.0 --port 10000'
     environment:
       - SERVICE_FQDN_BACKEND_10000
       - APP_ENV=preview
       # Identidad del PR: única fuente primaria, rellenada por Coolify con el dominio del preview.
       - PREVIEW_PUBLIC_HOST=${SERVICE_FQDN_BACKEND_10000}
-      # La imagen debe corresponder al commit del PR: el backend compara con su BUILD_COMMIT.
-      - PREVIEW_EXPECTED_IMAGE_TAG=${PREVIEW_IMAGE_TAG}
+      # Identidad por commit (F1, hallazgo C-01): Coolify escribe SOURCE_COMMIT (head del PR) en el .env
+      # con el que `docker compose` interpola este archivo. Las imágenes se eligen con ese valor y el
+      # backend exige que su BUILD_COMMIT coincida con SOURCE_COMMIT y con la etiqueta esperada.
+      # SOURCE_COMMIT se declara explícitamente para que el proceso reciba exactamente el valor que
+      # interpoló las imágenes (si Coolify también lo inyecta, es el mismo valor).
+      - SOURCE_COMMIT=${SOURCE_COMMIT:?SOURCE_COMMIT requerido}
+      - PREVIEW_EXPECTED_IMAGE_TAG=sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}
       - PREVIEW_SECRETS_DIR=/run/secrets
       - CLIENT_PORTAL_SESSION_CHECK_ENABLED=false
       - CLIENT_PORTAL_DEVICE_CHECK_ENABLED=false
@@ -178,7 +198,7 @@ services:
       options: { max-size: "5m", max-file: "2" }
 
   consola:
-    image: ghcr.io/jcalupinia/auditbrain-preview-consola:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
+    image: ghcr.io/jcalupinia/auditbrain-preview-consola:sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}
     # Puerto interno declarado para que Coolify reconozca el puerto del dominio (no se publica en el host).
     expose:
       - "80"
@@ -200,7 +220,7 @@ services:
       options: { max-size: "5m", max-file: "2" }
 
   clientes:
-    image: ghcr.io/jcalupinia/auditbrain-preview-clientes:${PREVIEW_IMAGE_TAG:?PREVIEW_IMAGE_TAG obligatoria (sha-<commit del PR>)}
+    image: ghcr.io/jcalupinia/auditbrain-preview-clientes:sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}
     # Puerto interno declarado para que Coolify reconozca el puerto del dominio (no se publica en el host).
     expose:
       - "80"

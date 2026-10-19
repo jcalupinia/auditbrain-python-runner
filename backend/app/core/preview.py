@@ -101,6 +101,17 @@ def preview_pr_number() -> str | None:
     return preview_identity()[1]
 
 
+def preview_provider() -> str | None:
+    """Proveedor del preview ("coolify" o "render") sin lanzar excepciones; None fuera de preview
+    o si la identidad es inválida (en ese caso ``preview_bootstrap`` ya habrá detenido el arranque)."""
+    if not is_preview():
+        return None
+    try:
+        return preview_identity()[0]
+    except PreviewConfigError:
+        return None
+
+
 def cors_origin_regex_for(info: dict) -> str | None:
     """Regex de orígenes CORS anclado al PR del preview; None fuera de preview.
 
@@ -167,24 +178,92 @@ def _check_secrets_dir() -> Path:
     return d
 
 
-def _check_image_commit() -> str | None:
+_SHA40 = re.compile(r"[0-9a-f]{40}")
+
+
+def _check_image_commit(provider: str) -> str:
     """La imagen desplegada debe ser la del commit esperado.
 
-    ``BUILD_COMMIT`` lo fija la imagen al construirse (ARG GIT_SHA). ``PREVIEW_EXPECTED_IMAGE_TAG``
-    llega del Compose (``${PREVIEW_IMAGE_TAG}``) y debe valer ``sha-<BUILD_COMMIT>``. Si además
-    Coolify entrega ``SOURCE_COMMIT``, también debe coincidir.
+    ``BUILD_COMMIT`` lo fija la imagen al construirse (ARG GIT_SHA) y ``PREVIEW_EXPECTED_IMAGE_TAG``
+    llega del Compose como ``sha-${SOURCE_COMMIT}``. En **Coolify** la identidad por commit es
+    estricta (F1): ``SOURCE_COMMIT`` (el head del PR que Coolify escribe en el .env con el que
+    interpola las imágenes) debe ser un SHA de 40 caracteres idéntico a ``BUILD_COMMIT``; ni vacío
+    ni "unknown". En **Render** ``SOURCE_COMMIT`` es opcional (compatibilidad con los previews
+    existentes), pero si llega y no es "unknown" debe coincidir.
     """
     commit = (os.getenv("BUILD_COMMIT") or "").strip().lower()
     tag = (os.getenv("PREVIEW_EXPECTED_IMAGE_TAG") or "").strip().lower()
-    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+    if not _SHA40.fullmatch(commit):
         raise PreviewConfigError("BUILD_COMMIT ausente o inválido en la imagen del backend")
     if tag != f"sha-{commit}":
         raise PreviewConfigError(
             f"la etiqueta esperada ({tag or 'ausente'}) no corresponde al commit de la imagen (sha-{commit[:12]}…)")
     source = (os.getenv("SOURCE_COMMIT") or "").strip().lower()
-    if source and source != "unknown" and source != commit:
-        raise PreviewConfigError("SOURCE_COMMIT de Coolify no coincide con el commit de la imagen")
+    if provider == "coolify":
+        if not _SHA40.fullmatch(source):
+            raise PreviewConfigError(
+                "SOURCE_COMMIT ausente o inválido: Coolify debe entregar el commit del PR (SHA de 40 caracteres)")
+        if source != commit:
+            raise PreviewConfigError(
+                f"SOURCE_COMMIT ({source[:12]}…) no coincide con el commit de la imagen (sha-{commit[:12]}…)")
+    elif source and source != "unknown" and source != commit:
+        raise PreviewConfigError("SOURCE_COMMIT no coincide con el commit de la imagen")
     return commit
+
+
+# Credenciales que un preview de Coolify NUNCA debe recibir heredadas del entorno de la aplicación
+# base ni de variables compartidas (las variables de la app base que el preview no define se heredan).
+# Justificación: el JWT se firma solo con el volumen del PR; el resto son credenciales de proveedores
+# externos (IA, correo, pagos, Canva, OCR, puentes) o apuntan a servicios de producción, y un preview
+# no tiene ningún uso legítimo para ellas. Solo se registran los NOMBRES, nunca los valores.
+FORBIDDEN_INHERITED_IN_COOLIFY_PREVIEW = (
+    "AUDITBRAIN_JWT_SECRET",
+    "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+    "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY", "LOCAL_LLM_API_KEY", "LOCAL_LLM_BASE_URL",
+    "RESEND_API_KEY", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "CANVA_MCP_OAUTH_TOKEN",
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON", "COMFY_BRIDGE_KEY", "COMFY_BRIDGE_URL",
+    "MOTOR_TOKEN_SECRET", "MOTOR_ANALITICO_URL",
+)
+# Identificador del contenedor de la base productiva en Coolify; ningún valor del entorno debe citarlo.
+_PRODUCTION_DB_MARKERS = ("z4wy8ngriiesg6z20n7ftcnj",)
+# Variables cuyo valor legítimamente contiene el dominio base de previews (no se escanean).
+_IDENTITY_VARS = {"PREVIEW_PUBLIC_HOST", "COOLIFY_FQDN", "COOLIFY_URL", "RENDER_EXTERNAL_HOSTNAME"}
+
+
+def _check_no_inherited_secrets(provider: str) -> None:
+    """Fallo cerrado ante credenciales productivas heredadas (solo Coolify; Render usa sus propias).
+
+    Se ejecuta ANTES de cualquier otra comprobación para que un preview mal configurado no llegue a
+    usar esas variables. No imprime valores: solo los nombres de las variables prohibidas presentes.
+    """
+    if provider != "coolify":
+        return
+    presentes = [k for k in FORBIDDEN_INHERITED_IN_COOLIFY_PREVIEW if (os.getenv(k) or "").strip()]
+    if presentes:
+        raise PreviewConfigError(
+            "credenciales heredadas del entorno en un preview de Coolify: " + ", ".join(presentes))
+    sospechosas = []
+    for k, v in os.environ.items():
+        if k in _IDENTITY_VARS or k.startswith("SERVICE_FQDN_") or k.startswith("SERVICE_URL_"):
+            continue
+        low = v.lower()
+        if any(h in low for h in _PRODUCTION_HOSTS) or any(m in low for m in _PRODUCTION_DB_MARKERS):
+            sospechosas.append(k)
+    if sospechosas:
+        raise PreviewConfigError("variables que apuntan a producción en un preview de Coolify: " + ", ".join(sorted(sospechosas)))
+
+
+def _check_runtime_credentials(provider: str) -> None:
+    """Las credenciales de prueba del PR (exportadas por el command desde /run/secrets) no pueden faltar.
+
+    Con ``AUDITBRAIN_API_KEY`` vacía el backend desactivaría la autenticación por API key, y sin
+    contraseña no se crearía el administrador de prueba. Solo Coolify (Render fija las suyas).
+    """
+    if provider != "coolify":
+        return
+    faltan = [k for k in ("AUDITBRAIN_API_KEY", "AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD") if not (os.getenv(k) or "").strip()]
+    if faltan:
+        raise PreviewConfigError("credenciales de prueba del preview ausentes o vacías: " + ", ".join(faltan))
 
 
 def preview_bootstrap(*, exit_on_error: bool = True) -> dict:
@@ -198,10 +277,12 @@ def preview_bootstrap(*, exit_on_error: bool = True) -> dict:
         return {"preview": False}
     try:
         provider, pr = preview_identity()
+        _check_no_inherited_secrets(provider)   # primero: nada heredado de producción (F1, S-06)
         _check_database_url()
         _check_no_production_targets()
         _check_secrets_dir()
-        commit = _check_image_commit()
+        _check_runtime_credentials(provider)    # API key y contraseña de prueba presentes (F1, S-05)
+        commit = _check_image_commit(provider)  # BUILD_COMMIT == SOURCE_COMMIT == etiqueta (F1, C-01)
     except PreviewConfigError as e:
         log.critical("PREVIEW: configuración inválida: %s. El servicio no arranca.", e)
         if exit_on_error:

@@ -1,7 +1,8 @@
 """docker-compose.preview.yml: reglas de aislamiento y de recursos de los previews.
 
-Fija en código las decisiones aprobadas (2026-10-15): un solo preview activo con un
-presupuesto total de memoria <= 1 296 MiB, sin puertos publicados, imágenes por commit
+Fija en código las decisiones aprobadas (2026-10-15, v3 2026-10-19): presupuesto de memoria
+por preview <= 1 296 MiB (el número de previews simultáneos lo decide la admisión dinámica de
+F2 según la capacidad real del host; el antiguo cupo fijo de 1 es obsoleto y el Compose no fija ninguno), sin puertos publicados, imágenes por commit
 exacto del PR (etiqueta obligatoria), secretos generados dentro del preview, ninguna
 variable hacia producción, PostgreSQL 18 montado en /var/lib/postgresql y prioridad de
 producción ante el OOM killer.
@@ -63,13 +64,16 @@ def test_imagenes_por_commit_exacto_y_sin_build_en_el_servidor(compose):
     s = compose["services"]
     for n in ("backend", "consola", "clientes"):
         assert "build" not in s[n], f"{n}: nada se construye en el servidor"
-        assert s[n]["image"].startswith(f"ghcr.io/jcalupinia/auditbrain-preview-{n}:${{PREVIEW_IMAGE_TAG:?")
+        assert s[n]["image"] == f"ghcr.io/jcalupinia/auditbrain-preview-{n}:sha-${{SOURCE_COMMIT:?SOURCE_COMMIT requerido}}"
         assert "auditbrain-preview-" in s[n]["image"], "los paquetes públicos antiguos auditbrain-<svc> no se reutilizan"
     assert s["db"]["image"] == "postgres:18-alpine"
     assert s["init"]["image"].startswith("alpine:")
     env = _env(s["backend"])
-    assert env["PREVIEW_EXPECTED_IMAGE_TAG"] == "${PREVIEW_IMAGE_TAG}"
-    assert "SOURCE_COMMIT" not in " ".join(s["backend"]["image"] for _ in [0]), "no se confía en SOURCE_COMMIT"
+    # Identidad por commit (F1): la etiqueta esperada y SOURCE_COMMIT llegan del mismo valor que interpoló las imágenes.
+    assert env["PREVIEW_EXPECTED_IMAGE_TAG"] == "sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}"
+    assert env["SOURCE_COMMIT"] == "${SOURCE_COMMIT:?SOURCE_COMMIT requerido}"
+    assert "PREVIEW_IMAGE_TAG" not in COMPOSE.read_text(encoding="utf-8"), "la variable compartida de Coolify ya no se usa"
+    assert "latest" not in " ".join(s[n]["image"] for n in ("backend", "consola", "clientes"))
 
 
 def test_identidad_del_pr_desde_la_variable_magica_correcta(compose):
@@ -89,7 +93,9 @@ def test_secretos_dentro_del_preview_y_nunca_de_coolify(compose):
         env = _env(svc)
         volcado = " ".join([*env.keys(), *map(str, env.values()), str(svc.get("command", ""))])
         assert "SERVICE_PASSWORD" not in volcado, f"{nombre}: SERVICE_PASSWORD_* se comparte entre previews"
-        assert "AUDITBRAIN_JWT_SECRET" not in volcado, f"{nombre}: el secreto JWT no va por variables"
+        # El secreto JWT nunca va por variables de entorno (el command solo lo menciona para RECHAZARLO si llega heredado).
+        assert "AUDITBRAIN_JWT_SECRET" not in env, f"{nombre}: el secreto JWT no va por variables"
+        assert "AUDITBRAIN_JWT_SECRET=" not in str(svc.get("command", "")), f"{nombre}: el command no define el secreto JWT"
     assert s["db"]["environment"]["POSTGRES_PASSWORD_FILE"] == "/run/secrets/pg_password"
     assert "secrets:/run/secrets:ro" in s["db"]["volumes"] and "secrets:/run/secrets:ro" in s["backend"]["volumes"]
     assert s["db"]["depends_on"]["init"]["condition"] == "service_healthy"
@@ -98,6 +104,7 @@ def test_secretos_dentro_del_preview_y_nunca_de_coolify(compose):
     assert s["backend"]["depends_on"]["db"]["condition"] == "service_healthy"
     assert _env(s["backend"])["PREVIEW_SECRETS_DIR"] == "/run/secrets"
     assert "cat /run/secrets/pg_password" in s["backend"]["command"] and "@db:5432/auditbrain" in s["backend"]["command"]
+    assert "postgresql://auditbrain:$$pg@db:5432/auditbrain" in s["backend"]["command"], "el host de la base es exclusivamente db"
 
 
 def test_postgres_18_monta_el_volumen_en_var_lib_postgresql(compose):
@@ -182,12 +189,18 @@ def test_t2_sin_variables_compartidas_de_credenciales(compose):
     assert "AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD" not in env and "AUDITBRAIN_API_KEY" not in env
     cmd = s["backend"]["command"]
     assert "set -eu" in cmd
-    assert 'export AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD="$(cat /run/secrets/admin_password)"' in cmd
-    assert 'export AUDITBRAIN_API_KEY="$(cat /run/secrets/api_key)"' in cmd
+    # F1 (S-05): nunca `export VAR="$(cat f)"` (ocultaría el fallo de cat); lectura independiente y luego export.
+    assert not re.search(r'export [A-Z_]+="\$\$?\(cat ', cmd), "export con sustitución de comandos: el fallo de cat quedaría oculto"
+    for var, archivo in (("pg", "pg_password"), ("adm", "admin_password"), ("key", "api_key")):
+        assert f"{var}=$$(cat /run/secrets/{archivo}) || exit 3" in cmd
+    assert 'export AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD="$$adm"' in cmd and 'export AUDITBRAIN_API_KEY="$$key"' in cmd
+    assert "for f in pg_password admin_password api_key jwt_secret" in cmd and '[ -s "/run/secrets/$$f" ]' in cmd
+    assert "AUDITBRAIN_JWT_SECRET:-" in cmd and "exit 3" in cmd, "rechaza credenciales heredadas antes de sobrescribirlas"
+    assert "set -x" not in cmd and "echo $$" not in cmd and 'echo "$$' not in cmd, "el guion no imprime valores"
     assert env["AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL"] == ADMIN_EMAIL_PREVIEW
     # La única variable obligatoria (:?) que queda es la etiqueta de la imagen.
     sin_comentarios = "\n".join(l for l in COMPOSE.read_text(encoding="utf-8").splitlines() if not l.lstrip().startswith("#"))
-    assert set(re.findall(r"\$\{([A-Z_]+):\?", sin_comentarios)) == {"PREVIEW_IMAGE_TAG"}
+    assert set(re.findall(r"\$\{([A-Z_]+):\?", sin_comentarios)) == {"SOURCE_COMMIT"}
 
 
 def test_t3_nombres_reales_de_las_variables_del_backend(compose):
@@ -256,6 +269,50 @@ def test_t6_ningun_archivo_imprime_secretos():
     for f in archivos:
         for n, linea in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
             if patron_lectura.search(linea):
-                # Única lectura permitida: el export del command del backend en el Compose.
-                assert f == COMPOSE and "export " in linea and "$(cat /run/secrets/" in linea, f"{f.name}:{n} lee un secreto fuera del export del backend"
+                # Única lectura permitida: las asignaciones independientes del command del backend en el Compose.
+                assert f == COMPOSE and re.fullmatch(r"\s*(pg|adm|key)=\$\$\(cat /run/secrets/[a-z_]+\) \|\| exit 3", linea), f"{f.name}:{n} lee un secreto fuera de las asignaciones del backend"
             assert not re.search(r"echo\s+\"?\$s\b", linea), f"{f.name}:{n} imprime el valor generado"
+
+
+# ---------------------------------------------------------------------------------------
+# F1 v3 — el código del PR no controla privilegios del despliegue (A-09) y sin máximo fijo
+# ---------------------------------------------------------------------------------------
+_CLAVES_PRIVILEGIADAS = ("privileged", "cap_add", "network_mode", "pid", "ipc", "userns_mode", "security_opt",
+                         "devices", "sysctls", "ports", "extra_hosts", "cgroup_parent", "runtime", "uts")
+
+
+def test_compose_sin_privilegios_ni_acceso_al_host(compose):
+    """Ningún servicio puede escalar privilegios ni tocar el host: sin privileged, socket de Docker,
+    red/PID del host, puertos publicados ni montajes del sistema de archivos del host."""
+    for nombre, svc in compose["services"].items():
+        for clave in _CLAVES_PRIVILEGIADAS:
+            assert clave not in svc, f"{nombre}: clave '{clave}' no permitida en un preview"
+        for v in svc.get("volumes", []) or []:
+            origen = v["source"] if isinstance(v, dict) else str(v).split(":")[0]
+            assert not origen.startswith(("/", "./", "../", "~")), f"{nombre}: montaje del host no permitido ({origen})"
+            assert origen in compose["volumes"], f"{nombre}: solo volúmenes nombrados declarados ({origen})"
+            assert "docker.sock" not in str(v)
+        assert "user" not in svc or svc["user"] != "root"
+    texto = COMPOSE.read_text(encoding="utf-8")
+    assert "/var/run/docker.sock" not in texto and "privileged" not in texto.replace("# ", "")
+
+
+def test_compose_sin_maximo_fijo_de_previews(compose):
+    """La concurrencia la decide la admisión dinámica (F2); el Compose no fija cupos ni réplicas."""
+    texto = COMPOSE.read_text(encoding="utf-8")
+    assert "MAX_ACTIVE_PREVIEWS" not in texto
+    for nombre, svc in compose["services"].items():
+        assert "deploy" not in svc or "replicas" not in svc["deploy"], f"{nombre}: sin réplicas fijas"
+    # El presupuesto de memoria es POR preview; es el dato de entrada de la admisión dinámica.
+    assert sum(_mib(v["mem_limit"]) for v in compose["services"].values()) == PRESUPUESTO_MIB
+
+
+def test_compose_sin_secretos_en_environment(compose):
+    """Ningún valor del bloque environment es una credencial: las de prueba llegan por volumen y las
+    únicas referencias ${…} son la identidad (SERVICE_FQDN_*, SOURCE_COMMIT)."""
+    sospechosas = ("KEY", "SECRET", "PASSWORD", "TOKEN")
+    for nombre, svc in compose["services"].items():
+        for k, v in _env(svc).items():
+            if any(s in k for s in sospechosas) and not k.endswith(("_FILE", "_DIR")):  # rutas a archivos, no valores
+                assert v == "", f"{nombre}: {k} lleva un valor en environment"
+            assert "ghp_" not in v and "sk-" not in v

@@ -28,6 +28,9 @@ on:
       - backend/app/core/preview.py
       - backend/app/core/hostnames.py
       - .github/workflows/preview-*.yml
+      - backend/app/auth/jwt_tokens.py
+      - tests/test_preview_compose.py
+      - tests/test_preview_env.py
   workflow_dispatch: {}
 
 concurrency:
@@ -46,19 +49,34 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validar el Compose con valores ficticios (no se levanta nada)
         env:
-          PREVIEW_IMAGE_TAG: sha-0000000000000000000000000000000000000000
+          SOURCE_COMMIT: "0000000000000000000000000000000000000000"
           SERVICE_FQDN_BACKEND_10000: 0.api.preview.audit-ia.ec
           SERVICE_FQDN_CONSOLA_80: 0.consola.preview.audit-ia.ec
           SERVICE_FQDN_CLIENTES_80: 0.clientes.preview.audit-ia.ec
         run: |
           docker compose -f docker-compose.preview.yml config -q
-          docker compose -f docker-compose.preview.yml config | tee /tmp/compose-resuelto.yml | head -c 0
+          # Redirección directa (no `tee … | head -c 0`: cerrar la tubería antes de tiempo dejaba el archivo vacío)
+          docker compose -f docker-compose.preview.yml config > /tmp/compose-resuelto.yml
           echo "Servicios:"; docker compose -f docker-compose.preview.yml config --services
-          # Fallo seguro: sin PREVIEW_IMAGE_TAG el Compose debe rechazarse
-          if PREVIEW_IMAGE_TAG= docker compose -f docker-compose.preview.yml config -q 2>/dev/null; then
-            echo "ERROR: el Compose aceptó PREVIEW_IMAGE_TAG vacío"; exit 1; fi
-          echo "OK: PREVIEW_IMAGE_TAG vacío es rechazado"
-          grep -q 'ghcr.io/jcalupinia/auditbrain-preview-backend:sha-0000' /tmp/compose-resuelto.yml
+          # Identidad por commit (F1): las tres imágenes salen de SOURCE_COMMIT, no de una variable compartida
+          docker compose -f docker-compose.preview.yml config --images | tee /tmp/imagenes.txt
+          for s in backend consola clientes; do
+            grep -qx "ghcr.io/jcalupinia/auditbrain-preview-$s:sha-0000000000000000000000000000000000000000" /tmp/imagenes.txt \
+              || { echo "ERROR: la imagen de $s no sale de SOURCE_COMMIT"; exit 1; }
+          done
+          # Fallo seguro: sin SOURCE_COMMIT (ausente o vacío) el Compose debe rechazarse
+          if env -u SOURCE_COMMIT docker compose -f docker-compose.preview.yml config -q 2>/dev/null; then
+            echo "ERROR: el Compose aceptó SOURCE_COMMIT ausente"; exit 1; fi
+          if env SOURCE_COMMIT= docker compose -f docker-compose.preview.yml config -q 2>/dev/null; then
+            echo "ERROR: el Compose aceptó SOURCE_COMMIT vacío"; exit 1; fi
+          echo "OK: SOURCE_COMMIT ausente o vacío es rechazado"
+          if grep -q 'PREVIEW_IMAGE_TAG' /tmp/compose-resuelto.yml; then
+            echo "ERROR: el Compose aún referencia PREVIEW_IMAGE_TAG"; exit 1; fi
+          grep -q 'PREVIEW_EXPECTED_IMAGE_TAG: sha-0000000000000000000000000000000000000000' /tmp/compose-resuelto.yml
+          grep -q 'SOURCE_COMMIT: "0000000000000000000000000000000000000000"' /tmp/compose-resuelto.yml \
+            || grep -q "SOURCE_COMMIT: '0000000000000000000000000000000000000000'" /tmp/compose-resuelto.yml \
+            || grep -q 'SOURCE_COMMIT: 0000000000000000000000000000000000000000' /tmp/compose-resuelto.yml
+          echo "OK: SOURCE_COMMIT y PREVIEW_EXPECTED_IMAGE_TAG llegan al entorno del backend"
           # Credenciales de prueba exclusivas por PR: el Compose ya no depende de variables compartidas de Coolify
           if grep -E 'PREVIEW_ADMIN_(EMAIL|PASSWORD)|PREVIEW_API_KEY' /tmp/compose-resuelto.yml; then
             echo "ERROR: el Compose aún referencia variables compartidas de credenciales"; exit 1; fi
@@ -73,7 +91,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Ejecutar el command real de init en alpine:3.20 (nada se publica ni se despliega)
         env:
-          PREVIEW_IMAGE_TAG: sha-0000000000000000000000000000000000000000
+          SOURCE_COMMIT: "0000000000000000000000000000000000000000"
           SERVICE_FQDN_BACKEND_10000: 0.api.preview.audit-ia.ec
           SERVICE_FQDN_CONSOLA_80: 0.consola.preview.audit-ia.ec
           SERVICE_FQDN_CLIENTES_80: 0.clientes.preview.audit-ia.ec
