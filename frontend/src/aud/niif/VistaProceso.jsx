@@ -6,8 +6,9 @@ import * as api from "../../api";
 import { Ejecucion } from "./CicloEjecucion";
 import { Revision } from "./CicloRevision";
 import { ChipDocumento, MapeoManual, VistaTrabajo } from "./CicloVista";
+import { estadoTributario, textoTributarioInicial } from "./cicloLogic";
 import { PENDIENTE_MAPEO, prepararBaseTecnica, producir, producirBespoke, revisarColumnas } from "./cicloOrquestacion";
-import { despacharMensajeNomina } from "./nominaPanelBridge";
+import { despacharMensajeNomina, motivoSinCarga, necesitaPrepararParaCargar } from "./nominaPanelBridge";
 import {
   avanceCarga,
   estaProcesada,
@@ -253,6 +254,12 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   // Evita re-disparar la preparación automática del requerimiento (nómina lo necesita para que la
   // carga de archivos desde el panel funcione) en cada render mientras aún no existe.
   const prepReqNominaRef = useRef(false);
+  // Prueba creada con «Incluye tratamiento tributario»: el servidor exige el texto revisado y la
+  // conformidad del auditor antes de aprobar el programa. La vista de nómina no tenía dónde darla.
+  const [taxScope, setTaxScope] = useState(() => textoTributarioInicial(reg, d));
+  const [taxConforme, setTaxConforme] = useState(false);
+  const pideTributario = esPanel && !!reg.taxApplicable;
+  const gateTrib = estadoTributario(pideTributario, taxScope, taxConforme);
   // Ventana del panel de nómina abierta (pestaña nueva con blob URL): se guarda para poder
   // regenerarlo en la MISMA ventana tras procesar/encerar. El ref de procesar siempre apunta a
   // la versión fresca de la función (evita el closure viejo del listener de `message`).
@@ -290,7 +297,7 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
     }
   }
 
-  const prepararRequerimiento = () => correr(() => prepararBaseTecnica(prueba));
+  const prepararRequerimiento = () => correr(() => prepararBaseTecnica(prueba, { taxScope, taxConforme }));
 
   // Reabre la etapa de datos para corregir/reemplazar un documento ya cargado cuando la
   // prueba ya se procesó (el borrado directo con ✕ solo está disponible en la ventana de
@@ -585,7 +592,23 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
     if (!prueba.id || !req || !files?.length) return;
     setTrabajando(true); setError(""); setAviso("");
     try {
-      let rev = (await api.cicloLeerPrueba(prueba.id)).revision;
+      let fresca = await api.cicloLeerPrueba(prueba.id);
+      // El servidor solo acepta archivos con el requerimiento aprobado. Si la prueba está antes
+      // (programa sin aprobar, requerimiento sin generar o sin aprobar), se completa aquí mismo la
+      // misma cadena del botón «Confirmar base técnica»; si falla, se muestra el motivo real.
+      if (necesitaPrepararParaCargar(fresca.estado)) {
+        setAviso("Preparando el requerimiento de documentos…");
+        try {
+          if (!gateTrib.ok) throw new Error(gateTrib.motivo);
+          fresca = await prepararBaseTecnica(fresca, { taxScope, taxConforme });
+        } catch (e) {
+          throw new Error(`No se pudo preparar el requerimiento de documentos: ${e.message || String(e)}`);
+        }
+        setAviso("");
+      }
+      const motivo = motivoSinCarga(fresca.estado);
+      if (motivo) throw new Error(motivo);
+      let rev = fresca.revision;
       const fallos = [];
       for (const archivo of files) {
         try {
@@ -665,13 +688,16 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
   // prueba. Como el panel ES la vista (sin el botón «Preparar requerimiento» del flujo genérico), se
   // prepara una sola vez, en automático, cuando aún no existe. El ref evita repetirlo en cada render.
   useEffect(() => {
-    if (esPanel && prueba.id && !conRequerimiento && !bloqueado && !prepReqNominaRef.current) {
+    // Por ETAPA (no por la existencia de requerimientos: uno generado pero sin aprobar también
+    // bloquea la carga) y reintentando cuando la vista deja de estar ocupada.
+    const pendiente = necesitaPrepararParaCargar(estado);
+    if (esPanel && prueba.id && pendiente && gateTrib.ok && !bloqueado && !prepReqNominaRef.current) {
       prepReqNominaRef.current = true;
       prepararRequerimiento();
     }
-    if (conRequerimiento) prepReqNominaRef.current = false;
+    if (!pendiente) prepReqNominaRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [esPanel, prueba.id, conRequerimiento]);
+  }, [esPanel, prueba.id, estado, bloqueado, gateTrib.ok]);
 
   // El panel de nómina (incrustado en un iframe o abierto en pestaña aparte) postea acciones por
   // postMessage a su parent/opener: descargar una cédula, procesar (motor real), encerar, cargar o
@@ -778,10 +804,30 @@ export default function VistaProceso({ config, prueba, onAccion, onRecargar, ocu
               <span className="nf-ef-aviso" style={{ margin: 0 }}>
                 Trabaje la prueba en el panel: cargue los requerimientos, procese y revise las cédulas aquí mismo.
               </span>
+              {necesitaPrepararParaCargar(estado) && (
+                <button type="button" className="nf-ef-btn accent" disabled={bloqueado || !gateTrib.ok} onClick={prepararRequerimiento}
+                  title="Aprueba el programa y el requerimiento para habilitar la carga de archivos">
+                  {trabajando ? "Preparando…" : "Habilitar la carga de documentos"}
+                </button>
+              )}
               <button type="button" className="nf-ef-btn" onClick={abrirPanelNomina} title="Abrir el panel completo en una pestaña nueva">
                 Abrir en pestaña aparte ↗
               </button>
             </div>
+            {pideTributario && necesitaPrepararParaCargar(estado) && (
+              <div className="nf-tributario" style={{ marginBottom: 12 }}>
+                <label className="nf-ctx-field">
+                  Tratamiento tributario revisado y su sustento
+                  <small className="muted"> Esta prueba se creó con «Incluye tratamiento tributario». Revise el texto, confírmelo contra la fuente oficial y marque la casilla para habilitar la carga de documentos.</small>
+                  <textarea rows={4} value={taxScope} onChange={(e) => setTaxScope(e.target.value)} />
+                </label>
+                <label className="nf-ctx-check">
+                  <input type="checkbox" checked={!!taxConforme} onChange={(e) => setTaxConforme(e.target.checked)} />{" "}
+                  Revisé la base legal sugerida y estoy conforme.
+                </label>
+                {!gateTrib.ok && <p className="nf-error" role="status">Para habilitar la carga: {gateTrib.motivo}</p>}
+              </div>
+            )}
             {cargandoPanel && !panelHTML && <p className="nf-ef-aviso">Cargando el panel…</p>}
             {panelHTML && (
               <iframe

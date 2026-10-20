@@ -3,7 +3,7 @@
 // NO borra en silencio (solo dispara la confirmación) y que un mensaje ajeno no hace nada.
 import { describe, expect, it, vi } from "vitest";
 
-import { MENSAJES_NOMINA, despacharMensajeNomina } from "./nominaPanelBridge";
+import { MENSAJES_NOMINA, despacharMensajeNomina, motivoSinCarga, necesitaPrepararParaCargar } from "./nominaPanelBridge";
 
 describe("nominaPanelBridge · despacho de acciones del panel", () => {
   const handlers = () => ({ descargar: vi.fn(), procesar: vi.fn(), encerar: vi.fn(), guardarDo1: vi.fn(), subir: vi.fn(), borrar: vi.fn() });
@@ -93,5 +93,23 @@ describe("nominaPanelBridge · despacho de acciones del panel", () => {
   it("handlers opcionales: no revienta si falta uno", () => {
     expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.PROCESAR }, {})).toBe("procesar");
     expect(despacharMensajeNomina({ type: MENSAJES_NOMINA.ENCERAR })).toBe("encerar");
+  });
+});
+
+describe("nominaPanelBridge · carga según la etapa de la prueba", () => {
+  it("prepara el requerimiento antes de subir en las etapas previas", () => {
+    for (const e of ["PRUEBA_SELECCIONADA", "PROGRAMA_PROPUESTO", "PROGRAMA_APROBADO", "REQUERIMIENTO_GENERADO"]) {
+      expect(necesitaPrepararParaCargar(e)).toBe(true);
+    }
+  });
+  it("no prepara en las etapas que ya admiten carga ni en las posteriores", () => {
+    for (const e of ["REQUERIMIENTO_APROBADO", "DOCUMENTACION_RECIBIDA", "INFORMACION_APROBADA", "PRUEBA_EJECUTADA", "APROBADO"]) {
+      expect(necesitaPrepararParaCargar(e)).toBe(false);
+    }
+  });
+  it("explica por qué no se puede cargar", () => {
+    expect(motivoSinCarga("REQUERIMIENTO_APROBADO")).toBe("");
+    expect(motivoSinCarga("PROGRAMA_PROPUESTO")).toMatch(/requerimiento de documentos/);
+    expect(motivoSinCarga("PRUEBA_EJECUTADA")).toMatch(/Corregir documentos/);
   });
 });
