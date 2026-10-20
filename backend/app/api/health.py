@@ -20,12 +20,32 @@ disponibilidad con ``module_installed(...)``, jamás con ``import``.
 """
 
 import datetime
+import hmac
+import os
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 
 from backend.app.core.config import settings
 
 router = APIRouter(tags=["platform"])
+
+
+@router.get("/host-capacity", include_in_schema=False)
+async def host_capacity(request: Request):
+    """Capacidad agregada del host para la admisión dinámica de previews (docs/previews-coolify.md §11).
+
+    Solo existe si el entorno define PREVIEW_CAPACITY_TOKEN (si no, 404: la función está apagada) y exige ese
+    mismo valor en la cabecera X-Capacity-Token (comparación en tiempo constante). Devuelve números agregados
+    del host (RAM disponible sin swap, swap usada, PSI de memoria, carga, CPU, disco); nada sensible.
+    """
+    esperado = (os.getenv("PREVIEW_CAPACITY_TOKEN") or "").strip()
+    if len(esperado) < 24:
+        raise HTTPException(status_code=404)
+    recibido = request.headers.get("X-Capacity-Token", "")
+    if not hmac.compare_digest(recibido.encode(), esperado.encode()):
+        raise HTTPException(status_code=401, detail="token de capacidad inválido")
+    from backend.app.core.host_capacity import host_capacity_snapshot
+    return host_capacity_snapshot()
 
 
 def _llm_providers() -> dict:
