@@ -38,10 +38,23 @@ services:
     # valores) y atómico (archivo temporal + mv), con umask 077 y chmod 600. No imprime ningún valor.
     # Las variables del shell van como `$$` porque Docker Compose interpola `$var`/`${…}` en `command`
     # y `healthcheck` (`${#s}` lo rechaza y `$f` quedaría vacío en silencio).
+    # Puerta de identidad (incidente del redespliegue del 2026-10-20): antes de generar nada, init exige que
+    # la etiqueta con la que se eligieron las imágenes sea `sha-<40 hex>` y, si el entorno trae SOURCE_COMMIT
+    # (Coolify lo inyecta por `env_file: .env`), que coincida con esa etiqueta. db depende de init y backend
+    # de db; consola y clientes también dependen de init: con un SHA ausente, inválido o contradictorio no
+    # arranca ningún servicio del preview.
+    environment:
+      # El valor NO empieza por `$` a propósito: el analizador de Coolify (parseDockerComposeFile) convierte en
+      # variable de la aplicación cualquier entrada de `environment` cuyo valor empiece por `$`, tomando el
+      # texto tras `:?`/`:-` como valor; `sha-${…}` queda fuera de esa regla y lo interpola docker compose.
+      - PREVIEW_EXPECTED_IMAGE_TAG=sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}
     command: >
       sh -c '
         set -eu
         umask 077
+        tag="$${PREVIEW_EXPECTED_IMAGE_TAG:-}"
+        printf "%s" "$$tag" | grep -Eq "^sha-[0-9a-f]{40}$$" || { echo "init: etiqueta de imagen invalida (se esperaba sha-<40 hex>); revisar SOURCE_COMMIT y que la aplicacion no tenga una variable SOURCE_COMMIT en Coolify" >&2; exit 1; }
+        [ -z "$${SOURCE_COMMIT:-}" ] || [ "sha-$$SOURCE_COMMIT" = "$$tag" ] || { echo "init: SOURCE_COMMIT del entorno contradice la etiqueta de las imagenes; el preview no arranca" >&2; exit 1; }
         mkdir -p /secrets && chmod 700 /secrets
         gen() {
           [ -s "/secrets/$$1" ] && return 0
@@ -151,11 +164,16 @@ services:
       # Identidad del PR: única fuente primaria, rellenada por Coolify con el dominio del preview.
       - PREVIEW_PUBLIC_HOST=${SERVICE_FQDN_BACKEND_10000}
       # Identidad por commit (F1, hallazgo C-01): Coolify escribe SOURCE_COMMIT (head del PR) en el .env
-      # con el que `docker compose` interpola este archivo. Las imágenes se eligen con ese valor y el
-      # backend exige que su BUILD_COMMIT coincida con SOURCE_COMMIT y con la etiqueta esperada.
-      # SOURCE_COMMIT se declara explícitamente para que el proceso reciba exactamente el valor que
-      # interpoló las imágenes (si Coolify también lo inyecta, es el mismo valor).
-      - SOURCE_COMMIT=${SOURCE_COMMIT:?SOURCE_COMMIT requerido}
+      # con el que `docker compose` interpola este archivo y que además adjunta a TODOS los servicios como
+      # `env_file: .env` (ApplicationDeploymentJob, Coolify 4.4.6): por eso el proceso recibe SOURCE_COMMIT
+      # SIN declararlo aquí. El backend exige que su BUILD_COMMIT coincida con SOURCE_COMMIT y con la
+      # etiqueta esperada.
+      # PROHIBIDO volver a escribir `- SOURCE_COMMIT=${SOURCE_COMMIT:?…}` (ni ninguna entrada cuyo valor
+      # empiece por `$` salvo las mágicas SERVICE_*): el analizador de Coolify (parseDockerComposeFile)
+      # convierte esa entrada en una variable de la aplicación con el texto tras `:?` como valor
+      # («SOURCE_COMMIT requerido»), la vuelca al final del .env del preview y, como la última línea gana,
+      # las imágenes se resolvieron como `sha-SOURCE_COMMIT requerido` (redespliegue fallido del 2026-10-20).
+      # `sha-${…}` no empieza por `$`, así que el analizador la deja pasar y la interpola docker compose.
       - PREVIEW_EXPECTED_IMAGE_TAG=sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}
       - PREVIEW_SECRETS_DIR=/run/secrets
       - CLIENT_PORTAL_SESSION_CHECK_ENABLED=false
@@ -204,6 +222,9 @@ services:
       - "80"
     environment:
       - SERVICE_FQDN_CONSOLA_80
+    depends_on:
+      init:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/build-info.json"]
       interval: 15s
@@ -226,6 +247,9 @@ services:
       - "80"
     environment:
       - SERVICE_FQDN_CLIENTES_80
+    depends_on:
+      init:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/build-info.json"]
       interval: 15s

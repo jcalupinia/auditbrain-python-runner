@@ -69,9 +69,11 @@ def test_imagenes_por_commit_exacto_y_sin_build_en_el_servidor(compose):
     assert s["db"]["image"] == "postgres:18-alpine"
     assert s["init"]["image"].startswith("alpine:")
     env = _env(s["backend"])
-    # Identidad por commit (F1): la etiqueta esperada y SOURCE_COMMIT llegan del mismo valor que interpoló las imágenes.
+    # Identidad por commit (F1): la etiqueta esperada llega del mismo valor que interpoló las imágenes. SOURCE_COMMIT
+    # NO se declara: lo adjunta Coolify a todos los servicios por `env_file: .env` (ver test_regresion_analizador_coolify…).
     assert env["PREVIEW_EXPECTED_IMAGE_TAG"] == "sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}"
-    assert env["SOURCE_COMMIT"] == "${SOURCE_COMMIT:?SOURCE_COMMIT requerido}"
+    assert "SOURCE_COMMIT" not in env, "declararla con ${SOURCE_COMMIT:?…} hace que el analizador de Coolify cree la variable obsoleta"
+    assert _env(s["init"])["PREVIEW_EXPECTED_IMAGE_TAG"] == "sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}"
     assert "PREVIEW_IMAGE_TAG" not in COMPOSE.read_text(encoding="utf-8"), "la variable compartida de Coolify ya no se usa"
     assert "latest" not in " ".join(s[n]["image"] for n in ("backend", "consola", "clientes"))
 
@@ -235,7 +237,8 @@ def test_t5_generador_local_idempotente_e_independiente(compose, tmp_path):
     script.write_text(guion, encoding="utf-8")
 
     def correr(vol: Path) -> str:
-        env = dict(os.environ, SECRETS=str(vol).replace("\\", "/"))
+        # Puerta de identidad (2026-10-20): init exige la etiqueta sha-<40 hex> antes de generar nada.
+        env = dict(os.environ, SECRETS=str(vol).replace("\\", "/"), PREVIEW_EXPECTED_IMAGE_TAG="sha-" + "0" * 40)
         r = subprocess.run(["sh", str(script).replace("\\", "/")], env=env, capture_output=True, text=True, timeout=60)
         assert r.returncode == 0, r.stderr
         return r.stdout + r.stderr
@@ -316,3 +319,155 @@ def test_compose_sin_secretos_en_environment(compose):
             if any(s in k for s in sospechosas) and not k.endswith(("_FILE", "_DIR")):  # rutas a archivos, no valores
                 assert v == "", f"{nombre}: {k} lleva un valor en environment"
             assert "ghp_" not in v and "sk-" not in v
+
+
+# --- Regresión del redespliegue fallido del 2026-10-20: analizador de Coolify y resolución de imágenes --------------
+# Coolify 4.4.6 (`bootstrap/helpers/shared.php`, parseDockerComposeFile, ~líneas 4133-4228) recorre las entradas de
+# `environment` de cada servicio: si el VALOR empieza por `$`, crea una variable de la aplicación con la clave de
+# dentro de `${…}` y, como valor, el texto que sigue a `:-`, `-`, `:?` o `?`. Al desplegar, esa variable entra al
+# FINAL del .env del preview (fallback de producción) y, como la última línea gana, `${SOURCE_COMMIT:?…}` se resolvió
+# como «SOURCE_COMMIT requerido» => imágenes `…:sha-SOURCE_COMMIT requerido` => `invalid reference format`.
+import os
+import re
+import shutil
+import subprocess
+
+
+def _simular_analizador_coolify(compose: dict) -> list:
+    """Réplica de la regla de parseDockerComposeFile: devuelve (servicio, clave, valor) por cada variable que
+    Coolify crearía a partir de `environment`. Las mágicas ${SERVICE_FQDN_*}/${SERVICE_URL_*} siguen otra rama."""
+    creadas = []
+    for nombre, svc in compose["services"].items():
+        for _k, v in _env(svc).items():
+            if not v.startswith("$"):
+                continue
+            interior = v[2:-1] if v.startswith("${") and v.endswith("}") else v[1:]
+            if interior.startswith("SERVICE_"):
+                continue
+            for sep in (":-", "-", ":?", "?"):  # mismo orden que el código PHP
+                if sep in interior:
+                    clave, valor = interior.split(sep, 1)
+                    break
+            else:
+                clave, valor = interior, None
+            creadas.append((nombre, clave, valor))
+    return creadas
+
+
+def test_regresion_analizador_coolify_no_crea_variables_desde_environment(compose):
+    """Ninguna entrada de environment empieza por `$` salvo las mágicas: Coolify no debe crear variable alguna."""
+    assert _simular_analizador_coolify(compose) == []
+    for nombre, svc in compose["services"].items():
+        for k, v in _env(svc).items():
+            assert not (k == "SOURCE_COMMIT" or v.startswith("${SOURCE_COMMIT")), f"{nombre}: {k}={v} recrearía el incidente"
+
+
+def test_regresion_el_compose_f1_original_si_creaba_la_variable_obsoleta():
+    """La simulación reproduce el incidente: el Compose de abc9d4b8 creaba SOURCE_COMMIT="SOURCE_COMMIT requerido"."""
+    roto = {"services": {"backend": {"environment": [
+        "SOURCE_COMMIT=${SOURCE_COMMIT:?SOURCE_COMMIT requerido}",
+        "PREVIEW_EXPECTED_IMAGE_TAG=sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}",
+        "PREVIEW_PUBLIC_HOST=${SERVICE_FQDN_BACKEND_10000}",
+    ]}}}
+    assert _simular_analizador_coolify(roto) == [("backend", "SOURCE_COMMIT", "SOURCE_COMMIT requerido")]
+
+
+def test_init_es_la_puerta_de_identidad_y_todos_dependen_de_init(compose):
+    s = compose["services"]
+    cmd = s["init"]["command"]
+    assert 'grep -Eq "^sha-[0-9a-f]{40}$$"' in cmd
+    assert '[ "sha-$$SOURCE_COMMIT" = "$$tag" ]' in cmd
+    assert cmd.index("grep -Eq") < cmd.index("mkdir -p /secrets"), "la puerta va antes de generar nada"
+    assert s["db"]["depends_on"]["init"]["condition"] == "service_healthy"
+    assert s["backend"]["depends_on"]["db"]["condition"] == "service_healthy"
+    for n in ("consola", "clientes"):
+        assert s[n]["depends_on"]["init"]["condition"] == "service_healthy", f"{n} debe esperar la puerta de init"
+    # Variables del shell escapadas como `$$` (Compose vaciaría en silencio un `$var` sin escapar).
+    assert not re.findall(r"(?<![$])[$](?![$(])(?:[{][^}]*[}]|[A-Za-z_0-9#]+)", cmd)
+
+
+_SH = shutil.which("sh")
+
+
+def _guion_init(compose: dict, secretos_dir) -> str:
+    """El guion real de init (`_script_init`) con /secrets redirigido a un directorio temporal."""
+    return _script_init(compose).replace("/secrets", str(secretos_dir).replace("\\", "/"))
+
+
+def _correr_init(compose, raiz, **env):
+    e = {k: v for k, v in os.environ.items() if k not in ("PREVIEW_EXPECTED_IMAGE_TAG", "SOURCE_COMMIT")}
+    e.update(env)
+    return subprocess.run([_SH, "-c", _guion_init(compose, raiz / "secrets")], env=e, capture_output=True, text=True, timeout=120)
+
+
+@pytest.mark.skipif(_SH is None, reason="requiere sh POSIX")
+@pytest.mark.parametrize("tag", ["", "sha-SOURCE_COMMIT requerido", "sha-" + "0" * 39, "latest", "sha-" + "g" * 40, "SHA-" + "0" * 40])
+def test_init_rechaza_etiqueta_ausente_o_invalida_sin_generar_nada(compose, tmp_path, tag):
+    r = _correr_init(compose, tmp_path, PREVIEW_EXPECTED_IMAGE_TAG=tag)
+    assert r.returncode == 1 and "etiqueta de imagen invalida" in r.stderr, (r.returncode, r.stderr)
+    assert not (tmp_path / "secrets").exists(), "no debe generar secretos con una etiqueta inválida"
+
+
+@pytest.mark.skipif(_SH is None, reason="requiere sh POSIX")
+def test_init_rechaza_source_commit_contradictorio(compose, tmp_path):
+    r = _correr_init(compose, tmp_path, PREVIEW_EXPECTED_IMAGE_TAG="sha-" + "a" * 40, SOURCE_COMMIT="b" * 40)
+    assert r.returncode == 1 and "contradice la etiqueta" in r.stderr, (r.returncode, r.stderr)
+    assert not (tmp_path / "secrets").exists()
+
+
+@pytest.mark.skipif(_SH is None, reason="requiere sh POSIX")
+def test_init_acepta_etiqueta_valida_y_genera_los_secretos(compose, tmp_path):
+    sha = "a" * 40
+    r = _correr_init(compose, tmp_path, PREVIEW_EXPECTED_IMAGE_TAG=f"sha-{sha}", SOURCE_COMMIT=sha)
+    assert r.returncode == 0 and r.stdout.strip() == "secrets listos", (r.returncode, r.stderr)
+    for f, n in SECRETOS.items():
+        assert len((tmp_path / "secrets" / f).read_text(encoding="utf-8")) == n
+    # Sin SOURCE_COMMIT en el entorno (CI, fuera de Coolify) la puerta solo valida la etiqueta.
+    r = _correr_init(compose, tmp_path / "b", PREVIEW_EXPECTED_IMAGE_TAG=f"sha-{sha}")
+    assert r.returncode == 0, r.stderr
+
+
+_SIN_DOCKER = shutil.which("docker") is None
+
+
+def _compose_config(env_extra: dict, env_file=None):
+    """Solo `docker compose config --images`: interpola, no crea ni levanta nada."""
+    env = dict(os.environ, SERVICE_FQDN_BACKEND_10000="1.api.preview.audit-ia.ec",
+               SERVICE_FQDN_CONSOLA_80="1.consola.preview.audit-ia.ec", SERVICE_FQDN_CLIENTES_80="1.clientes.preview.audit-ia.ec")
+    env.pop("SOURCE_COMMIT", None)
+    env.update(env_extra)
+    cmd = ["docker", "compose", "-f", str(COMPOSE), *(["--env-file", str(env_file)] if env_file else []), "config", "--images"]
+    r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=120)
+    if r.returncode != 0 and "Cannot connect" in (r.stderr or ""):
+        pytest.skip("docker instalado pero sin demonio accesible")
+    return r
+
+
+@pytest.mark.skipif(_SIN_DOCKER, reason="requiere docker compose (solo `config`, no levanta nada)")
+def test_resolucion_de_imagenes_por_source_commit_completo():
+    sha = "7" * 40
+    r = _compose_config({"SOURCE_COMMIT": sha})
+    assert r.returncode == 0, r.stderr
+    imgs = {l.strip() for l in r.stdout.splitlines() if l.startswith("ghcr.io/")}
+    assert imgs == {f"ghcr.io/jcalupinia/auditbrain-preview-{s}:sha-{sha}" for s in ("backend", "consola", "clientes")}
+
+
+@pytest.mark.skipif(_SIN_DOCKER, reason="requiere docker compose (solo `config`, no levanta nada)")
+@pytest.mark.parametrize("valor", [None, ""])
+def test_resolucion_rechaza_source_commit_ausente_o_vacio(valor):
+    r = _compose_config({} if valor is None else {"SOURCE_COMMIT": valor})
+    assert r.returncode != 0 and "SOURCE_COMMIT requerido" in (r.stderr + r.stdout)
+
+
+@pytest.mark.skipif(_SIN_DOCKER, reason="requiere docker compose (solo `config`, no levanta nada)")
+def test_resolucion_reproduce_el_incidente_con_la_variable_obsoleta_de_coolify(tmp_path):
+    """Mecanismo del fallo del 2026-10-20: en el .env que arma Coolify la variable obsoleta entra al final y gana.
+    Por eso, además del Compose corregido, hay que BORRAR en Coolify la variable SOURCE_COMMIT que creó el analizador."""
+    sha = "7" * 40
+    envf = tmp_path / "env"
+    envf.write_text(f"SOURCE_COMMIT={sha}\nCOOLIFY_URL=x\nSOURCE_COMMIT=SOURCE_COMMIT requerido\n", encoding="utf-8")
+    r = _compose_config({}, env_file=envf)
+    assert "sha-SOURCE_COMMIT requerido" in r.stdout + r.stderr
+    envf.write_text(f"SOURCE_COMMIT={sha}\n", encoding="utf-8")  # variable obsoleta borrada en Coolify
+    r = _compose_config({}, env_file=envf)
+    assert r.returncode == 0 and r.stdout.count(f"sha-{sha}") == 3 and "requerido" not in r.stdout
