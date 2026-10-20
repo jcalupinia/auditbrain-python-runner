@@ -91,3 +91,57 @@ def saldo_cuenta(
         "haber": str(haber),
         "saldo": str(debe - haber),
     }
+
+
+@router.get("/{project_id}/lotes/{lote_id}/movimientos")
+def movimientos_para_analitica(
+    project_id: int,
+    lote_id: int,
+    periodo: str = Query(min_length=4, max_length=64),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=500, ge=1, le=2000),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Lectura paginada del lote para el Motor Analítico; nunca mezcla versiones."""
+    project = verificar_acceso(db, user, project_id)
+    filtros = {"org": str(project.organization_id), "project": str(project.id),
+               "periodo": periodo, "lote_id": lote_id}
+    try:
+        lote = db.execute(text("""
+            SELECT id, movimientos, source_sha256, version
+            FROM mayor_ingesta_lotes
+            WHERE id=:lote_id AND organization_id=:org
+              AND project_id=:project AND periodo=:periodo
+        """), filtros).mappings().first()
+        if lote is None:
+            raise HTTPException(status_code=404, detail="Lote no disponible")
+        rows = db.execute(text("""
+            SELECT ordinal, fila_origen, codigo, cuenta, fecha,
+                   asiento, documento, descripcion, debe, haber
+            FROM mayor_ingesta_movimientos
+            WHERE lote_id=:lote_id
+            ORDER BY ordinal
+            LIMIT :limit OFFSET :offset
+        """), {"lote_id": lote_id, "limit": limit, "offset": offset}).mappings().all()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="Consulta no disponible")
+    return {
+        "organization_id": project.organization_id,
+        "project_id": project.id,
+        "periodo": periodo,
+        "lote_id": lote_id,
+        "version": lote["version"],
+        "source_sha256": lote["source_sha256"],
+        "total_movimientos": lote["movimientos"],
+        "offset": offset,
+        "limit": limit,
+        "movimientos": [
+            {**{k: v for k, v in r.items() if k not in ("fecha", "debe", "haber")},
+             "fecha": r["fecha"].isoformat() if r["fecha"] else None,
+             "debe": str(r["debe"]), "haber": str(r["haber"])}
+            for r in rows
+        ],
+    }
