@@ -119,6 +119,20 @@ def _montar_ingesta(router: APIRouter) -> bool:
 ingesta_montado = _montar_ingesta(api_router)
 
 
+def _montar_mayor_persistido(router: APIRouter) -> bool:
+    """Monta la consulta de mayor sin afectar el arranque de otros modulos."""
+    try:
+        from backend.app.api import mayor_persistido
+        router.include_router(mayor_persistido.router)
+    except Exception:
+        _log.exception("Consulta del mayor persistido no disponible")
+        return False
+    return True
+
+
+mayor_persistido_montado = _montar_mayor_persistido(api_router)
+
+
 def _montar_validador_sri(router: APIRouter) -> bool:
     """Monta el Validador de coherencia SRI del portal cliente de forma AISLADA.
 
