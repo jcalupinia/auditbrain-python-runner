@@ -316,6 +316,25 @@ export async function sriEnviarCaptcha(url, token, id, codigo) {
     })
   );
 }
+// Detener un trabajo del robot (en cola se descarta; en curso termina el paso).
+export async function sriCancelar(url, token, id) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/trabajos/${id}/cancelar`, {
+      method: "POST",
+      headers: _motorHeaders(token),
+    })
+  );
+}
+// Reporte por fechas (offline): Excel de lo ya descargado entre dos fechas.
+export async function sriReporteFechas(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/reporte-fechas`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
 export async function sriConsolidar(url, token, params) {
   return parse(
     await apiFetch(`${_motorBase(url)}/motor/sri/consolidar`, {
@@ -361,6 +380,16 @@ export async function sriReconstruir(url, token, params) {
 export async function sriCruceRetenciones(url, token, params) {
   return parse(
     await apiFetch(`${_motorBase(url)}/motor/sri/cruce-retenciones`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
+// Factura ↔ Retención: parte de las facturas y busca su retención (facturas sin retención).
+export async function sriFacturaRetencion(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/factura-retencion`, {
       method: "POST",
       headers: _motorHeaders(token, { "Content-Type": "application/json" }),
       body: JSON.stringify(params),

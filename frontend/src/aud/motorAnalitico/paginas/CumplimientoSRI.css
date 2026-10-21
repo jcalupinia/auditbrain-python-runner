@@ -120,6 +120,7 @@
 .ma-sri-resultado-ok { border: 1px solid var(--ma-accent); background: var(--ma-p1-bg); }
 .ma-sri-resultado-ok pre { margin: 6px 0 0; font-family: var(--ma-mono); font-size: 0.8rem; overflow: auto; }
 .ma-sri-resultado-error { border: 1px solid var(--ma-p1); color: var(--ma-p1); background: var(--ma-p1-bg); }
+.ma-sri-resultado-aviso { border: 1px solid var(--ma-p2, #d97706); color: var(--ma-p2, #d97706); background: var(--ma-p2-bg, rgba(217, 119, 6, 0.1)); }
 
 /* --- Sub-navegación de pantallas del robot --- */
 .ma-sri-subnav { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 16px; border-bottom: 1px solid var(--ma-line); }
