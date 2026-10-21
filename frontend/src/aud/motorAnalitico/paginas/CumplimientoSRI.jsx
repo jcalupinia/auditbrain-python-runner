@@ -17,6 +17,7 @@ import {
 } from "../../../api.js";
 import { ESTADOS_EMITIDOS, tipoValido, tiposDe } from "./sriOpciones.js";
 import { SONDEO_MS, debeRenovar, formatosValidos, sesionDesdePermiso } from "./sriSesion.js";
+import { avisoXmlEmitidos, validarEstablecimiento, validarPuntoEmision } from "./sriValidacion.js";
 import "./CumplimientoSRI.css";
 
 const META = PAGINAS.find((p) => p.id === "sri");
@@ -185,8 +186,10 @@ function SubDescarga() {
   const [form, setForm] = useState({
     ruc: "", clave: "", origen: "Recibidos", tipo: tiposDe("Recibidos")[0],
     modo_fecha: "Mes", anio: ANIO_ACTUAL, mes: 1, mes_fin: 12, dia: 0,
-    estado_emitidos: ESTADOS_EMITIDOS[0], formatoXML: true, formatoPDF: true, modo_rapido: false,
+    estado_emitidos: ESTADOS_EMITIDOS[0], establecimiento: "Todos", punto_emision: "",
+    formatoXML: true, formatoPDF: true, modo_rapido: false,
   });
+  const [aviso, setAviso] = useState("");
   const [fase, setFase] = useState("idle"); // idle|procesando|captcha|listo|error
   const [progreso, setProgreso] = useState([]);
   const [captchaImg, setCaptchaImg] = useState(null);
@@ -229,8 +232,30 @@ function SubDescarga() {
     setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0);
     if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
     if (!form.clave) { setError("Falta la clave del SRI del cliente."); return; }
-    const formatos = form.modo_rapido ? [] : [form.formatoXML && "XML", form.formatoPDF && "PDF"].filter(Boolean);
+    setAviso("");
+    let formatos = form.modo_rapido ? [] : [form.formatoXML && "XML", form.formatoPDF && "PDF"].filter(Boolean);
     if (!formatosValidos(formatos, form.modo_rapido)) { setError("Selecciona al menos un formato (XML o PDF) o activa el modo rápido."); return; }
+    const esEmitidos = form.origen === "Emitidos";
+    let establecimiento = null;
+    let puntoEmision = null;
+    if (esEmitidos) {
+      const est = validarEstablecimiento(form.establecimiento);
+      if (!est.ok) { setError(est.error); return; }
+      const pto = validarPuntoEmision(form.punto_emision, est.valor);
+      if (!pto.ok) { setError(pto.error); return; }
+      establecimiento = est.valor; puntoEmision = pto.valor || null;
+      // Como en la app de escritorio: el SRI no entrega el XML de Emitidos
+      // pasados ~30 días; con PDF marcado se sigue solo con PDF, si no se detiene.
+      const avisoXml = avisoXmlEmitidos({
+        origen: form.origen, estado_emitidos: form.estado_emitidos, formatos, modo_rapido: form.modo_rapido,
+        periodo: { modo_fecha: form.modo_fecha, anio: form.anio, mes: form.mes, mes_fin: form.mes_fin, dia: form.dia },
+      });
+      if (avisoXml) {
+        setAviso(avisoXml.mensaje);
+        if (!avisoXml.continuar) return;
+        formatos = avisoXml.formatos;
+      }
+    }
     const encargo = `SRI ${form.ruc.trim()}`;
     setFase("procesando");
     try {
@@ -239,7 +264,8 @@ function SubDescarga() {
         ruc: form.ruc.trim(), clave: form.clave, origen: form.origen, tipo: form.tipo,
         modo_fecha: form.modo_fecha, anio: Number(form.anio), mes: Number(form.mes),
         mes_fin: Number(form.mes_fin), dia: Number(form.dia),
-        estado_emitidos: form.origen === "Emitidos" ? form.estado_emitidos : null,
+        estado_emitidos: esEmitidos ? form.estado_emitidos : null,
+        establecimiento, punto_emision: puntoEmision,
         formatos, modo_rapido: form.modo_rapido,
       });
       ctx.current = { ...sesionDesdePermiso(permiso), encargo, id, vivo: true };
@@ -304,8 +330,18 @@ function SubDescarga() {
           </label>
         )}
         {form.origen === "Emitidos" && (
-          <label>Estado (emitidos)
+          <label>Estado de autorización
             <select value={form.estado_emitidos} onChange={set("estado_emitidos")} disabled={trabajando}>{ESTADOS_EMITIDOS.map((e) => <option key={e}>{e}</option>)}</select>
+          </label>
+        )}
+        {form.origen === "Emitidos" && (
+          <label>Establecimiento
+            <input value={form.establecimiento} onChange={set("establecimiento")} maxLength={5} placeholder="Todos o 001" title="Escribe 'Todos' o un número de 3 dígitos (ej. 001)." disabled={trabajando} />
+          </label>
+        )}
+        {form.origen === "Emitidos" && (
+          <label>Punto de emisión (opcional)
+            <input value={form.punto_emision} onChange={(e) => setForm((f) => ({ ...f, punto_emision: e.target.value.replace(/\D/g, "").slice(0, 3) }))} inputMode="numeric" maxLength={3} placeholder="001" title="Hasta 3 dígitos numéricos (ej. 001). Obligatorio si indicas un establecimiento." disabled={trabajando} />
           </label>
         )}
         <label className="ma-sri-check">Formatos
@@ -354,6 +390,7 @@ function SubDescarga() {
           </span>
         </div>
       )}
+      {aviso && <div className="ma-sri-resultado ma-sri-resultado-aviso">{aviso}</div>}
       {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}
       {fase === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenResultado r={resultado} titulo="✅ Descarga completada" /></div>}
       {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
@@ -415,10 +452,11 @@ function SubReportes() {
 
 // ---------- Subpágina 3: Consolidación de documentos ----------
 function SubConsolidacion() {
-  const [form, setForm] = useState({ ruc: "", origen: "Recibidos", tipo: tiposDe("Recibidos")[0], modo_fecha: "Rango de meses", anio: ANIO_ACTUAL, mes_inicio: 1, mes_fin: 12, incluir_xml: true, incluir_pdf: true });
+  const [form, setForm] = useState({ ruc: "", origen: "Recibidos", tipo: tiposDe("Recibidos")[0], estado_emitidos: ESTADOS_EMITIDOS[0], modo_fecha: "Rango de meses", anio: ANIO_ACTUAL, mes_inicio: 1, mes_fin: 12, dia: 0, incluir_xml: true, incluir_pdf: true });
   const [estado, setEstado] = useState("idle");
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState("");
+  const [bajando, setBajando] = useState("");
   const set = (k) => (e) => {
     const v = e.target.type === "checkbox" ? e.target.checked : e.target.value;
     setForm((f) => (k === "origen" ? { ...f, origen: v, tipo: tipoValido(v, f.tipo) } : { ...f, [k]: v }));
@@ -430,14 +468,26 @@ function SubConsolidacion() {
     setEstado("procesando");
     try {
       const permiso = await sriPermiso(`SRI consolidar ${form.ruc.trim()}`);
+      // Modo "Mes": el servicio toma mes_inicio como el mes y dia (0 = todo el mes).
+      const esMes = form.modo_fecha === "Mes";
       const r = await sriConsolidar(permiso.url, permiso.token, {
         carpeta_base: `descargas/${form.ruc.trim()}`, origen: form.origen, ruc: form.ruc.trim(),
-        tipo: form.tipo, modo_fecha: form.modo_fecha, anio: Number(form.anio),
-        mes_inicio: Number(form.mes_inicio), mes_fin: Number(form.mes_fin),
+        tipo: form.tipo, estado: form.origen === "Emitidos" ? form.estado_emitidos : null,
+        modo_fecha: form.modo_fecha, anio: Number(form.anio),
+        mes_inicio: Number(form.mes_inicio), mes_fin: esMes ? Number(form.mes_inicio) : Number(form.mes_fin),
+        dia: esMes ? Number(form.dia) : 0,
         incluir_xml: form.incluir_xml, incluir_pdf: form.incluir_pdf,
       });
       setResultado(r); setEstado("listo");
     } catch (e) { setError(e?.message || "No se pudo consolidar."); setEstado("error"); }
+  }
+
+  async function bajar(ruta, etiqueta) {
+    if (!ruta) return;
+    setBajando(etiqueta); setError("");
+    try { const p = await sriPermiso(`SRI consolidar ${form.ruc.trim()}`); await sriDescargarArchivo(p.url, p.token, ruta); }
+    catch (e) { setError(e?.message || "No se pudo descargar."); }
+    finally { setBajando(""); }
   }
 
   return (
@@ -450,9 +500,20 @@ function SubConsolidacion() {
         <label>RUC<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" /></label>
         <label>Origen<select value={form.origen} onChange={set("origen")}><option>Recibidos</option><option>Emitidos</option></select></label>
         <label>Tipo<select value={form.tipo} onChange={set("tipo")}>{tiposDe(form.origen).map((t) => <option key={t}>{t}</option>)}</select></label>
+        {form.origen === "Emitidos" && (
+          <label>Estado de autorización<select value={form.estado_emitidos} onChange={set("estado_emitidos")}>{ESTADOS_EMITIDOS.map((e) => <option key={e}>{e}</option>)}</select></label>
+        )}
         <label>Año<select value={form.anio} onChange={set("anio")}>{ANIOS.map((a) => <option key={a} value={a}>{a}</option>)}</select></label>
-        <label>Mes inicio<select value={form.mes_inicio} onChange={set("mes_inicio")}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
-        <label>Mes fin<select value={form.mes_fin} onChange={set("mes_fin")}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
+        <label>Modo de fecha<select value={form.modo_fecha} onChange={set("modo_fecha")}>{MODOS_FECHA.map((m) => <option key={m}>{m}</option>)}</select></label>
+        {form.modo_fecha !== "Año completo" && (
+          <label>{form.modo_fecha === "Rango de meses" ? "Mes inicio" : "Mes"}<select value={form.mes_inicio} onChange={set("mes_inicio")}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
+        )}
+        {form.modo_fecha === "Rango de meses" && (
+          <label>Mes fin<select value={form.mes_fin} onChange={set("mes_fin")}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
+        )}
+        {form.modo_fecha === "Mes" && (
+          <label>Día (0 = todo el mes)<input type="number" min={0} max={31} value={form.dia} onChange={set("dia")} /></label>
+        )}
         <label className="ma-sri-check">Incluir<span className="ma-sri-check-fila">
           <label><input type="checkbox" checked={form.incluir_xml} onChange={set("incluir_xml")} /> XML</label>
           <label><input type="checkbox" checked={form.incluir_pdf} onChange={set("incluir_pdf")} /> PDF</label>
@@ -461,7 +522,18 @@ function SubConsolidacion() {
       <div className="ma-sri-descarga-acciones">
         <button type="button" className="ma-sri-boton-ejecutar" onClick={consolidar} disabled={estado === "procesando"}>{estado === "procesando" ? "Consolidando…" : "Consolidar"}</button>
       </div>
-      {estado === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenResultado r={resultado} titulo="✅ Consolidación lista" /></div>}
+      {estado === "listo" && (
+        <div className="ma-sri-resultado ma-sri-resultado-ok">
+          <ResumenResultado r={resultado} titulo="✅ Consolidación lista" />
+          {(resultado?.reporte_xml || resultado?.reporte_pdf) && (
+            <div className="ma-sri-descarga-acciones">
+              {resultado?.reporte_xml && <button type="button" className="ma-boton" onClick={() => bajar(resultado.reporte_xml, "xml")} disabled={Boolean(bajando)}>{bajando === "xml" ? "Preparando…" : "Descargar reporte XML (Excel)"}</button>}
+              {resultado?.reporte_pdf && <button type="button" className="ma-boton" onClick={() => bajar(resultado.reporte_pdf, "pdf")} disabled={Boolean(bajando)}>{bajando === "pdf" ? "Preparando…" : "Descargar reporte PDF (Excel)"}</button>}
+              {resultado?.destino && <button type="button" className="ma-boton" onClick={() => bajar(resultado.destino, "zip")} disabled={Boolean(bajando)}>{bajando === "zip" ? "Preparando…" : "Descargar consolidado (ZIP)"}</button>}
+            </div>
+          )}
+        </div>
+      )}
       {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
     </section>
   );
