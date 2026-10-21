@@ -5,6 +5,7 @@ import {
   sriDescargar,
   sriEstado,
   sriEnviarCaptcha,
+  sriCancelar,
   sriDescargarZip,
   sriConsolidar,
   sriHistorial,
@@ -30,6 +31,21 @@ async function tokenVigente(ctx) {
     Object.assign(ctx.current, sesionDesdePermiso(p));
   }
   return ctx.current.token;
+}
+
+// Pide detener el trabajo en curso; el estado "cancelado" llega por el sondeo.
+async function detenerTrabajo(ctx, setError) {
+  try { await sriCancelar(ctx.current.url, await tokenVigente(ctx), ctx.current.id); }
+  catch (e) { setError(e?.message || "No se pudo detener el trabajo."); }
+}
+
+function BotonDetener({ ctx, trabajando, cancelando, setError }) {
+  if (!trabajando) return null;
+  return (
+    <button type="button" className="ma-boton" onClick={() => detenerTrabajo(ctx, setError)} disabled={cancelando}>
+      {cancelando ? "Deteniendo…" : "⏹ Detener"}
+    </button>
+  );
 }
 
 // Subpáginas = las pestañas del robot del SRI (aplicacion.py de copia-robot-audit).
@@ -199,6 +215,7 @@ function SubDescarga() {
   const [bajando, setBajando] = useState(false);
   const [segundos, setSegundos] = useState(0);
   const [verVivo, setVerVivo] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
   const ctx = useRef({ url: "", token: "", id: "", vivo: false });
   useEffect(() => () => { ctx.current.vivo = false; }, []);
   useEffect(() => {
@@ -222,14 +239,15 @@ function SubDescarga() {
       setProgreso(est.progreso || []);
       if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
       else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase("listo"); return; }
-      else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "La descarga falló."); setFase("error"); return; }
+      else if (est.estado === "error" || est.estado === "cancelado") { ctx.current.vivo = false; setError(est.error || "La descarga falló."); setFase("error"); return; }
       else { setFase("procesando"); setCaptchaImg(null); }
+      setCancelando(Boolean(est.cancelando));
     } catch { /* red transitoria: seguimos */ }
     setTimeout(poll, SONDEO_MS);
   }
 
   async function lanzar() {
-    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0);
+    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0); setCancelando(false);
     if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
     if (!form.clave) { setError("Falta la clave del SRI del cliente."); return; }
     setAviso("");
@@ -358,6 +376,7 @@ function SubDescarga() {
         <button type="button" className="ma-sri-boton-ejecutar" onClick={lanzar} disabled={trabajando}>
           {trabajando ? "Descargando…" : "Descargar"}
         </button>
+        <BotonDetener ctx={ctx} trabajando={trabajando} cancelando={cancelando} setError={setError} />
         {fase === "listo" && (
           <button type="button" className="ma-boton" onClick={bajarZip} disabled={bajando}>
             {bajando ? "Preparando ZIP…" : "Descargar archivos (ZIP)"}
@@ -596,6 +615,7 @@ function SubCruceRetenciones() {
   const [captchaCodigo, setCaptchaCodigo] = useState("");
   const [segundos, setSegundos] = useState(0);
   const [verVivo, setVerVivo] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
   const [error, setError] = useState("");
   const [bajando, setBajando] = useState(false);
   const ctx = useRef({ url: "", token: "", id: "", vivo: false });
@@ -615,14 +635,15 @@ function SubCruceRetenciones() {
       setProgreso(est.progreso || []);
       if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
       else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase(est.resultado?.ok === false ? "error" : "listo"); if (est.resultado?.ok === false) setError(est.resultado.message || "Sin resultados."); return; }
-      else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "El cruce falló."); setFase("error"); return; }
+      else if (est.estado === "error" || est.estado === "cancelado") { ctx.current.vivo = false; setError(est.error || "El cruce falló."); setFase("error"); return; }
       else { setFase("procesando"); setCaptchaImg(null); }
+      setCancelando(Boolean(est.cancelando));
     } catch { /* red transitoria */ }
     setTimeout(poll, SONDEO_MS);
   }
 
   async function ejecutar() {
-    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0);
+    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0); setCancelando(false);
     if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
     if (form.con_portal && !form.clave) { setError("Falta la clave del SRI para buscar en el portal."); return; }
     const carpeta = `descargas/${form.ruc.trim()}`;
@@ -689,6 +710,7 @@ function SubCruceRetenciones() {
       </div>
       <div className="ma-sri-descarga-acciones">
         <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Cruzando…" : "Generar cruce"}</button>
+        {form.con_portal && <BotonDetener ctx={ctx} trabajando={trabajando} cancelando={cancelando} setError={setError} />}
         {form.con_portal && (
           <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>{verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}</button>
         )}
@@ -731,6 +753,7 @@ function SubValorNeto() {
   const [captchaCodigo, setCaptchaCodigo] = useState("");
   const [segundos, setSegundos] = useState(0);
   const [verVivo, setVerVivo] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
   const [error, setError] = useState("");
   const [bajando, setBajando] = useState(false);
   const ctx = useRef({ url: "", token: "", id: "", vivo: false });
@@ -750,14 +773,15 @@ function SubValorNeto() {
       setProgreso(est.progreso || []);
       if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
       else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase(est.resultado?.ok === false ? "error" : "listo"); if (est.resultado?.ok === false) setError(est.resultado.message || "Sin resultados."); return; }
-      else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "El reporte falló."); setFase("error"); return; }
+      else if (est.estado === "error" || est.estado === "cancelado") { ctx.current.vivo = false; setError(est.error || "El reporte falló."); setFase("error"); return; }
       else { setFase("procesando"); setCaptchaImg(null); }
+      setCancelando(Boolean(est.cancelando));
     } catch { /* red transitoria */ }
     setTimeout(poll, SONDEO_MS);
   }
 
   async function ejecutar() {
-    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0);
+    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0); setCancelando(false);
     if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
     if (form.con_portal && !form.clave) { setError("Falta la clave del SRI para buscar en el portal."); return; }
     const carpeta = `descargas/${form.ruc.trim()}`;
@@ -812,6 +836,7 @@ function SubValorNeto() {
       </div>
       <div className="ma-sri-descarga-acciones">
         <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Calculando…" : "Generar valor neto"}</button>
+        {form.con_portal && <BotonDetener ctx={ctx} trabajando={trabajando} cancelando={cancelando} setError={setError} />}
         {form.con_portal && (
           <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>{verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}</button>
         )}
@@ -855,6 +880,7 @@ function SubDeclaraciones() {
   const [captchaCodigo, setCaptchaCodigo] = useState("");
   const [segundos, setSegundos] = useState(0);
   const [verVivo, setVerVivo] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
   const [error, setError] = useState("");
   const [bajando, setBajando] = useState(false);
   const ctx = useRef({ url: "", token: "", id: "", vivo: false });
@@ -875,14 +901,15 @@ function SubDeclaraciones() {
       setProgreso(est.progreso || []);
       if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
       else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase(est.resultado?.ok === false ? "error" : "listo"); if (est.resultado?.ok === false) setError(est.resultado.message || "Sin resultados."); return; }
-      else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "La descarga falló."); setFase("error"); return; }
+      else if (est.estado === "error" || est.estado === "cancelado") { ctx.current.vivo = false; setError(est.error || "La descarga falló."); setFase("error"); return; }
       else { setFase("procesando"); setCaptchaImg(null); }
+      setCancelando(Boolean(est.cancelando));
     } catch { /* red transitoria */ }
     setTimeout(poll, SONDEO_MS);
   }
 
   async function ejecutar() {
-    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0);
+    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0); setCancelando(false);
     if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
     if (!form.clave) { setError("Falta la clave del SRI del cliente."); return; }
     setFase("procesando");
@@ -938,6 +965,7 @@ function SubDeclaraciones() {
       </div>
       <div className="ma-sri-descarga-acciones">
         <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Descargando…" : "Descargar declaración"}</button>
+        <BotonDetener ctx={ctx} trabajando={trabajando} cancelando={cancelando} setError={setError} />
         <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>{verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}</button>
         <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>
       </div>

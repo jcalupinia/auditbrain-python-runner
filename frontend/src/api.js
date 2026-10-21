@@ -316,6 +316,15 @@ export async function sriEnviarCaptcha(url, token, id, codigo) {
     })
   );
 }
+// Detener un trabajo del robot (en cola se descarta; en curso termina el paso).
+export async function sriCancelar(url, token, id) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/trabajos/${id}/cancelar`, {
+      method: "POST",
+      headers: _motorHeaders(token),
+    })
+  );
+}
 export async function sriConsolidar(url, token, params) {
   return parse(
     await apiFetch(`${_motorBase(url)}/motor/sri/consolidar`, {
