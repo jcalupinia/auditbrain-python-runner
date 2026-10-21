@@ -15,6 +15,7 @@ import {
   sriDescargarArchivo,
   sriVivoUrl,
 } from "../../../api.js";
+import { ESTADOS_EMITIDOS, tipoValido, tiposDe } from "./sriOpciones.js";
 import "./CumplimientoSRI.css";
 
 const META = PAGINAS.find((p) => p.id === "sri");
@@ -42,9 +43,9 @@ const DOCS_DECL = ["Declaración completa", "Declaración perfilada", "Comproban
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const ANIO_ACTUAL = new Date().getFullYear();
 const ANIOS = Array.from({ length: 10 }, (_, i) => ANIO_ACTUAL - i);
-const TIPOS = ["Todos", "Facturas", "Notas de crédito", "Notas de débito", "Retenciones", "Liquidaciones"];
+// Tipos por origen y estados de Emitidos: ver sriOpciones.js (paridad con la
+// app de escritorio; el portal no tiene una opción para todos los tipos).
 const MODOS_FECHA = ["Mes", "Rango de meses", "Año completo"];
-const ESTADOS_EMITIDOS = ["Todos", "Autorizado", "No autorizado"];
 // Vista en vivo del robot (solo lectura). Va por el motor de la firma como
 // MJPEG (endpoint /motor/sri/vivo), publicado por Tailscale Funnel: se ve por
 // el mismo canal que el resto del motor, SIN exigir que el auditor esté en la
@@ -171,9 +172,9 @@ function ResumenOffline({ r, titulo, onDescargar, bajando, textoDescarga }) {
 // ---------- Subpágina 1: Descarga (login + filtros + captcha relay) ----------
 function SubDescarga() {
   const [form, setForm] = useState({
-    ruc: "", clave: "", origen: "Recibidos", tipo: "Todos",
+    ruc: "", clave: "", origen: "Recibidos", tipo: tiposDe("Recibidos")[0],
     modo_fecha: "Mes", anio: ANIO_ACTUAL, mes: 1, mes_fin: 12, dia: 0,
-    estado_emitidos: "Todos", formatoXML: true, formatoPDF: true, modo_rapido: false,
+    estado_emitidos: ESTADOS_EMITIDOS[0], formatoXML: true, formatoPDF: true, modo_rapido: false,
   });
   const [fase, setFase] = useState("idle"); // idle|procesando|captcha|listo|error
   const [progreso, setProgreso] = useState([]);
@@ -194,7 +195,9 @@ function SubDescarga() {
 
   const set = (k) => (e) => {
     const v = e.target.type === "checkbox" ? e.target.checked : e.target.value;
-    setForm((f) => ({ ...f, [k]: v }));
+    // Las listas de tipo cambian con el origen: si el tipo actual no existe en
+    // el nuevo origen, se toma el primero (igual que la app de escritorio).
+    setForm((f) => (k === "origen" ? { ...f, origen: v, tipo: tipoValido(v, f.tipo) } : { ...f, [k]: v }));
   };
   const trabajando = fase === "procesando" || fase === "captcha";
 
@@ -264,7 +267,7 @@ function SubDescarga() {
           <select value={form.origen} onChange={set("origen")} disabled={trabajando}><option>Recibidos</option><option>Emitidos</option></select>
         </label>
         <label>Tipo de comprobante
-          <select value={form.tipo} onChange={set("tipo")} disabled={trabajando}>{TIPOS.map((t) => <option key={t}>{t}</option>)}</select>
+          <select value={form.tipo} onChange={set("tipo")} disabled={trabajando}>{tiposDe(form.origen).map((t) => <option key={t}>{t}</option>)}</select>
         </label>
         <label>Modo de fecha
           <select value={form.modo_fecha} onChange={set("modo_fecha")} disabled={trabajando}>{MODOS_FECHA.map((m) => <option key={m}>{m}</option>)}</select>
@@ -399,11 +402,14 @@ function SubReportes() {
 
 // ---------- Subpágina 3: Consolidación de documentos ----------
 function SubConsolidacion() {
-  const [form, setForm] = useState({ ruc: "", origen: "Recibidos", tipo: "Todos", modo_fecha: "Rango de meses", anio: ANIO_ACTUAL, mes_inicio: 1, mes_fin: 12, incluir_xml: true, incluir_pdf: true });
+  const [form, setForm] = useState({ ruc: "", origen: "Recibidos", tipo: tiposDe("Recibidos")[0], modo_fecha: "Rango de meses", anio: ANIO_ACTUAL, mes_inicio: 1, mes_fin: 12, incluir_xml: true, incluir_pdf: true });
   const [estado, setEstado] = useState("idle");
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState("");
-  const set = (k) => (e) => { const v = e.target.type === "checkbox" ? e.target.checked : e.target.value; setForm((f) => ({ ...f, [k]: v })); };
+  const set = (k) => (e) => {
+    const v = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+    setForm((f) => (k === "origen" ? { ...f, origen: v, tipo: tipoValido(v, f.tipo) } : { ...f, [k]: v }));
+  };
 
   async function consolidar() {
     setError(""); setResultado(null);
@@ -430,7 +436,7 @@ function SubConsolidacion() {
       <div className="ma-sri-form">
         <label>RUC<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" /></label>
         <label>Origen<select value={form.origen} onChange={set("origen")}><option>Recibidos</option><option>Emitidos</option></select></label>
-        <label>Tipo<select value={form.tipo} onChange={set("tipo")}>{TIPOS.map((t) => <option key={t}>{t}</option>)}</select></label>
+        <label>Tipo<select value={form.tipo} onChange={set("tipo")}>{tiposDe(form.origen).map((t) => <option key={t}>{t}</option>)}</select></label>
         <label>Año<select value={form.anio} onChange={set("anio")}>{ANIOS.map((a) => <option key={a} value={a}>{a}</option>)}</select></label>
         <label>Mes inicio<select value={form.mes_inicio} onChange={set("mes_inicio")}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
         <label>Mes fin<select value={form.mes_fin} onChange={set("mes_fin")}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
