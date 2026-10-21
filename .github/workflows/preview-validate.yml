@@ -119,7 +119,9 @@ jobs:
           set -euo pipefail
           [ -n "${GHCR_READ_TOKEN:-}${GHCR_PUBLISH_TOKEN:-}" ] || { echo "::error::sin GHCR_READ_TOKEN ni GHCR_PUBLISH_TOKEN: la lectura real no se puede comprobar"; exit 1; }
           pip install -q pytest
-          python -m pytest tests/test_preview_ghcr_lectura.py -q -p no:cacheprovider -rs 2>&1 | tee /tmp/ghcr.txt
+          # --noconftest: el conftest global importa la aplicación (FastAPI y toda la pila); esta prueba solo usa la
+          # biblioteca estándar y pytest, y debe correr sin instalar el backend.
+          python -m pytest tests/test_preview_ghcr_lectura.py --noconftest -q -p no:cacheprovider -rs 2>&1 | tee /tmp/ghcr.txt
           grep -q "4 passed" /tmp/ghcr.txt || { echo "::error::las pruebas de integración no se ejecutaron todas (¿token sin read:packages?)"; exit 1; }
 
   init-secrets:
