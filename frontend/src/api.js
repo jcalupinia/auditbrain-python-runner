@@ -386,6 +386,16 @@ export async function sriCruceRetenciones(url, token, params) {
     })
   );
 }
+// Factura ↔ Retención: parte de las facturas y busca su retención (facturas sin retención).
+export async function sriFacturaRetencion(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/factura-retencion`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
 // Valor neto: factura − notas de crédito (offline).
 export async function sriValorNeto(url, token, params) {
   return parse(

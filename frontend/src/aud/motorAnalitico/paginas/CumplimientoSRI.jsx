@@ -12,6 +12,7 @@ import {
   sriHistorial,
   sriReconstruir,
   sriCruceRetenciones,
+  sriFacturaRetencion,
   sriValorNeto,
   sriDeclaracionesDescargar,
   sriDescargarArchivo,
@@ -58,6 +59,7 @@ const SUBS = [
   { id: "consolidacion", titulo: "Consolidación de documentos" },
   { id: "reconstruccion", titulo: "Reconstruir XML" },
   { id: "cruce", titulo: "Retención ↔ Factura" },
+  { id: "facturaret", titulo: "Factura ↔ Retención" },
   { id: "valorneto", titulo: "Valor neto (NC)" },
   { id: "declaraciones", titulo: "Declaraciones" },
   { id: "ayuda", titulo: "Ayuda" },
@@ -863,6 +865,203 @@ function SubCruceRetenciones() {
   );
 }
 
+// ---------- Subpágina: Factura ↔ Retención (sentido inverso: facturas sin retención) ----------
+const _ETIQUETAS_FVR = {
+  total_facturas: "Facturas revisadas", con_retencion: "Con retención", sin_retencion: "Sin retención",
+  no_consultado: "No consultadas", error_consulta: "Error de consulta", duplicados: "Con retención duplicada",
+  retenciones_encontradas: "Retenciones", retenciones_sin_factura: "Retenciones sin factura",
+  otros_sustentos: "Otros sustentos", facturas_ilegibles: "Facturas ilegibles", retenciones_ilegibles: "Retenciones ilegibles",
+};
+function SubFacturaRetencion() {
+  const [form, setForm] = useState({
+    ruc: "", tipo_factura: "emitidas", sub_facturas: "", sub_retenciones: "", con_portal: false, clave: "",
+    refrescar_portal: false, anio: ANIO_ACTUAL, mes_inicio: 1, mes_fin: 12,
+  });
+  const [fase, setFase] = useState("idle"); // idle|procesando|captcha|listo|error
+  const [resultado, setResultado] = useState(null);
+  const [permiso, setPermiso] = useState(null);
+  const [progreso, setProgreso] = useState([]);
+  const [captchaImg, setCaptchaImg] = useState(null);
+  const [captchaCodigo, setCaptchaCodigo] = useState("");
+  const [segundos, setSegundos] = useState(0);
+  const [verVivo, setVerVivo] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+  const [error, setError] = useState("");
+  const [bajando, setBajando] = useState(false);
+  const ctx = useRef({ url: "", token: "", id: "", vivo: false });
+  const set = (k) => (e) => { const v = e.target.type === "checkbox" ? e.target.checked : e.target.value; setForm((f) => ({ ...f, [k]: v })); };
+  useEffect(() => () => { ctx.current.vivo = false; }, []);
+  useEffect(() => {
+    if (!(fase === "procesando" || fase === "captcha")) return undefined;
+    const t = setInterval(() => setSegundos((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [fase]);
+  const trabajando = fase === "procesando" || fase === "captcha";
+  const emitidas = form.tipo_factura === "emitidas";
+  const limpiar = (s) => s.trim().replace(/^[/\\]+|[/\\]+$/g, "");
+
+  async function poll() {
+    if (!ctx.current.vivo) return;
+    try {
+      const est = await sriEstado(ctx.current.url, await tokenVigente(ctx), ctx.current.id);
+      setProgreso(est.progreso || []);
+      if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
+      else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase(est.resultado?.ok === false ? "error" : "listo"); if (est.resultado?.ok === false) setError(est.resultado.message || "Sin resultados."); return; }
+      else if (est.estado === "error" || est.estado === "cancelado") { ctx.current.vivo = false; setError(est.error || "El cruce falló."); setFase("error"); return; }
+      else { setFase("procesando"); setCaptchaImg(null); }
+      setCancelando(Boolean(est.cancelando));
+    } catch { /* red transitoria */ }
+    setTimeout(poll, SONDEO_MS);
+  }
+
+  async function ejecutar() {
+    setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0); setCancelando(false);
+    if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
+    if (form.con_portal && !form.clave) { setError("Falta la clave del SRI para consultar el portal."); return; }
+    const subF = limpiar(form.sub_facturas);
+    const subR = limpiar(form.sub_retenciones);
+    if (!subF && !form.con_portal) { setError("Sin carpeta de facturas hay que consultar el portal: marca la casilla e ingresa la clave."); return; }
+    if (!subF && form.con_portal && Number(form.mes_fin) < Number(form.mes_inicio)) { setError("El mes fin debe ser mayor o igual al mes inicio."); return; }
+    const carpeta = `descargas/${form.ruc.trim()}`;
+    const encargo = `SRI factura-retención ${form.ruc.trim()}`;
+    setFase("procesando");
+    try {
+      const p = await sriPermiso(encargo);
+      const params = { tipo_factura: form.tipo_factura, ruc: form.ruc.trim() };
+      if (subF) params.carpetas_facturas = [`${carpeta}/${subF}`];
+      if (subR) params.carpeta_retenciones = `${carpeta}/${subR}`;
+      if (form.con_portal) {
+        params.clave = form.clave; params.refrescar_portal = form.refrescar_portal;
+        if (!subF) { params.anio = Number(form.anio); params.mes_inicio = Number(form.mes_inicio); params.mes_fin = Number(form.mes_fin); }
+      }
+      const r = await sriFacturaRetencion(p.url, p.token, params);
+      if (form.con_portal && r && r.id) {
+        ctx.current = { ...sesionDesdePermiso(p), encargo, id: r.id, vivo: true };
+        setPermiso(p); setForm((f) => ({ ...f, clave: "" }));
+        poll();
+      } else {
+        setPermiso(p); setResultado(r); setFase(r.ok === false ? "error" : "listo");
+        if (r.ok === false) setError(r.message || "No se pudo generar el cruce.");
+      }
+    } catch (e) { setError(e?.message || "No se pudo generar el cruce."); setFase("error"); }
+  }
+
+  async function enviarCaptcha() {
+    if (!captchaCodigo.trim()) return;
+    try { await sriEnviarCaptcha(ctx.current.url, await tokenVigente(ctx), ctx.current.id, captchaCodigo.trim()); setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando"); }
+    catch (e) { setError(e?.message || "No se pudo enviar el captcha."); }
+  }
+
+  async function bajar() {
+    if (!permiso || !resultado?.excel_path) return;
+    setBajando(true); setError("");
+    try { const p = await sriPermiso("SRI descarga de reporte"); await sriDescargarArchivo(p.url, p.token, resultado.excel_path); }
+    catch (e) { setError(e?.message || "No se pudo descargar."); }
+    finally { setBajando(false); }
+  }
+
+  return (
+    <section className="ma-tarjeta ma-sri-descarga">
+      <div className="ma-sri-descarga-cab">
+        <h3>Factura ↔ Retención</h3>
+        <span>Parte de las facturas y busca la retención de cada una. El hallazgo principal son las <strong>facturas sin retención</strong>. Es el sentido inverso de «Retención ↔ Factura», que sigue disponible.</span>
+      </div>
+      <div className="ma-sri-form">
+        <label>RUC del contribuyente auditado<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" disabled={trabajando} /></label>
+        <label>Tipo de factura
+          <select value={form.tipo_factura} onChange={set("tipo_factura")} disabled={trabajando}>
+            <option value="emitidas">Facturas emitidas — ventas realizadas por el contribuyente</option>
+            <option value="recibidas">Facturas recibidas — compras realizadas por el contribuyente</option>
+          </select>
+        </label>
+        <label>Carpeta de facturas (opcional)
+          <input value={form.sub_facturas} onChange={set("sub_facturas")} placeholder={emitidas ? "Emitidos/Autorizados/Factura/2026" : "Recibidos/Factura/2026"} title={`Subcarpeta dentro de descargas/${form.ruc.trim() || "<ruc>"} con facturas ya descargadas (XML, Excel del reporte o PDF). Define el período del cruce. Si la dejas vacía, se consultan en el portal con el período de abajo.`} disabled={trabajando} />
+        </label>
+        <label>Carpeta de retenciones (opcional)
+          <input value={form.sub_retenciones} onChange={set("sub_retenciones")} placeholder={emitidas ? "Recibidos/Comprobante de Retencion/2026" : "Emitidos/Autorizados/Comprobante de Retencion/2026"} title={`Subcarpeta dentro de descargas/${form.ruc.trim() || "<ruc>"} con retenciones ya descargadas. Si falta un mes, se baja del portal (con clave); si no hay clave, ese mes queda como «No consultado».`} disabled={trabajando} />
+        </label>
+        <label className="ma-sri-check">Portal
+          <span className="ma-sri-check-fila"><label><input type="checkbox" checked={form.con_portal} onChange={set("con_portal")} disabled={trabajando} /> Consultar en el SRI lo que falte (login + captcha)</label></span>
+        </label>
+        {form.con_portal && (
+          <label>Clave del SRI
+            <input type="password" value={form.clave} onChange={set("clave")} placeholder="•••••••" autoComplete="off" disabled={trabajando} />
+          </label>
+        )}
+        {form.con_portal && (
+          <label className="ma-sri-check">Refrescar
+            <span className="ma-sri-check-fila"><label><input type="checkbox" checked={form.refrescar_portal} onChange={set("refrescar_portal")} disabled={trabajando} /> Volver a consultar el portal aunque los archivos ya existan localmente</label></span>
+          </label>
+        )}
+        {form.con_portal && !limpiar(form.sub_facturas) && (
+          <>
+            <label>Año a revisar<select value={form.anio} onChange={set("anio")} disabled={trabajando}>{ANIOS.map((a) => <option key={a} value={a}>{a}</option>)}</select></label>
+            <label>Mes inicio<select value={form.mes_inicio} onChange={set("mes_inicio")} disabled={trabajando}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
+            <label>Mes fin<select value={form.mes_fin} onChange={set("mes_fin")} disabled={trabajando}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>
+          </>
+        )}
+      </div>
+      <p className="ma-sri-tabla-nota">
+        {emitidas
+          ? "Las facturas se consultan en el portal Emitidos y las retenciones se buscan en Recibidos. El sistema identifica qué facturas de venta tienen retención del cliente y cuáles no."
+          : "Las facturas se consultan en el portal Recibidos y las retenciones se buscan en Emitidos. El sistema identifica qué facturas de compra tienen una retención emitida por el contribuyente y cuáles no."}
+        {" "}Un mes sin ninguna retención también se revisa: el período lo marcan las facturas. Lo que no se pudo revisar sale como «No consultado», nunca como «Sin retención».
+      </p>
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Cruzando…" : "Generar cruce"}</button>
+        {form.con_portal && <BotonDetener ctx={ctx} trabajando={trabajando} cancelando={cancelando} setError={setError} />}
+        {form.con_portal && (
+          <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>{verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}</button>
+        )}
+        {form.con_portal && <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>}
+      </div>
+
+      {verVivo && form.con_portal && <VistaEnVivo encargo="SRI vista en vivo (factura-retención)" />}
+
+      {captchaImg && (
+        <div className="ma-sri-captcha" role="dialog" aria-label="Resolver captcha">
+          <p><strong>El SRI pide un captcha.</strong> Escribe lo que ves:</p>
+          <img alt="captcha del SRI" src={`data:image/png;base64,${captchaImg}`} className="ma-sri-captcha-img" />
+          <div className="ma-sri-captcha-fila">
+            <input value={captchaCodigo} onChange={(e) => setCaptchaCodigo(e.target.value)} placeholder="Código" autoFocus onKeyDown={(e) => e.key === "Enter" && enviarCaptcha()} />
+            <button type="button" className="ma-sri-boton-ejecutar" onClick={enviarCaptcha}>Enviar</button>
+          </div>
+        </div>
+      )}
+      {trabajando && (
+        <div className="ma-sri-trabajando">
+          <span className="ma-sri-spinner" aria-hidden="true" />
+          <span>El robot está trabajando en el servidor… <strong>{segundos}s</strong>{fase === "captcha" ? " · esperando que resuelvas el captcha" : (form.con_portal ? " · consultando el SRI y cruzando" : " · cruzando")}</span>
+        </div>
+      )}
+      {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}
+      {fase === "listo" && resultado && (
+        <div className="ma-sri-resultado ma-sri-resultado-ok">
+          <div className="ma-sri-resumen">
+            <div className="ma-sri-resumen-titulo">✅ Cruce listo</div>
+            {resultado.message && <div className="ma-sri-resumen-msg">{resultado.message}</div>}
+            {resultado.periodo_analizado && <div>Período analizado: <strong>{resultado.periodo_analizado}</strong></div>}
+            {Array.isArray(resultado.meses_consultados) && resultado.meses_consultados.length > 0 && <div>Meses de retención revisados: {resultado.meses_consultados.join(", ")}</div>}
+            {Array.isArray(resultado.meses_no_consultados) && resultado.meses_no_consultados.length > 0 && <div className="ma-sri-resultado-aviso">No revisados: {resultado.meses_no_consultados.join(", ")}</div>}
+            <div className="ma-sri-resumen-conteos">
+              {Object.entries(_ETIQUETAS_FVR).filter(([k]) => typeof resultado[k] === "number").map(([k, et]) => (
+                <span key={k} className={k === "sin_retencion" && resultado[k] > 0 ? "ma-sri-resultado-aviso" : undefined}>{et}: <strong>{resultado[k]}</strong></span>
+              ))}
+            </div>
+            {resultado.excel_path && (
+              <div className="ma-sri-descarga-acciones">
+                <button type="button" className="ma-boton" onClick={bajar} disabled={bajando}>{bajando ? "Preparando…" : "Descargar Excel (6 hojas)"}</button>
+              </div>
+            )}
+            <details className="ma-sri-detalle"><summary>Ver detalle técnico</summary><pre>{JSON.stringify(resultado, null, 2)}</pre></details>
+          </div>
+        </div>
+      )}
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+    </section>
+  );
+}
+
 // ---------- Subpágina: Valor neto (factura − notas de crédito) ----------
 function SubValorNeto() {
   const [form, setForm] = useState({ ruc: "", con_portal: false, clave: "" });
@@ -1176,6 +1375,7 @@ export default function CumplimientoSRI({ ir }) {
       {sub === "consolidacion" && <SubConsolidacion />}
       {sub === "reconstruccion" && <SubReconstruccion />}
       {sub === "cruce" && <SubCruceRetenciones />}
+      {sub === "facturaret" && <SubFacturaRetencion />}
       {sub === "valorneto" && <SubValorNeto />}
       {sub === "declaraciones" && <SubDeclaraciones />}
       {sub === "ayuda" && <SubAyuda />}
