@@ -325,6 +325,16 @@ export async function sriCancelar(url, token, id) {
     })
   );
 }
+// Reporte por fechas (offline): Excel de lo ya descargado entre dos fechas.
+export async function sriReporteFechas(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/reporte-fechas`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
 export async function sriConsolidar(url, token, params) {
   return parse(
     await apiFetch(`${_motorBase(url)}/motor/sri/consolidar`, {

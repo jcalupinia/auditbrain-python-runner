@@ -8,6 +8,7 @@ import {
   sriCancelar,
   sriDescargarZip,
   sriConsolidar,
+  sriReporteFechas,
   sriHistorial,
   sriReconstruir,
   sriCruceRetenciones,
@@ -51,7 +52,8 @@ function BotonDetener({ ctx, trabajando, cancelando, setError }) {
 // Subpáginas = las pestañas del robot del SRI (aplicacion.py de copia-robot-audit).
 const SUBS = [
   { id: "descarga", titulo: "Descarga de comprobantes" },
-  { id: "reportes", titulo: "Reportes e historial" },
+  { id: "reportefechas", titulo: "Reporte por fechas" },
+  { id: "reportes", titulo: "Historial" },
   { id: "consolidacion", titulo: "Consolidación de documentos" },
   { id: "reconstruccion", titulo: "Reconstruir XML" },
   { id: "cruce", titulo: "Retención ↔ Factura" },
@@ -412,6 +414,101 @@ function SubDescarga() {
       {aviso && <div className="ma-sri-resultado ma-sri-resultado-aviso">{aviso}</div>}
       {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}
       {fase === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenResultado r={resultado} titulo="✅ Descarga completada" /></div>}
+      {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
+    </section>
+  );
+}
+
+// ---------- Subpágina: Reporte por fechas (offline, de lo ya descargado) ----------
+const TIPOS_REPORTE = ["Facturas", "Retenciones", "Notas de crédito", "Notas de débito", "Liquidación de compra", "Guía de remisión"];
+const MODOS_REPORTE = ["Día específico", "Mes completo", "Rango de fechas", "Rango de meses", "Año completo"];
+const _iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const _hoyIso = () => _iso(new Date());
+
+// Rango [inicio, fin] en ISO según el modo (misma lógica que la app de escritorio).
+function rangoReporteFechas(f) {
+  const a = Number(f.anio);
+  const fin = (m) => new Date(a, m, 0).getDate();
+  if (f.modo === "Día específico") return [f.fecha, f.fecha];
+  if (f.modo === "Mes completo") { const m = Number(f.mes); return [`${a}-${String(m).padStart(2, "0")}-01`, `${a}-${String(m).padStart(2, "0")}-${fin(m)}`]; }
+  if (f.modo === "Rango de fechas") return [f.fecha_inicio, f.fecha_fin];
+  if (f.modo === "Rango de meses") { const mi = Number(f.mes_inicio); const mf = Number(f.mes_fin); return [`${a}-${String(mi).padStart(2, "0")}-01`, `${a}-${String(mf).padStart(2, "0")}-${fin(mf)}`]; }
+  return [`${a}-01-01`, `${a}-12-31`];
+}
+
+function SubReporteFechas() {
+  const hoy = new Date();
+  const [form, setForm] = useState({
+    ruc: "", origen: "Recibidos", tipo: "Facturas", estado_emitidos: ESTADOS_EMITIDOS[0], modo: "Mes completo",
+    anio: ANIO_ACTUAL, mes: hoy.getMonth() + 1, mes_inicio: 1, mes_fin: hoy.getMonth() + 1,
+    fecha: _hoyIso(), fecha_inicio: _iso(new Date(hoy.getFullYear(), hoy.getMonth(), 1)), fecha_fin: _hoyIso(),
+  });
+  const [estado, setEstado] = useState("idle");
+  const [resultado, setResultado] = useState(null);
+  const [error, setError] = useState("");
+  const [bajando, setBajando] = useState(false);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  async function generar() {
+    setError(""); setResultado(null);
+    if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
+    const [ini, fin] = rangoReporteFechas(form);
+    if (!ini || !fin) { setError("Debes definir un rango de fechas válido."); return; }
+    if (ini > fin) { setError("La fecha inicio no puede ser mayor que la fecha fin."); return; }
+    setEstado("procesando");
+    try {
+      const p = await sriPermiso(`SRI reporte fechas ${form.ruc.trim()}`);
+      const r = await sriReporteFechas(p.url, p.token, {
+        ruc: form.ruc.trim(), origen: form.origen, tipo: form.tipo,
+        estado_emitidos: form.origen === "Emitidos" ? form.estado_emitidos : null,
+        fecha_inicio: ini, fecha_fin: fin,
+      });
+      setResultado(r); setEstado(r.ok === false ? "error" : "listo");
+      if (r.ok === false) setError(r.message || "No se pudo generar el reporte.");
+    } catch (e) { setError(e?.message || "No se pudo generar el reporte."); setEstado("error"); }
+  }
+
+  async function bajar() {
+    if (!resultado?.excel_path) return;
+    setBajando(true); setError("");
+    try { const p = await sriPermiso(`SRI reporte fechas ${form.ruc.trim()}`); await sriDescargarArchivo(p.url, p.token, resultado.excel_path); }
+    catch (e) { setError(e?.message || "No se pudo descargar."); }
+    finally { setBajando(false); }
+  }
+
+  return (
+    <section className="ma-tarjeta ma-sri-descarga">
+      <div className="ma-sri-descarga-cab">
+        <h3>Reporte por fechas</h3>
+        <span>Excel con los comprobantes ya descargados de un RUC entre dos fechas (Excel y PDF del mismo formato que el reporte de descarga). No entra al SRI.</span>
+      </div>
+      <div className="ma-sri-form">
+        <label>RUC del contribuyente<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" /></label>
+        <label>Origen<select value={form.origen} onChange={set("origen")}><option>Recibidos</option><option>Emitidos</option></select></label>
+        <label>Tipo de comprobante<select value={form.tipo} onChange={set("tipo")}>{TIPOS_REPORTE.map((t) => <option key={t}>{t}</option>)}</select></label>
+        {form.origen === "Emitidos" && (
+          <label>Estado de autorización<select value={form.estado_emitidos} onChange={set("estado_emitidos")}>{ESTADOS_EMITIDOS.map((e) => <option key={e}>{e}</option>)}</select></label>
+        )}
+        <label>Modo de fecha<select value={form.modo} onChange={set("modo")}>{MODOS_REPORTE.map((m) => <option key={m}>{m}</option>)}</select></label>
+        {form.modo === "Día específico" && <label>Fecha<input type="date" value={form.fecha} onChange={set("fecha")} /></label>}
+        {(form.modo === "Mes completo" || form.modo === "Rango de meses" || form.modo === "Año completo") && (
+          <label>Año<select value={form.anio} onChange={set("anio")}>{ANIOS.map((a) => <option key={a} value={a}>{a}</option>)}</select></label>
+        )}
+        {form.modo === "Mes completo" && <label>Mes<select value={form.mes} onChange={set("mes")}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>}
+        {form.modo === "Rango de fechas" && <label>Fecha inicio<input type="date" value={form.fecha_inicio} onChange={set("fecha_inicio")} /></label>}
+        {form.modo === "Rango de fechas" && <label>Fecha fin<input type="date" value={form.fecha_fin} onChange={set("fecha_fin")} /></label>}
+        {form.modo === "Rango de meses" && <label>Mes inicio<select value={form.mes_inicio} onChange={set("mes_inicio")}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>}
+        {form.modo === "Rango de meses" && <label>Mes fin<select value={form.mes_fin} onChange={set("mes_fin")}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>}
+      </div>
+      <div className="ma-sri-descarga-acciones">
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={generar} disabled={estado === "procesando"}>{estado === "procesando" ? "Generando…" : "Generar reporte por fechas"}</button>
+      </div>
+      {estado === "listo" && (
+        <div className="ma-sri-resultado ma-sri-resultado-ok">
+          <ResumenOffline r={{ ...resultado, total_filas: resultado?.rows }} titulo="✅ Reporte generado" onDescargar={resultado?.excel_path ? bajar : null} bajando={bajando} textoDescarga="Descargar reporte por fechas" />
+          {Array.isArray(resultado?.errors) && resultado.errors.length > 0 && <p className="ma-sri-tabla-nota">PDF con advertencias omitidos: {resultado.errors.length}</p>}
+        </div>
+      )}
       {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
     </section>
   );
@@ -1023,7 +1120,8 @@ function SubAyuda() {
         <h3>Cómo usar el robot del SRI</h3>
         <ol className="ma-sri-ayuda-lista">
           <li><strong>Descarga:</strong> pon el RUC y la clave del SRI del cliente, elige el período y los formatos, y pulsa «Descargar». Si el SRI muestra un captcha, aparecerá aquí para que lo escribas. Al terminar, baja los archivos con «Descargar archivos (ZIP)».</li>
-          <li><strong>Reportes e historial:</strong> revisa las descargas ya realizadas.</li>
+          <li><strong>Reporte por fechas:</strong> arma un Excel con lo ya descargado de un RUC entre dos fechas, sin entrar al SRI.</li>
+          <li><strong>Historial:</strong> revisa las descargas ya realizadas.</li>
           <li><strong>Consolidación:</strong> une los documentos ya descargados de un RUC por período en un solo reporte.</li>
         </ol>
         <p className="ma-sri-tabla-nota">La clave del SRI del cliente viaja del navegador directo al motor de la firma, se usa solo para esa descarga y no se guarda ni pasa por el servidor web.</p>
@@ -1063,6 +1161,7 @@ export default function CumplimientoSRI({ ir }) {
       </nav>
 
       {sub === "descarga" && <SubDescarga />}
+      {sub === "reportefechas" && <SubReporteFechas />}
       {sub === "reportes" && <SubReportes />}
       {sub === "consolidacion" && <SubConsolidacion />}
       {sub === "reconstruccion" && <SubReconstruccion />}
