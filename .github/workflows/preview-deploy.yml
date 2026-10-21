@@ -30,10 +30,10 @@ on:
   workflow_dispatch:
     inputs:
       accion:
-        description: "sincronizar | reintentar | caducidad"
+        description: "capacidad (solo lectura) | sincronizar | reintentar | caducidad"
         required: true
         type: choice
-        options: [sincronizar, reintentar, caducidad]
+        options: [capacidad, sincronizar, reintentar, caducidad]
       pr_number:
         description: "Número de PR (solo sincronizar)"
         required: false
@@ -60,12 +60,15 @@ jobs:
     name: admisión y despliegue por capacidad
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # Con el interruptor apagado solo se admite workflow_dispatch en modo simulación (dry_run=true): el script
+    # bloquea toda escritura (Coolify._call y GitHub._escribir abortan en dry-run) y `capacidad` es solo lectura.
     if: >-
-      vars.PREVIEW_PIPELINE_ENABLED == 'true' &&
-      (github.event_name != 'workflow_run' ||
-       (github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.event == 'pull_request' &&
-        github.event.workflow_run.head_repository.full_name == github.repository))
+      (vars.PREVIEW_PIPELINE_ENABLED == 'true' &&
+       (github.event_name != 'workflow_run' ||
+        (github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'pull_request' &&
+         github.event.workflow_run.head_repository.full_name == github.repository)))
+      || (github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true')
     steps:
       - name: Código confiable (rama por defecto, nunca el PR)
         uses: actions/checkout@v4
@@ -86,12 +89,19 @@ jobs:
           INPUT_ACCION: ${{ inputs.accion }}
           INPUT_PR: ${{ inputs.pr_number }}
           INPUT_DRY: ${{ inputs.dry_run }}
+          PIPELINE_ENABLED: ${{ vars.PREVIEW_PIPELINE_ENABLED }}
         run: |
           set -euo pipefail
           case "$COOLIFY_URL" in
             https://*) ;;
             *) echo "::error::COOLIFY_URL no es https:// — el token no se envía por HTTP plano. Abortado."; exit 1 ;;
           esac
+          if [ "$PIPELINE_ENABLED" != "true" ]; then
+            # Interruptor apagado: solo simulación. Doble cierre: aquí y en el propio script (bloqueo de escrituras).
+            [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_DRY" = "true" ] \
+              || { echo "::error::PREVIEW_PIPELINE_ENABLED no es 'true': solo se admite workflow_dispatch con dry_run=true"; exit 1; }
+            echo "::notice::interruptor apagado: ejecución en modo simulación (sin escrituras)"
+          fi
           ARGS=""; ACCION=""
           case "$EVENT_NAME" in
             workflow_run)

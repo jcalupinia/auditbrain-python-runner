@@ -103,6 +103,9 @@ class Coolify:
     def _call(self, method: str, path: str, body: dict | None = None) -> tuple[int, dict | list | None]:
         if not self._permitido(path):
             raise SystemExit(f"ABORTADO: llamada a Coolify fuera de la lista blanca: {method} {path}")
+        if self.dry and method != "GET":
+            # Garantía de --dry-run: ninguna escritura llega a Coolify aunque una rama de código lo intente.
+            raise SystemExit(f"ABORTADO (dry-run): escritura bloqueada {method} {path}")
         return _req(method, f"{self.base}/api/v1{path}", self.token, body)
 
     def previews(self) -> list[dict]:
@@ -196,13 +199,19 @@ class GitHub:
         fechas = [f for f in fechas if f]
         return max(dt.datetime.fromisoformat(f.replace("Z", "+00:00")) for f in fechas) if fechas else dt.datetime.fromisoformat(pr["created_at"].replace("Z", "+00:00"))
 
+    def _escribir(self, method: str, url: str, body: dict | None = None) -> None:
+        """Única vía de escritura en GitHub; en --dry-run se bloquea aunque alguna rama de código la invoque."""
+        if self.dry:
+            raise SystemExit(f"ABORTADO (dry-run): escritura bloqueada {method} {url}")
+        _req(method, url, self.token, body)
+
     def etiquetar(self, n: int, poner: str | None = None, quitar: tuple[str, ...] = ()) -> None:
         if self.dry:
             return log(f"[dry-run] etiquetas PR {n}: +{poner} -{quitar}")
         for q in quitar:
-            _req("DELETE", self._u(f"/issues/{n}/labels/{urllib.parse.quote(q)}"), self.token)
+            self._escribir("DELETE", self._u(f"/issues/{n}/labels/{urllib.parse.quote(q)}"))
         if poner:
-            _req("POST", self._u(f"/issues/{n}/labels"), self.token, {"labels": [poner]})
+            self._escribir("POST", self._u(f"/issues/{n}/labels"), {"labels": [poner]})
 
     def comentar(self, n: int, texto: str) -> None:
         """Un único comentario del controlador por PR (se edita; no se acumulan)."""
@@ -212,25 +221,47 @@ class GitHub:
         st, items = _req("GET", self._u(f"/issues/{n}/comments?per_page=100"), self.token)
         previo = next((c for c in (items or []) if st == 200 and MARCA_COMENTARIO in (c.get("body") or "")), None)
         if previo:
-            _req("PATCH", self._u(f"/issues/comments/{previo['id']}"), self.token, {"body": cuerpo})
+            self._escribir("PATCH", self._u(f"/issues/comments/{previo['id']}"), {"body": cuerpo})
         else:
-            _req("POST", self._u(f"/issues/{n}/comments"), self.token, {"body": cuerpo})
+            self._escribir("POST", self._u(f"/issues/{n}/comments"), {"body": cuerpo})
 
 
 # ------------------------------------------------------------------ imágenes GHCR
-def imagenes_publicadas(sha: str, token: str) -> list[str]:
-    """Servicios cuya imagen sha-<sha> existe en GHCR (HEAD del manifiesto con token de lectura)."""
+ACCEPT_MANIFIESTO = "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
+
+
+def _token_pull_ghcr(paquete: str, pat: str, opener=urllib.request.urlopen) -> str | None:
+    """Token de registro (scope pull) para un paquete privado: GHCR no acepta el PAT como Bearer directo; hay
+    que canjearlo en /token con autenticación Basic usuario:PAT. Sin PAT se pide un token anónimo (sirve solo
+    para paquetes públicos; con uno privado el manifiesto responde 401/403 => «no publicada»)."""
+    import base64
+    url = f"https://ghcr.io/token?scope=repository:{GHCR_OWNER}/{paquete}:pull&service=ghcr.io"
+    headers = {"User-Agent": "auditbrain-preview-controlador"}
+    if pat:
+        headers["Authorization"] = "Basic " + base64.b64encode(f"{GHCR_OWNER}:{pat}".encode()).decode()
+    try:
+        with opener(urllib.request.Request(url, headers=headers), timeout=20) as r:
+            return json.loads(r.read().decode() or "{}").get("token")
+    except Exception:  # noqa: BLE001 - credencial sin read:packages, red caída, etc.
+        return None
+
+
+def imagenes_publicadas(sha: str, token: str, opener=urllib.request.urlopen) -> list[str]:
+    """Servicios cuya imagen sha-<sha> existe en GHCR: canje PAT -> token de registro y HEAD del manifiesto."""
     ok = []
     for svc in SERVICIOS:
-        url = f"https://ghcr.io/v2/{GHCR_OWNER}/{PAQUETE}{svc}/manifests/sha-{sha}"
-        req = urllib.request.Request(url, method="HEAD", headers={
-            "Authorization": f"Bearer {token}", "User-Agent": "auditbrain-preview-controlador",
-            "Accept": "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"})
+        paquete = f"{PAQUETE}{svc}"
+        reg = _token_pull_ghcr(paquete, token, opener)
+        if not reg:
+            log(f"GHCR: sin token de lectura para {paquete} (¿GHCR_READ_TOKEN sin read:packages?)")
+            continue
+        req = urllib.request.Request(f"https://ghcr.io/v2/{GHCR_OWNER}/{paquete}/manifests/sha-{sha}", method="HEAD",
+                                     headers={"Authorization": f"Bearer {reg}", "User-Agent": "auditbrain-preview-controlador", "Accept": ACCEPT_MANIFIESTO})
         try:
-            with urllib.request.urlopen(req, timeout=20) as r:
+            with opener(req, timeout=20) as r:
                 if r.status == 200:
                     ok.append(svc)
-        except Exception:  # noqa: BLE001 - ausente, denegado o sin red: se trata igual (no publicada)
+        except Exception:  # noqa: BLE001 - 401/403/404 o red: no publicada (fallo cerrado)
             pass
     return ok
 
@@ -597,6 +628,19 @@ def caducidad(ctx: Contexto, dias: int) -> int:
     return 0
 
 
+def capacidad(ctx: Contexto) -> int:
+    """Solo lectura: lee la telemetría, los previews y despliegues en vuelo y la salud de producción, e imprime la
+    CapacityDecision que recibiría un PR hipotético. Sirve para verificar /api/v1/host-capacity antes de activar."""
+    m = leer_capacidad(ctx.fuentes_capacidad, ctx.token_capacidad, ctx.fetch) if ctx.fuentes_capacidad else None
+    d = decidir_capacidad(m, ctx.co.previews(), ctx.co.despliegues_en_vuelo(), produccion_sana(ctx), ctx.politica, 0, "0" * 40)
+    print(json.dumps(d.to_dict(), indent=2, ensure_ascii=False))
+    if d.reason_code == "TELEMETRY_UNAVAILABLE":
+        log("telemetría NO disponible: revisar PREVIEW_CAPACITY_SOURCES y PREVIEW_CAPACITY_TOKEN (ver docs §9); con este estado todo PR queda en espera")
+        return 3
+    log(f"telemetría OK desde {m.get('fuente')}: decisión hipotética {d.decision} ({d.reason_code})")
+    return 0
+
+
 def contexto_desde_entorno(dry: bool) -> Contexto:
     faltan = [k for k in ("COOLIFY_URL", "COOLIFY_API_TOKEN", "COOLIFY_PREVIEW_APP_UUID", "GITHUB_TOKEN", "GITHUB_REPOSITORY") if not os.environ.get(k)]
     if faltan:
@@ -617,7 +661,7 @@ def contexto_desde_entorno(dry: bool) -> Contexto:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("accion", choices=["sincronizar", "reintentar", "cerrar", "caducidad"])
+    ap.add_argument("accion", choices=["sincronizar", "reintentar", "cerrar", "caducidad", "capacidad"])
     ap.add_argument("--pr", type=int)
     ap.add_argument("--sha")
     ap.add_argument("--dry-run", action="store_true")
@@ -625,6 +669,8 @@ def main(argv=None) -> int:
     ctx = contexto_desde_entorno(a.dry_run)
     if a.accion in ("sincronizar", "cerrar") and not a.pr:
         print("--pr es obligatorio", file=sys.stderr); return 2
+    if a.accion == "capacidad":
+        return capacidad(ctx)
     if a.accion == "sincronizar":
         return sincronizar(ctx, a.pr, a.sha)
     if a.accion == "reintentar":

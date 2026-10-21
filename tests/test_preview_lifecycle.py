@@ -415,6 +415,35 @@ def test_cli_exige_variables_y_no_ejecuta_nada_sin_ellas(monkeypatch):
         pl.main(["reintentar", "--dry-run"])
 
 
+def test_dry_run_bloquea_toda_escritura_en_coolify_y_github():
+    """Garantía del punto 1 del cierre: con --dry-run ninguna escritura llega a Coolify ni a GitHub, ni siquiera
+    si una rama de código llama a los métodos de escritura directamente."""
+    co = pl.Coolify("https://coolify.audit-ia.ec", "t", "lrv8o1j8cyqbm3nry5qpziqj", dry=True)
+    with pytest.raises(SystemExit, match="dry-run"):
+        co._call("POST", f"/applications/{co.app}/previews", {"pull_request_id": 1})
+    with pytest.raises(SystemExit, match="dry-run"):
+        co._call("DELETE", f"/applications/{co.app}/previews/1")
+    gh = pl.GitHub(REPO, "g", dry=True)
+    with pytest.raises(SystemExit, match="dry-run"):
+        gh._escribir("POST", "https://api.github.com/repos/x/y/issues/1/comments", {"body": "x"})
+    # Las operaciones de alto nivel en dry-run solo registran (no llegan a _escribir/_call)
+    gh.etiquetar(1, "preview:activo"); gh.comentar(1, "hola"); co.asegurar_preview(1, ""); co.borrar(1)
+    assert co.desplegar(1) is None
+
+
+def test_accion_capacidad_es_solo_lectura_y_diagnostica_la_telemetria(capsys):
+    gh = GitHubFalso({})
+    co = CoolifyFalso()
+    f = fetch_ok({})
+    ctx = contexto(co, gh, f, dry=True)
+    assert pl.capacidad(ctx) == 0
+    salida = capsys.readouterr().out
+    assert '"decision": "ADMIT"' in salida and "telemetría OK" in salida and co.llamadas == []
+    f.capacidad = None
+    assert pl.capacidad(ctx) == 3
+    assert "TELEMETRY_UNAVAILABLE" in capsys.readouterr().out
+
+
 def test_cli_rechaza_coolify_http(monkeypatch):
     monkeypatch.setenv("COOLIFY_URL", "http://5.161.193.182:8000")
     for k, v in (("COOLIFY_API_TOKEN", "t"), ("COOLIFY_PREVIEW_APP_UUID", "lrv8o1j8cyqbm3nry5qpziqj"), ("GITHUB_TOKEN", "g"), ("GITHUB_REPOSITORY", REPO)):

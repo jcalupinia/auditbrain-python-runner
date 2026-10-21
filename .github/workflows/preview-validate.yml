@@ -31,6 +31,11 @@ on:
       - backend/app/auth/jwt_tokens.py
       - tests/test_preview_compose.py
       - tests/test_preview_env.py
+      - tests/test_preview_lifecycle.py
+      - tests/test_preview_ghcr_lectura.py
+      - scripts/preview_lifecycle.py
+      - backend/app/core/host_capacity.py
+      - backend/app/api/health.py
   workflow_dispatch: {}
 
 concurrency:
@@ -94,6 +99,28 @@ jobs:
             echo "ERROR: el Compose aún referencia variables compartidas de credenciales"; exit 1; fi
           grep -q 'preview-admin@audit-ia.ec' /tmp/compose-resuelto.yml
           echo "OK: sin PREVIEW_ADMIN_*/PREVIEW_API_KEY; correo del administrador de prueba fijo"
+
+  ghcr-lectura:
+    name: lectura real de imágenes privadas en GHCR (controlador)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Solo PR del propio repositorio (los forks no reciben el secreto). Lecturas únicamente: canje de token y HEAD.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: El controlador lee las tres imágenes privadas de un commit publicado y nada con credencial vacía
+        env:
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GHCR_PUBLISH_TOKEN: ${{ secrets.GHCR_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "${GHCR_READ_TOKEN:-}${GHCR_PUBLISH_TOKEN:-}" ] || { echo "::error::sin GHCR_READ_TOKEN ni GHCR_PUBLISH_TOKEN: la lectura real no se puede comprobar"; exit 1; }
+          pip install -q pytest
+          python -m pytest tests/test_preview_ghcr_lectura.py -q -p no:cacheprovider -rs 2>&1 | tee /tmp/ghcr.txt
+          grep -q "4 passed" /tmp/ghcr.txt || { echo "::error::las pruebas de integración no se ejecutaron todas (¿token sin read:packages?)"; exit 1; }
 
   init-secrets:
     name: generador de secretos de init (alpine real, dos volúmenes)
