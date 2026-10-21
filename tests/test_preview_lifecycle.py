@@ -141,18 +141,23 @@ def test_sin_telemetria_es_defer():
     assert (d.decision, d.reason_code) == ("DEFER", "TELEMETRY_UNAVAILABLE") and d.retry_after
 
 
-@pytest.mark.parametrize("m, codigo", [
-    (metricas(observed_at=_ahora_iso(-600)), "TELEMETRY_UNAVAILABLE"),
-    (metricas(observed_at=None), "TELEMETRY_UNAVAILABLE"),
-    (metricas(mem_available_mib=1500), "RAM_HEADROOM"),              # 1500 − 1296 − 576 < 512
-    (metricas(psi_mem_some_avg60=35.0), "CPU_PRESSURE"),
-    (metricas(load1=9.0, cpus=2), "CPU_PRESSURE"),
-    (metricas(swap_used_pct=90.0), "SWAP_PRESSURE"),
-    (metricas(disk_free_gib=1.0), "DISK"),
-    (metricas(disk_free_gib=None), "DISK"),
-    (metricas(oom_recent=2), "OOM_RECENT"),
+@pytest.mark.parametrize("cambios, codigo", [
+    ({"observed_at": "ANTIGUA"}, "TELEMETRY_UNAVAILABLE"),
+    ({"observed_at": None}, "TELEMETRY_UNAVAILABLE"),
+    ({"mem_available_mib": 1500}, "RAM_HEADROOM"),              # 1500 − 1296 − 576 < 512
+    ({"psi_mem_some_avg60": 35.0}, "CPU_PRESSURE"),
+    ({"load1": 9.0, "cpus": 2}, "CPU_PRESSURE"),
+    ({"swap_used_pct": 90.0}, "SWAP_PRESSURE"),
+    ({"disk_free_gib": 1.0}, "DISK"),
+    ({"disk_free_gib": None}, "DISK"),
+    ({"oom_recent": 2}, "OOM_RECENT"),
 ])
-def test_umbrales_producen_defer(m, codigo):
+def test_umbrales_producen_defer(cambios, codigo):
+    # Las métricas se construyen DENTRO del test: la frescura (180 s) se mide respecto al momento de la decisión y en
+    # CI la recolección puede ocurrir minutos antes de la ejecución.
+    if cambios.get("observed_at") == "ANTIGUA":
+        cambios = {"observed_at": _ahora_iso(-600)}
+    m = metricas(**cambios)
     d = pl.decidir_capacidad(m, [], [], True, pl.Politica(), 1, SHA_A)
     assert d.decision == "DEFER" and d.reason_code == codigo, d
 
