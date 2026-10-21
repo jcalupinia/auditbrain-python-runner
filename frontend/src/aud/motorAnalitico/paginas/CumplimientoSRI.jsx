@@ -16,9 +16,20 @@ import {
   sriVivoUrl,
 } from "../../../api.js";
 import { ESTADOS_EMITIDOS, tipoValido, tiposDe } from "./sriOpciones.js";
+import { SONDEO_MS, debeRenovar, formatosValidos, sesionDesdePermiso } from "./sriSesion.js";
 import "./CumplimientoSRI.css";
 
 const META = PAGINAS.find((p) => p.id === "sri");
+
+// Devuelve un token vigente para el trabajo en curso, renovando el permiso si
+// está por vencer (el permiso dura 5 min; una descarga puede durar más).
+async function tokenVigente(ctx) {
+  if (debeRenovar(ctx.current.vence)) {
+    const p = await sriPermiso(ctx.current.encargo);
+    Object.assign(ctx.current, sesionDesdePermiso(p));
+  }
+  return ctx.current.token;
+}
 
 // Subpáginas = las pestañas del robot del SRI (aplicacion.py de copia-robot-audit).
 const SUBS = [
@@ -204,24 +215,26 @@ function SubDescarga() {
   async function poll() {
     if (!ctx.current.vivo) return;
     try {
-      const est = await sriEstado(ctx.current.url, ctx.current.token, ctx.current.id);
+      const est = await sriEstado(ctx.current.url, await tokenVigente(ctx), ctx.current.id);
       setProgreso(est.progreso || []);
       if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
       else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase("listo"); return; }
       else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "La descarga falló."); setFase("error"); return; }
       else { setFase("procesando"); setCaptchaImg(null); }
     } catch { /* red transitoria: seguimos */ }
-    setTimeout(poll, 1500);
+    setTimeout(poll, SONDEO_MS);
   }
 
   async function lanzar() {
     setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0);
     if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
     if (!form.clave) { setError("Falta la clave del SRI del cliente."); return; }
-    const formatos = [form.formatoXML && "XML", form.formatoPDF && "PDF"].filter(Boolean);
+    const formatos = form.modo_rapido ? [] : [form.formatoXML && "XML", form.formatoPDF && "PDF"].filter(Boolean);
+    if (!formatosValidos(formatos, form.modo_rapido)) { setError("Selecciona al menos un formato (XML o PDF) o activa el modo rápido."); return; }
+    const encargo = `SRI ${form.ruc.trim()}`;
     setFase("procesando");
     try {
-      const permiso = await sriPermiso(`SRI ${form.ruc.trim()}`);
+      const permiso = await sriPermiso(encargo);
       const { id } = await sriDescargar(permiso.url, permiso.token, {
         ruc: form.ruc.trim(), clave: form.clave, origen: form.origen, tipo: form.tipo,
         modo_fecha: form.modo_fecha, anio: Number(form.anio), mes: Number(form.mes),
@@ -229,7 +242,7 @@ function SubDescarga() {
         estado_emitidos: form.origen === "Emitidos" ? form.estado_emitidos : null,
         formatos, modo_rapido: form.modo_rapido,
       });
-      ctx.current = { url: permiso.url, token: permiso.token, id, vivo: true };
+      ctx.current = { ...sesionDesdePermiso(permiso), encargo, id, vivo: true };
       setForm((f) => ({ ...f, clave: "" }));
       poll();
     } catch (e) { setError(e?.message || "No se pudo iniciar la descarga."); setFase("error"); }
@@ -238,14 +251,14 @@ function SubDescarga() {
   async function enviarCaptcha() {
     if (!captchaCodigo.trim()) return;
     try {
-      await sriEnviarCaptcha(ctx.current.url, ctx.current.token, ctx.current.id, captchaCodigo.trim());
+      await sriEnviarCaptcha(ctx.current.url, await tokenVigente(ctx), ctx.current.id, captchaCodigo.trim());
       setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando");
     } catch (e) { setError(e?.message || "No se pudo enviar el captcha."); }
   }
 
   async function bajarZip() {
     setBajando(true); setError("");
-    try { await sriDescargarZip(ctx.current.url, ctx.current.token, ctx.current.id); }
+    try { await sriDescargarZip(ctx.current.url, await tokenVigente(ctx), ctx.current.id); }
     catch (e) { setError(e?.message || "No se pudo descargar el ZIP."); }
     finally { setBajando(false); }
   }
@@ -297,8 +310,8 @@ function SubDescarga() {
         )}
         <label className="ma-sri-check">Formatos
           <span className="ma-sri-check-fila">
-            <label><input type="checkbox" checked={form.formatoXML} onChange={set("formatoXML")} disabled={trabajando} /> XML</label>
-            <label><input type="checkbox" checked={form.formatoPDF} onChange={set("formatoPDF")} disabled={trabajando} /> PDF</label>
+            <label><input type="checkbox" checked={form.formatoXML} onChange={set("formatoXML")} disabled={trabajando || form.modo_rapido} /> XML</label>
+            <label><input type="checkbox" checked={form.formatoPDF} onChange={set("formatoPDF")} disabled={trabajando || form.modo_rapido} /> PDF</label>
           </span>
         </label>
         <label className="ma-sri-check">Modo rápido
@@ -477,7 +490,7 @@ function SubReconstruccion() {
   async function bajar() {
     if (!permiso || !resultado?.destino) return;
     setBajando(true); setError("");
-    try { await sriDescargarArchivo(permiso.url, permiso.token, resultado.destino, `xml_reconstruidos_${ruc.trim()}.zip`); }
+    try { const p = await sriPermiso(`SRI reconstruir ${ruc.trim()}`); await sriDescargarArchivo(p.url, p.token, resultado.destino, `xml_reconstruidos_${ruc.trim()}.zip`); }
     catch (e) { setError(e?.message || "No se pudo descargar."); }
     finally { setBajando(false); }
   }
@@ -526,14 +539,14 @@ function SubCruceRetenciones() {
   async function poll() {
     if (!ctx.current.vivo) return;
     try {
-      const est = await sriEstado(ctx.current.url, ctx.current.token, ctx.current.id);
+      const est = await sriEstado(ctx.current.url, await tokenVigente(ctx), ctx.current.id);
       setProgreso(est.progreso || []);
       if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
       else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase(est.resultado?.ok === false ? "error" : "listo"); if (est.resultado?.ok === false) setError(est.resultado.message || "Sin resultados."); return; }
       else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "El cruce falló."); setFase("error"); return; }
       else { setFase("procesando"); setCaptchaImg(null); }
     } catch { /* red transitoria */ }
-    setTimeout(poll, 1500);
+    setTimeout(poll, SONDEO_MS);
   }
 
   async function ejecutar() {
@@ -543,12 +556,13 @@ function SubCruceRetenciones() {
     const carpeta = `descargas/${form.ruc.trim()}`;
     setFase("procesando");
     try {
-      const p = await sriPermiso(`SRI cruce ${form.ruc.trim()}`);
+      const encargo = `SRI cruce ${form.ruc.trim()}`;
+      const p = await sriPermiso(encargo);
       const params = { carpeta_retenciones: carpeta, base_ruc: carpeta, sentido: form.sentido, direccion: form.direccion };
       if (form.con_portal) { params.ruc = form.ruc.trim(); params.clave = form.clave; }
       const r = await sriCruceRetenciones(p.url, p.token, params);
       if (form.con_portal && r && r.id) {
-        ctx.current = { url: p.url, token: p.token, id: r.id, vivo: true };
+        ctx.current = { ...sesionDesdePermiso(p), encargo, id: r.id, vivo: true };
         setPermiso(p); setForm((f) => ({ ...f, clave: "" }));
         poll();
       } else {
@@ -560,14 +574,14 @@ function SubCruceRetenciones() {
 
   async function enviarCaptcha() {
     if (!captchaCodigo.trim()) return;
-    try { await sriEnviarCaptcha(ctx.current.url, ctx.current.token, ctx.current.id, captchaCodigo.trim()); setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando"); }
+    try { await sriEnviarCaptcha(ctx.current.url, await tokenVigente(ctx), ctx.current.id, captchaCodigo.trim()); setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando"); }
     catch (e) { setError(e?.message || "No se pudo enviar el captcha."); }
   }
 
   async function bajar() {
     if (!permiso || !resultado?.excel_path) return;
     setBajando(true); setError("");
-    try { await sriDescargarArchivo(permiso.url, permiso.token, resultado.excel_path); }
+    try { const p = await sriPermiso("SRI descarga de reporte"); await sriDescargarArchivo(p.url, p.token, resultado.excel_path); }
     catch (e) { setError(e?.message || "No se pudo descargar."); }
     finally { setBajando(false); }
   }
@@ -660,14 +674,14 @@ function SubValorNeto() {
   async function poll() {
     if (!ctx.current.vivo) return;
     try {
-      const est = await sriEstado(ctx.current.url, ctx.current.token, ctx.current.id);
+      const est = await sriEstado(ctx.current.url, await tokenVigente(ctx), ctx.current.id);
       setProgreso(est.progreso || []);
       if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
       else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase(est.resultado?.ok === false ? "error" : "listo"); if (est.resultado?.ok === false) setError(est.resultado.message || "Sin resultados."); return; }
       else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "El reporte falló."); setFase("error"); return; }
       else { setFase("procesando"); setCaptchaImg(null); }
     } catch { /* red transitoria */ }
-    setTimeout(poll, 1500);
+    setTimeout(poll, SONDEO_MS);
   }
 
   async function ejecutar() {
@@ -677,12 +691,13 @@ function SubValorNeto() {
     const carpeta = `descargas/${form.ruc.trim()}`;
     setFase("procesando");
     try {
-      const p = await sriPermiso(`SRI valor neto ${form.ruc.trim()}`);
+      const encargo = `SRI valor neto ${form.ruc.trim()}`;
+      const p = await sriPermiso(encargo);
       const params = { carpeta_nc: carpeta, ruc: form.ruc.trim() };
       if (form.con_portal) params.clave = form.clave;
       const r = await sriValorNeto(p.url, p.token, params);
       if (form.con_portal && r && r.id) {
-        ctx.current = { url: p.url, token: p.token, id: r.id, vivo: true };
+        ctx.current = { ...sesionDesdePermiso(p), encargo, id: r.id, vivo: true };
         setPermiso(p); setForm((f) => ({ ...f, clave: "" }));
         poll();
       } else {
@@ -694,14 +709,14 @@ function SubValorNeto() {
 
   async function enviarCaptcha() {
     if (!captchaCodigo.trim()) return;
-    try { await sriEnviarCaptcha(ctx.current.url, ctx.current.token, ctx.current.id, captchaCodigo.trim()); setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando"); }
+    try { await sriEnviarCaptcha(ctx.current.url, await tokenVigente(ctx), ctx.current.id, captchaCodigo.trim()); setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando"); }
     catch (e) { setError(e?.message || "No se pudo enviar el captcha."); }
   }
 
   async function bajar() {
     if (!permiso || !resultado?.excel_path) return;
     setBajando(true); setError("");
-    try { await sriDescargarArchivo(permiso.url, permiso.token, resultado.excel_path); }
+    try { const p = await sriPermiso("SRI descarga de reporte"); await sriDescargarArchivo(p.url, p.token, resultado.excel_path); }
     catch (e) { setError(e?.message || "No se pudo descargar."); }
     finally { setBajando(false); }
   }
@@ -784,14 +799,14 @@ function SubDeclaraciones() {
   async function poll() {
     if (!ctx.current.vivo) return;
     try {
-      const est = await sriEstado(ctx.current.url, ctx.current.token, ctx.current.id);
+      const est = await sriEstado(ctx.current.url, await tokenVigente(ctx), ctx.current.id);
       setProgreso(est.progreso || []);
       if (est.estado === "captcha") { setFase("captcha"); setCaptchaImg(est.captcha_img_b64 || null); }
       else if (est.estado === "listo") { ctx.current.vivo = false; setResultado(est.resultado || {}); setFase(est.resultado?.ok === false ? "error" : "listo"); if (est.resultado?.ok === false) setError(est.resultado.message || "Sin resultados."); return; }
       else if (est.estado === "error") { ctx.current.vivo = false; setError(est.error || "La descarga falló."); setFase("error"); return; }
       else { setFase("procesando"); setCaptchaImg(null); }
     } catch { /* red transitoria */ }
-    setTimeout(poll, 1500);
+    setTimeout(poll, SONDEO_MS);
   }
 
   async function ejecutar() {
@@ -800,26 +815,27 @@ function SubDeclaraciones() {
     if (!form.clave) { setError("Falta la clave del SRI del cliente."); return; }
     setFase("procesando");
     try {
-      const p = await sriPermiso(`SRI declaración ${form.ruc.trim()}`);
+      const encargo = `SRI declaración ${form.ruc.trim()}`;
+      const p = await sriPermiso(encargo);
       const params = { ruc: form.ruc.trim(), clave: form.clave, obligacion: form.obligacion, anio: Number(form.anio), documento: form.documento };
       if (esMensual) params.mes = Number(form.mes);
       const r = await sriDeclaracionesDescargar(p.url, p.token, params);
       setPermiso(p); setForm((f) => ({ ...f, clave: "" }));
-      if (r && r.id) { ctx.current = { url: p.url, token: p.token, id: r.id, vivo: true }; poll(); }
+      if (r && r.id) { ctx.current = { ...sesionDesdePermiso(p), encargo, id: r.id, vivo: true }; poll(); }
       else { setResultado(r); setFase(r?.ok === false ? "error" : "listo"); }
     } catch (e) { setError(e?.message || "No se pudo descargar la declaración."); setFase("error"); }
   }
 
   async function enviarCaptcha() {
     if (!captchaCodigo.trim()) return;
-    try { await sriEnviarCaptcha(ctx.current.url, ctx.current.token, ctx.current.id, captchaCodigo.trim()); setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando"); }
+    try { await sriEnviarCaptcha(ctx.current.url, await tokenVigente(ctx), ctx.current.id, captchaCodigo.trim()); setCaptchaCodigo(""); setCaptchaImg(null); setFase("procesando"); }
     catch (e) { setError(e?.message || "No se pudo enviar el captcha."); }
   }
 
   async function bajar() {
     if (!permiso || !resultado?.archivo) return;
     setBajando(true); setError("");
-    try { await sriDescargarArchivo(permiso.url, permiso.token, resultado.archivo); }
+    try { const p = await sriPermiso("SRI descarga de declaración"); await sriDescargarArchivo(p.url, p.token, resultado.archivo); }
     catch (e) { setError(e?.message || "No se pudo descargar."); }
     finally { setBajando(false); }
   }
