@@ -20,6 +20,7 @@ import {
 import { ESTADOS_EMITIDOS, tipoValido, tiposDe } from "./sriOpciones.js";
 import { SONDEO_MS, debeRenovar, formatosValidos, sesionDesdePermiso } from "./sriSesion.js";
 import { avisoXmlEmitidos, validarEstablecimiento, validarPuntoEmision } from "./sriValidacion.js";
+import { COLUMNAS_HISTORIAL, filtrarHistorial, normalizarFila, opcionesDe } from "./sriHistorial.js";
 import "./CumplimientoSRI.css";
 
 const META = PAGINAS.find((p) => p.id === "sri");
@@ -519,47 +520,56 @@ function SubReportes() {
   const [historial, setHistorial] = useState(null);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
+  const [filtros, setFiltros] = useState({ busqueda: "", ruc: "Todos", origen: "Todos", tipo: "Todos", anio: "Todos" });
+  const setF = (k) => (e) => setFiltros((f) => ({ ...f, [k]: e.target.value }));
 
   async function cargar() {
     setCargando(true); setError("");
     try {
       const permiso = await sriPermiso("SRI historial");
       const r = await sriHistorial(permiso.url, permiso.token);
-      setHistorial(r.historial || []);
+      setHistorial((Array.isArray(r.historial) ? r.historial : []).map(normalizarFila));
     } catch (e) { setError(e?.message || "No se pudo cargar el historial."); }
     finally { setCargando(false); }
   }
   useEffect(() => { cargar(); }, []);
 
-  const filas = Array.isArray(historial) ? historial : [];
+  const todas = Array.isArray(historial) ? historial : [];
+  const filas = filtrarHistorial(todas, filtros);
   return (
     <section className="ma-tarjeta ma-sri-tabla-bloque">
       <div className="ma-sri-descarga-cab">
-        <h3>Reportes e historial</h3>
-        <span>Descargas registradas en el servidor. Los archivos de cada descarga se bajan desde la pestaña «Descarga» (botón ZIP) al terminar.</span>
+        <h3>Historial</h3>
+        <span>Descargas registradas en el servidor, más recientes primero. Los archivos de cada descarga se bajan desde la pestaña «Descarga» (botón ZIP) al terminar.</span>
       </div>
       <div className="ma-sri-descarga-acciones">
         <button type="button" className="ma-boton" onClick={cargar} disabled={cargando}>{cargando ? "Cargando…" : "Actualizar historial"}</button>
       </div>
+      {todas.length > 0 && (
+        <div className="ma-sri-form">
+          <label>Búsqueda<input value={filtros.busqueda} onChange={setF("busqueda")} placeholder="RUC, tipo, estado…" /></label>
+          <label>RUC<select value={filtros.ruc} onChange={setF("ruc")}>{opcionesDe(todas, "ruc").map((o) => <option key={o}>{o}</option>)}</select></label>
+          <label>Origen<select value={filtros.origen} onChange={setF("origen")}>{opcionesDe(todas, "origen").map((o) => <option key={o}>{o}</option>)}</select></label>
+          <label>Tipo<select value={filtros.tipo} onChange={setF("tipo")}>{opcionesDe(todas, "tipo").map((o) => <option key={o}>{o}</option>)}</select></label>
+          <label>Año<select value={filtros.anio} onChange={setF("anio")}>{opcionesDe(todas, "anio").map((o) => <option key={o}>{o}</option>)}</select></label>
+        </div>
+      )}
       {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
-      {filas.length === 0 && !cargando && !error && <p className="ma-sri-tabla-nota">Sin descargas registradas todavía.</p>}
+      {todas.length === 0 && !cargando && !error && <p className="ma-sri-tabla-nota">Sin descargas registradas todavía.</p>}
+      {todas.length > 0 && filas.length === 0 && <p className="ma-sri-tabla-nota">Ninguna descarga coincide con los filtros.</p>}
       {filas.length > 0 && (
         <div className="ma-tabla-wrap">
           <table className="ma-tabla ma-sri-tabla">
-            <thead><tr><th>Fecha</th><th>RUC</th><th>Origen</th><th>Período</th><th>Tipo</th><th>Resultado</th></tr></thead>
+            <thead><tr>{COLUMNAS_HISTORIAL.map(([k, et]) => <th key={k}>{et}</th>)}</tr></thead>
             <tbody>
               {filas.map((h, i) => (
-                <tr key={i}>
-                  <td>{h.fecha || h.timestamp || "—"}</td>
-                  <td className="ma-sri-tabla-form">{h.ruc || "—"}</td>
-                  <td>{h.origen || "—"}</td>
-                  <td>{[h.anio, h.mes, h.dia].filter((x) => x || x === 0).join("/") || "—"}</td>
-                  <td>{h.tipo || "—"}</td>
-                  <td>{typeof h.resultado === "object" ? (h.resultado?.estado || "ok") : (h.resultado ?? "—")}</td>
+                <tr key={`${h.timestamp}-${i}`}>
+                  {COLUMNAS_HISTORIAL.map(([k]) => <td key={k} className={k === "ruc" ? "ma-sri-tabla-form" : undefined}>{h[k] || "—"}</td>)}
                 </tr>
               ))}
             </tbody>
           </table>
+          <p className="ma-sri-tabla-nota">{filas.length} de {todas.length} descargas.</p>
         </div>
       )}
     </section>
@@ -1109,8 +1119,8 @@ function SubDeclaraciones() {
 // ---------- Subpágina 4: Ayuda + alcance ----------
 const FUENTES = [
   { nombre: "Robot del SRI", texto: "Descarga los comprobantes electrónicos emitidos y recibidos, incluidas las retenciones.", formatos: ["XML", "PDF"] },
-  { nombre: "Declaraciones", texto: "Formularios presentados en el período, originales y sustitutivas.", formatos: ["PDF", "XML"] },
-  { nombre: "Anexos tributarios", texto: "ATS, RDEP, dividendos, accionistas, partes relacionadas y demás.", formatos: ["XML", "Excel"] },
+  { nombre: "Declaraciones", texto: "Formularios ya presentados de IVA (104), Retenciones (103) y Renta Sociedades (101): declaración completa, perfilada o comprobante.", formatos: ["PDF"] },
+  { nombre: "Anexos tributarios", texto: "ATS, RDEP, dividendos, accionistas y demás. Pendiente: la sección de anexos del portal aún no está mapeada; el robot responde «no disponible».", formatos: ["Pendiente"] },
   { nombre: "Contabilidad del cliente", texto: "Mayor o diario, auxiliares de ventas y compras, nómina y maestros.", formatos: ["Excel", "CSV"] },
 ];
 function SubAyuda() {
