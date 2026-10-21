@@ -606,7 +606,7 @@ function SubReconstruccion() {
 
 // ---------- Subpágina: Cruce Retención ↔ Factura ----------
 function SubCruceRetenciones() {
-  const [form, setForm] = useState({ ruc: "", sentido: "emitidas", direccion: "facturas", con_portal: false, clave: "" });
+  const [form, setForm] = useState({ ruc: "", sentido: "emitidas", direccion: "facturas", subcarpeta_facturas: "", refrescar_portal: false, con_portal: false, clave: "" });
   const [fase, setFase] = useState("idle"); // idle|procesando|captcha|listo|error
   const [resultado, setResultado] = useState(null);
   const [permiso, setPermiso] = useState(null);
@@ -652,7 +652,11 @@ function SubCruceRetenciones() {
       const encargo = `SRI cruce ${form.ruc.trim()}`;
       const p = await sriPermiso(encargo);
       const params = { carpeta_retenciones: carpeta, base_ruc: carpeta, sentido: form.sentido, direccion: form.direccion };
-      if (form.con_portal) { params.ruc = form.ruc.trim(); params.clave = form.clave; }
+      // Dirección "facturas": la carpeta de facturas define el período (incluye
+      // los meses sin ninguna retención). Es una subcarpeta de descargas/<ruc>.
+      const sub = form.subcarpeta_facturas.trim().replace(/^[/\\]+|[/\\]+$/g, "");
+      if (form.direccion === "facturas" && sub) params.carpetas_facturas = [`${carpeta}/${sub}`];
+      if (form.con_portal) { params.ruc = form.ruc.trim(); params.clave = form.clave; params.refrescar_portal = form.refrescar_portal; }
       const r = await sriCruceRetenciones(p.url, p.token, params);
       if (form.con_portal && r && r.id) {
         ctx.current = { ...sesionDesdePermiso(p), encargo, id: r.id, vivo: true };
@@ -699,12 +703,22 @@ function SubCruceRetenciones() {
             <option value="retenciones">Una fila por retención (busca su factura)</option>
           </select>
         </label>
+        {form.direccion === "facturas" && (
+          <label>Carpeta de facturas (recomendado)
+            <input value={form.subcarpeta_facturas} onChange={set("subcarpeta_facturas")} placeholder={form.sentido === "recibidas" ? "Emitidos/Autorizados/Factura/2026" : "Recibidos/Factura/2026"} title={`Subcarpeta dentro de descargas/${form.ruc.trim() || "<ruc>"} con las facturas ya descargadas. Define el período del reporte: se revisan los meses que cubren esas facturas, también los que no tienen ninguna retención. Si la dejas vacía, el período sale de las retenciones.`} disabled={trabajando} />
+          </label>
+        )}
         <label className="ma-sri-check">Portal
           <span className="ma-sri-check-fila"><label><input type="checkbox" checked={form.con_portal} onChange={set("con_portal")} disabled={trabajando} /> Bajar del SRI lo que falte (login + captcha)</label></span>
         </label>
         {form.con_portal && (
           <label>Clave del SRI
             <input type="password" value={form.clave} onChange={set("clave")} placeholder="•••••••" autoComplete="off" disabled={trabajando} />
+          </label>
+        )}
+        {form.con_portal && (
+          <label className="ma-sri-check">Refrescar
+            <span className="ma-sri-check-fila"><label><input type="checkbox" checked={form.refrescar_portal} onChange={set("refrescar_portal")} disabled={trabajando} /> Volver a consultar el portal aunque ya tenga las facturas</label></span>
           </label>
         )}
       </div>
