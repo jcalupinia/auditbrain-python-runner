@@ -5,6 +5,7 @@ import DeviceBlocked from "./auth/DeviceBlocked.jsx";
 import ClientCatalog from "./catalog/ClientCatalog.jsx";
 import ToolShell from "./tools/ToolShell.jsx";
 import ICTDashboard from "./ict/ICTDashboard.jsx";
+import CostosDashboard from "./costos/CostosDashboard.jsx";
 import FlujoDashboard from "./flujo/FlujoDashboard.jsx";
 import ForgeDashboard from "./forge/ForgeDashboard.jsx";
 import ValidadorSriDashboard from "./validador/ValidadorSriDashboard.jsx";
@@ -30,6 +31,7 @@ export default function App() {
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/device-blocked" element={<DeviceBlocked />} />
         <Route path="/catalog" element={<Protected><ClientCatalog /></Protected>} />
+        <Route path="/tools/SOFTWARE_COSTOS" element={<Protected><CostosDashboard /></Protected>} />
         <Route path="/tools/ICT_2025" element={<Protected><ICTDashboard /></Protected>} />
         <Route path="/tools/FLUJO_EFECTIVO" element={<Protected><FlujoDashboard /></Protected>} />
         <Route path="/tools/FORGE_CONSOLE" element={<Protected><ForgeDashboard /></Protected>} />
