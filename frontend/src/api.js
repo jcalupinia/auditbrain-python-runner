@@ -318,6 +318,25 @@ export async function sriEnviarCaptcha(url, token, id, codigo) {
     })
   );
 }
+// Detener un trabajo del robot (en cola se descarta; en curso termina el paso).
+export async function sriCancelar(url, token, id) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/trabajos/${id}/cancelar`, {
+      method: "POST",
+      headers: _motorHeaders(token),
+    })
+  );
+}
+// Reporte por fechas (offline): Excel de lo ya descargado entre dos fechas.
+export async function sriReporteFechas(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/reporte-fechas`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
 export async function sriConsolidar(url, token, params) {
   return parse(
     await apiFetch(`${_motorBase(url)}/motor/sri/consolidar`, {
@@ -363,6 +382,16 @@ export async function sriReconstruir(url, token, params) {
 export async function sriCruceRetenciones(url, token, params) {
   return parse(
     await apiFetch(`${_motorBase(url)}/motor/sri/cruce-retenciones`, {
+      method: "POST",
+      headers: _motorHeaders(token, { "Content-Type": "application/json" }),
+      body: JSON.stringify(params),
+    })
+  );
+}
+// Factura ↔ Retención: parte de las facturas y busca su retención (facturas sin retención).
+export async function sriFacturaRetencion(url, token, params) {
+  return parse(
+    await apiFetch(`${_motorBase(url)}/motor/sri/factura-retencion`, {
       method: "POST",
       headers: _motorHeaders(token, { "Content-Type": "application/json" }),
       body: JSON.stringify(params),
@@ -603,9 +632,12 @@ export async function cicloBajarLibro(pruebaId, formato = "xlsx", seccion = null
   return new Uint8Array(await res.arrayBuffer());
 }
 // Panel propio de la herramienta de nómina (bespoke 2.0): HTML con el encargo inyectado.
-// `fetchOpts` con timeout largo porque el panel es grande; devuelve bytes para armar el blob.
-export async function cicloBajarPanelNomina(pruebaId, fetchOpts = {}) {
-  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/panel-nomina`, { headers: authHeaders() }, fetchOpts);
+// `opts.embed=true` lo pide SIN su barra superior para incrustarlo en el Command Center (iframe);
+// el resto de `opts` son fetchOpts (timeout largo porque el panel es grande). Devuelve bytes.
+export async function cicloBajarPanelNomina(pruebaId, opts = {}) {
+  const { embed = false, ...fetchOpts } = opts;
+  const q = embed ? "?embed=1" : "";
+  const res = await apiFetch(`${CICLO}/pruebas/${pruebaId}/panel-nomina${q}`, { headers: authHeaders() }, fetchOpts);
   if (!res.ok) await parse(res);
   return new Uint8Array(await res.arrayBuffer());
 }
