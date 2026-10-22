@@ -121,6 +121,14 @@ jobs:
           esac
           { echo "accion=$ACCION"; echo "args=$ARGS"; } >> "$GITHUB_OUTPUT"
 
+      - name: Conexión privada con Coolify (tailnet) — falla cerrado antes de cualquier llamada con token
+        uses: ./.github/actions/coolify-tailnet
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          coolify-url: ${{ secrets.COOLIFY_URL || vars.COOLIFY_URL }}
+          coolify-tailnet-ip: ${{ vars.COOLIFY_TAILNET_IP }}
+        if: steps.puerta.outputs.accion != ''
       - name: Ejecutar el controlador
         if: steps.puerta.outputs.accion != ''
         env:

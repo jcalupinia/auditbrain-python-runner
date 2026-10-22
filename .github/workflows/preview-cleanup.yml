@@ -36,6 +36,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Conexión privada con Coolify (tailnet) — falla cerrado antes de cualquier llamada con token
+        uses: ./.github/actions/coolify-tailnet
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          coolify-url: ${{ secrets.COOLIFY_URL || vars.COOLIFY_URL }}
+          coolify-tailnet-ip: ${{ vars.COOLIFY_TAILNET_IP }}
       - name: Cerrar el preview del PR ${{ github.event.pull_request.number }}
         env:
           COOLIFY_URL: ${{ secrets.COOLIFY_URL || vars.COOLIFY_URL }}

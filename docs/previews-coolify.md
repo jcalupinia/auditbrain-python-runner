@@ -150,3 +150,30 @@ Orden: (1) telemetría verificada según §9 (`verificar_host_capacity.py` en «
 
 Prueba controlada propuesta: una rama de prueba con un cambio trivial (p. ej. un comentario en `README.md`) abierta como PR por el propietario → esperar el comentario «listo» con los tres enlaces y comprobar `build.commit` en `/api/v1/health` = head → hacer un segundo push trivial → el mismo preview se actualiza (mismo número, nuevo commit, `secrets` y `pgdata` conservados: usuario de prueba creado antes sigue existiendo) → abrir un segundo PR de prueba → según la capacidad queda «en espera» con su `CapacityDecision` o se despliega en paralelo → cerrar ambos PR → ambos previews desaparecen y producción (`https://api.audit-ia.ec/api/v1/health`) responde 200 durante todo el ejercicio.
 
+
+## 14. Conexión privada GitHub Actions → API de Coolify (tailnet; preparado, no activado)
+
+La API de Coolify está restringida por «Allowed API IPs» (middleware `ApiAllowed`, que admite IP y rangos CIDR y
+usa la IP real tras Traefik porque `TrustProxies` confía en el proxy). Los runners de GitHub no tienen IP fija, y
+abrir la lista a Internet o a los rangos públicos de GitHub queda descartado. La solución elegida es **Tailscale**:
+el runner se une a la tailnet existente como nodo **efímero** con etiqueta `tag:ci` (`tailscale/github-action@v4`,
+cliente OAuth con alcance `auth_keys` guardado en secretos), fija `coolify.audit-ia.ec` a la IP de tailnet del
+servidor en `/etc/hosts` y habla con Traefik por el túnel WireGuard con el certificado TLS real; Coolify ve como
+origen una IP `100.64.0.0/10`, que es lo único que se añade a «Allowed API IPs». La acción compuesta
+`.github/actions/coolify-tailnet` lo hace y **falla cerrado** antes de que exista cualquier llamada con token;
+`preview-deploy` y `preview-cleanup` la ejecutan como primer paso, y `preview-connectivity.yml` es la prueba de
+solo lectura (team y previews en 200, y control negativo: la misma consulta por la IP pública debe seguir en 403).
+
+Requisitos administrativos (ninguno aplicado todavía): `tailscaled` en el servidor Hetzner con etiqueta
+`tag:coolify`, sin Tailscale SSH ni Funnel (~30 MB de RAM, solo tráfico UDP saliente); ACL de la tailnet con
+`tagOwners` para `tag:ci` y `tag:coolify` y una única regla `tag:ci → tag:coolify:443`; cliente OAuth `tag:ci`;
+secretos `TS_OAUTH_CLIENT_ID` y `TS_OAUTH_SECRET` y variable `COOLIFY_TAILNET_IP` en GitHub; `100.64.0.0/10`
+en «Allowed API IPs». Desactivación inmediata: revocar el cliente OAuth, quitar la regla de la ACL o retirar el
+rango de la lista de IP; cualquiera de las tres corta el acceso sin tocar el servidor.
+
+Riesgo residual: `COOLIFY_API_TOKEN` pertenece al Root Team con `read`, `write` y `deploy`, por lo que sus
+permisos efectivos alcanzan toda la instancia; el controlador lo acota por código (lista blanca de endpoints de
+la aplicación de previews, solo HTTPS, bloqueo de escrituras en simulación) y la tailnet acota desde dónde puede
+usarse. Para reducir el alcance en el futuro: equipo propio de Coolify para los previews con su propio token
+(requiere que el servidor y el proyecto `previews` pertenezcan a ese equipo) o un token de solo `read` + `deploy`
+para el ciclo normal y uno de `write` solo para el cierre.
