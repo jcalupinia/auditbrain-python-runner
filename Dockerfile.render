@@ -51,6 +51,14 @@ RUN pip install --upgrade pip setuptools wheel \
 
 COPY . .
 
+# Commit con el que se construyó la imagen (Preview Environments: el backend se
+# niega a arrancar si la etiqueta esperada no coincide con este valor). En Render
+# y en builds locales sin --build-arg queda "unknown" y no cambia nada.
+ARG GIT_SHA=unknown
+ENV BUILD_COMMIT=${GIT_SHA}
+LABEL org.opencontainers.image.revision=${GIT_SHA} \
+      org.opencontainers.image.source="https://github.com/jcalupinia/auditbrain-python-runner"
+
 # Render inyecta $PORT; 10000 por compatibilidad local.
 EXPOSE 10000
 CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-10000}"]

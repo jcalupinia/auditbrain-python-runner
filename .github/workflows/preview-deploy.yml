@@ -1,0 +1,165 @@
+name: preview-deploy
+
+# Controlador de los previews en Coolify (scripts/preview_lifecycle.py, F2/F3):
+#  - workflow_run de `preview-images` terminado con éxito => `sincronizar --pr N --sha <head>`: evalúa seguridad
+#    (PR del repositorio, autor autorizado, plantilla confiable, pruebas obligatorias en verde, tres imágenes
+#    privadas publicadas) y capacidad real del host (CapacityDecision: ADMIT / DEFER / REJECT); solo con ADMIT
+#    pide a Coolify crear/actualizar el preview de ESE PR, espera el despliegue, verifica que los tres servicios
+#    sirvan exactamente ese commit y publica los enlaces en el PR.
+#  - schedule cada 15 min => `reintentar` (PR en espera, del más antiguo al más nuevo; un despliegue por ciclo) y
+#    `caducidad` (previews sin actividad humana >= DIAS_INACTIVIDAD).
+#  - workflow_dispatch => cualquiera de las acciones, con dry_run opcional.
+#
+# Código confiable: workflow_run y schedule ejecutan SIEMPRE este archivo y el script desde la rama por defecto
+# (main); nunca se hace checkout del código del PR. El candado de admisión es el grupo de concurrencia
+# `preview-admision` (serializa admisiones, cierres y reintentos; sin cancelación).
+#
+# Interruptor: variable de repositorio PREVIEW_PIPELINE_ENABLED == "true". Transporte: COOLIFY_URL debe ser https://
+# (el token nunca viaja por HTTP plano). Secretos: COOLIFY_API_TOKEN (read + deploy + write, solo para la aplicación
+# de previews), COOLIFY_PREVIEW_APP_UUID, GHCR_READ_TOKEN (read:packages; si falta se usa GHCR_PUBLISH_TOKEN),
+# PREVIEW_CAPACITY_TOKEN (lectura de /api/v1/host-capacity). Variables: PREVIEW_CAPACITY_SOURCES (URL base de un
+# backend que exponga host-capacity, p. ej. https://api.audit-ia.ec), PREVIEW_AUTHORS_ALLOWED, PREVIEW_DOMAIN_BASE,
+# PREVIEW_TEMPLATE_REF, PREVIEW_REQUIRED_CHECKS y los umbrales PREVIEW_* de la política (ver docs §11).
+
+on:
+  workflow_run:
+    workflows: [preview-images]
+    types: [completed]
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      accion:
+        description: "capacidad (solo lectura) | sincronizar | reintentar | caducidad"
+        required: true
+        type: choice
+        options: [capacidad, sincronizar, reintentar, caducidad]
+      pr_number:
+        description: "Número de PR (solo sincronizar)"
+        required: false
+        type: string
+      dry_run:
+        description: "true = solo informa (no crea, no despliega, no borra)"
+        required: true
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+
+concurrency:
+  group: preview-admision
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: read
+
+jobs:
+  controlador:
+    name: admisión y despliegue por capacidad
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # Con el interruptor apagado solo se admite workflow_dispatch en modo simulación (dry_run=true): el script
+    # bloquea toda escritura (Coolify._call y GitHub._escribir abortan en dry-run) y `capacidad` es solo lectura.
+    if: >-
+      (vars.PREVIEW_PIPELINE_ENABLED == 'true' &&
+       (github.event_name != 'workflow_run' ||
+        (github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'pull_request' &&
+         github.event.workflow_run.head_repository.full_name == github.repository)))
+      || (github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true')
+    steps:
+      - name: Código confiable (rama por defecto, nunca el PR)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch || 'main' }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Puerta de transporte y resolución del PR
+        id: puerta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL || vars.COOLIFY_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_PRS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+          INPUT_ACCION: ${{ inputs.accion }}
+          INPUT_PR: ${{ inputs.pr_number }}
+          INPUT_DRY: ${{ inputs.dry_run }}
+          PIPELINE_ENABLED: ${{ vars.PREVIEW_PIPELINE_ENABLED }}
+        run: |
+          set -euo pipefail
+          case "$COOLIFY_URL" in
+            https://*) ;;
+            *) echo "::error::COOLIFY_URL no es https:// — el token no se envía por HTTP plano. Abortado."; exit 1 ;;
+          esac
+          if [ "$PIPELINE_ENABLED" != "true" ]; then
+            # Interruptor apagado: solo simulación. Doble cierre: aquí y en el propio script (bloqueo de escrituras).
+            [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_DRY" = "true" ] \
+              || { echo "::error::PREVIEW_PIPELINE_ENABLED no es 'true': solo se admite workflow_dispatch con dry_run=true"; exit 1; }
+            echo "::notice::interruptor apagado: ejecución en modo simulación (sin escrituras)"
+          fi
+          ARGS=""; ACCION=""
+          case "$EVENT_NAME" in
+            workflow_run)
+              pr=$(jq -r '.[0].number // empty' <<<"$RUN_PRS")
+              if [ -z "$pr" ]; then
+                # Sin asociación directa: buscar el PR abierto del repositorio cuyo head es ese commit
+                pr=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RUN_HEAD_SHA}/pulls" --jq '[.[] | select(.state=="open" and .head.repo.full_name=="'"${GITHUB_REPOSITORY}"'")][0].number // empty')
+              fi
+              [ -n "$pr" ] || { echo "::notice::ningún PR abierto del repositorio con head $RUN_HEAD_SHA; nada que hacer"; echo "accion=" >> "$GITHUB_OUTPUT"; exit 0; }
+              ACCION=sincronizar; ARGS="--pr $pr --sha $RUN_HEAD_SHA" ;;
+            schedule)
+              ACCION=ciclo ;;
+            workflow_dispatch)
+              ACCION="$INPUT_ACCION"
+              [ "$ACCION" != "sincronizar" ] || { [[ "$INPUT_PR" =~ ^[0-9]+$ ]] || { echo "::error::pr_number obligatorio"; exit 1; }; ARGS="--pr $INPUT_PR"; }
+              [ "$INPUT_DRY" != "true" ] || ARGS="$ARGS --dry-run" ;;
+          esac
+          { echo "accion=$ACCION"; echo "args=$ARGS"; } >> "$GITHUB_OUTPUT"
+
+      - name: Conexión privada con Coolify (tailnet) — falla cerrado antes de cualquier llamada con token
+        uses: ./.github/actions/coolify-tailnet
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          coolify-url: ${{ secrets.COOLIFY_URL || vars.COOLIFY_URL }}
+          coolify-tailnet-ip: ${{ vars.COOLIFY_TAILNET_IP }}
+        if: steps.puerta.outputs.accion != ''
+      - name: Ejecutar el controlador
+        if: steps.puerta.outputs.accion != ''
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL || vars.COOLIFY_URL }}
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          COOLIFY_PREVIEW_APP_UUID: ${{ secrets.COOLIFY_PREVIEW_APP_UUID }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GHCR_PUBLISH_TOKEN: ${{ secrets.GHCR_PUBLISH_TOKEN }}
+          PREVIEW_CAPACITY_TOKEN: ${{ secrets.PREVIEW_CAPACITY_TOKEN }}
+          PREVIEW_CAPACITY_SOURCES: ${{ vars.PREVIEW_CAPACITY_SOURCES }}
+          PREVIEW_AUTHORS_ALLOWED: ${{ vars.PREVIEW_AUTHORS_ALLOWED }}
+          PREVIEW_DOMAIN_BASE: ${{ vars.PREVIEW_DOMAIN_BASE }}
+          PREVIEW_TEMPLATE_REF: ${{ vars.PREVIEW_TEMPLATE_REF }}
+          PREVIEW_REQUIRED_CHECKS: ${{ vars.PREVIEW_REQUIRED_CHECKS }}
+          PREVIEW_FACTOR_HEADROOM: ${{ vars.PREVIEW_FACTOR_HEADROOM }}
+          PREVIEW_RESERVA_SEGURIDAD_MIB: ${{ vars.PREVIEW_RESERVA_SEGURIDAD_MIB }}
+          PREVIEW_PRODUCTION_HEALTH_URLS: ${{ vars.PREVIEW_PRODUCTION_HEALTH_URLS }}
+          DIAS_INACTIVIDAD: ${{ vars.PREVIEW_DIAS_INACTIVIDAD || '3' }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ACCION: ${{ steps.puerta.outputs.accion }}
+          ARGS: ${{ steps.puerta.outputs.args }}
+        run: |
+          set -euo pipefail
+          # Variables vacías se eliminan para que el script aplique sus valores por defecto.
+          for v in PREVIEW_DOMAIN_BASE PREVIEW_TEMPLATE_REF PREVIEW_REQUIRED_CHECKS PREVIEW_FACTOR_HEADROOM PREVIEW_RESERVA_SEGURIDAD_MIB PREVIEW_PRODUCTION_HEALTH_URLS GHCR_READ_TOKEN; do
+            [ -n "${!v:-}" ] || unset "$v"; done
+          if [ "$ACCION" = "ciclo" ]; then
+            python scripts/preview_lifecycle.py reintentar
+            python scripts/preview_lifecycle.py caducidad
+          else
+            # shellcheck disable=SC2086
+            python scripts/preview_lifecycle.py "$ACCION" $ARGS
+          fi

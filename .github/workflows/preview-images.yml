@@ -1,0 +1,229 @@
+name: preview-images
+
+# Construye y PUBLICA en GHCR las tres imágenes PRIVADAS del commit exacto de un Pull Request (una sola etiqueta
+# inmutable por imagen: sha-<sha completo>; sin `latest` ni alias):
+#   ghcr.io/jcalupinia/auditbrain-preview-backend | -consola | -clientes
+#
+# Disparadores:
+#  - pull_request (opened / synchronize / reopened / ready_for_review) del PROPIO repositorio, solo si la variable
+#    de repositorio PREVIEW_PIPELINE_ENABLED es "true" (interruptor de activación) y el autor está autorizado
+#    (propietario o PREVIEW_AUTHORS_ALLOWED). Los forks no reciben secretos ni publicación. Cada push supersede al
+#    anterior del mismo PR (concurrency con cancelación). Al terminar con éxito, `preview-deploy` (workflow_run)
+#    evalúa capacidad y pide el despliegue a Coolify; NUNCA se despliega antes de que las tres imágenes existan.
+#  - push de etiqueta ghcr-preview-pr<N>-(backend|frontends|all)-<sha> (publicación manual controlada, sin
+#    interruptor): exige que el PR N esté abierto, sea del repositorio, apunte a main y su HEAD sea ese SHA.
+#
+# POR QUÉ NO SE USA GITHUB_TOKEN PARA PUBLICAR (2026-10-15): el paquete hereda la visibilidad del repositorio
+# donde corre el workflow (público). Se publica con la credencial dedicada GHCR_PUBLISH_TOKEN (PAT classic con
+# write:packages del propietario, secreto de Actions): un paquete nuevo nace PRIVADO y los existentes se comprueban
+# privados antes y después de publicar. Este workflow NO concede `packages: write` a GITHUB_TOKEN.
+# workflow_dispatch: solo con PREVIEW_PIPELINE_ENABLED.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    tags:
+      - "ghcr-preview-pr*-backend-*"
+      - "ghcr-preview-pr*-frontends-*"
+      - "ghcr-preview-pr*-all-*"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Número del Pull Request cuyas imágenes se publican"
+        required: true
+        type: string
+
+concurrency:
+  group: preview-images-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  REPO_AUTORIZADO: jcalupinia/auditbrain-python-runner
+  GHCR_OWNER: jcalupinia
+  PREFIJO_PAQUETE: auditbrain-preview-
+
+jobs:
+  guard:
+    name: puerta de habilitación
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Forks: ni secretos ni publicación. (pull_request de un fork no trae secretos; además se corta aquí.)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    outputs:
+      habilitado: ${{ steps.puerta.outputs.habilitado || 'false' }}
+      head_sha: ${{ steps.puerta.outputs.head_sha }}
+      pr: ${{ steps.puerta.outputs.pr }}
+      matriz: ${{ steps.puerta.outputs.matriz }}
+    steps:
+      - name: Credencial de publicación dedicada (existe, es del propietario y tiene write:packages)
+        env:
+          GHCR_PUBLISH_TOKEN: ${{ secrets.GHCR_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          rechazar() { echo "::error::RECHAZADO sin publicar: $1"; exit 1; }
+          [ -n "${GHCR_PUBLISH_TOKEN:-}" ] || rechazar "falta el secreto de Actions GHCR_PUBLISH_TOKEN (lo crea el propietario; nunca se usa GITHUB_TOKEN para publicar)"
+          cab=$(mktemp)
+          code=$(curl -sS -o /tmp/me.json -D "$cab" -w '%{http_code}' -H "Authorization: Bearer $GHCR_PUBLISH_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/user)
+          [ "$code" = "200" ] || rechazar "la credencial no autentica contra api.github.com (HTTP $code)"
+          login=$(jq -r .login /tmp/me.json)
+          [ "$login" = "$GHCR_OWNER" ] || rechazar "la credencial pertenece a '$login', no al propietario del espacio de nombres '$GHCR_OWNER'"
+          scopes=$(grep -i '^x-oauth-scopes:' "$cab" | cut -d: -f2- | tr -d ' \r')
+          echo ",$scopes," | grep -q ",write:packages," || rechazar "la credencial no tiene el alcance write:packages (debe ser un PAT classic)"
+          extra=$(echo "$scopes" | tr ',' '\n' | grep -vE '^(read:packages|write:packages)$' | paste -sd, - || true)
+          [ -z "$extra" ] || echo "::warning::la credencial tiene alcances adicionales a los mínimos: $extra (recomendado: solo write:packages)"
+
+      - name: Puerta del evento (PR del repositorio, autor autorizado, SHA exacto)
+        id: puerta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REPO: ${{ github.repository }}
+          PR_EVENTO: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_AUTOR: ${{ github.event.pull_request.user.login }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          PR_INPUT: ${{ inputs.pr_number }}
+          PIPELINE_ENABLED: ${{ vars.PREVIEW_PIPELINE_ENABLED }}
+          AUTORES_EXTRA: ${{ vars.PREVIEW_AUTHORS_ALLOWED }}
+        run: |
+          set -euo pipefail
+          rechazar() { echo "::error::RECHAZADO sin publicar: $1"; echo "habilitado=false" >> "$GITHUB_OUTPUT"; exit 1; }
+          omitir()   { echo "::notice::$1"; echo "habilitado=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          [ "$EVENT_REPO" = "$REPO_AUTORIZADO" ] || rechazar "repositorio $EVENT_REPO distinto de $REPO_AUTORIZADO"
+          ETAPA=all
+          case "$EVENT_NAME" in
+            pull_request)
+              [ "$PIPELINE_ENABLED" = "true" ] || omitir "PREVIEW_PIPELINE_ENABLED no es 'true': las imágenes por PR están desactivadas (publicación manual por etiqueta sigue disponible)"
+              [ "$PR_DRAFT" != "true" ] || omitir "PR en borrador: se publica al marcarlo listo"
+              PR="$PR_EVENTO"; SHA="$PR_HEAD_SHA" ;;
+            push)
+              [ "${GITHUB_REF_TYPE:-}" = "tag" ] || rechazar "el evento no es un push de etiqueta"
+              TAG="${GITHUB_REF_NAME}"
+              [[ "$TAG" =~ ^ghcr-preview-pr([0-9]+)-(backend|frontends|all)-([0-9a-f]{40})$ ]] || rechazar "etiqueta '$TAG' sin el formato ghcr-preview-pr<N>-(backend|frontends|all)-<sha de 40>"
+              PR="${BASH_REMATCH[1]}"; ETAPA="${BASH_REMATCH[2]}"; SHA="${BASH_REMATCH[3]}"
+              ref_json=$(gh api "repos/$REPO_AUTORIZADO/git/ref/tags/$TAG")
+              obj_type=$(jq -r .object.type <<<"$ref_json"); obj_sha=$(jq -r .object.sha <<<"$ref_json")
+              if [ "$obj_type" = "tag" ]; then commit=$(gh api "repos/$REPO_AUTORIZADO/git/tags/$obj_sha" --jq .object.sha); else commit="$obj_sha"; fi
+              [ "$commit" = "$SHA" ] || rechazar "la etiqueta apunta a $commit, no al SHA de su nombre ($SHA)" ;;
+            workflow_dispatch)
+              [ "$PIPELINE_ENABLED" = "true" ] || omitir "PREVIEW_PIPELINE_ENABLED no es 'true': no se publica nada"
+              PR="$PR_INPUT"; SHA="" ;;
+            *) rechazar "evento $EVENT_NAME no admitido" ;;
+          esac
+          [[ "$PR" =~ ^[0-9]+$ ]] || rechazar "número de PR inválido '$PR'"
+          pr_json=$(gh api "repos/$REPO_AUTORIZADO/pulls/$PR")
+          [ "$(jq -r .state <<<"$pr_json")" = "open" ] || rechazar "el PR $PR no está abierto"
+          [ "$(jq -r .merged <<<"$pr_json")" = "false" ] || rechazar "el PR $PR está fusionado"
+          [ "$(jq -r .base.ref <<<"$pr_json")" = "main" ] || rechazar "el PR $PR no apunta a main"
+          [ "$(jq -r .head.repo.full_name <<<"$pr_json")" = "$REPO_AUTORIZADO" ] || rechazar "el PR $PR proviene de un fork"
+          head_sha=$(jq -r .head.sha <<<"$pr_json")
+          [ -z "$SHA" ] && SHA="$head_sha"
+          [ "$head_sha" = "$SHA" ] || omitir "el HEAD actual del PR ($head_sha) ya no es $SHA: lo publicará la ejecución del nuevo push"
+          autor=$(jq -r .user.login <<<"$pr_json" | tr '[:upper:]' '[:lower:]')
+          permitidos=",$(echo "$GHCR_OWNER,$AUTORES_EXTRA" | tr '[:upper:]' '[:lower:]' | tr -d ' '),"
+          case "$permitidos" in *",$autor,"*) ;; *) rechazar "autor '$autor' no autorizado para previews (propietario o PREVIEW_AUTHORS_ALLOWED)";; esac
+          case "$ETAPA" in
+            backend)   m='[{"service":"backend","dockerfile":"Dockerfile.render"}]' ;;
+            frontends) m='[{"service":"consola","dockerfile":"frontend/Dockerfile.preview"},{"service":"clientes","dockerfile":"frontend-client/Dockerfile.preview"}]' ;;
+            all)       m='[{"service":"backend","dockerfile":"Dockerfile.render"},{"service":"consola","dockerfile":"frontend/Dockerfile.preview"},{"service":"clientes","dockerfile":"frontend-client/Dockerfile.preview"}]' ;;
+          esac
+          echo "AUTORIZADO: PR $PR, commit $SHA, etapa $ETAPA, autor $autor"
+          { echo "habilitado=true"; echo "head_sha=$SHA"; echo "pr=$PR"; echo "matriz=$m"; } >> "$GITHUB_OUTPUT"
+
+  build-push:
+    name: publicar · ${{ matrix.service }}
+    needs: guard
+    if: needs.guard.outputs.habilitado == 'true' && needs.guard.outputs.head_sha != '' && needs.guard.outputs.matriz != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: true
+      matrix:
+        include: ${{ fromJSON(needs.guard.outputs.matriz) }}
+    env:
+      IMAGEN: ghcr.io/jcalupinia/auditbrain-preview-${{ matrix.service }}
+      PAQUETE: auditbrain-preview-${{ matrix.service }}
+      SHA: ${{ needs.guard.outputs.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.guard.outputs.head_sha }}
+      - name: El checkout es exactamente el commit autorizado
+        run: |
+          set -euo pipefail
+          actual=$(git rev-parse HEAD)
+          [ "$actual" = "$SHA" ] || { echo "::error::checkout $actual != $SHA"; exit 1; }
+      - name: El destino es un paquete nuevo privado o uno ya privado (nunca un paquete público)
+        env:
+          GHCR_PUBLISH_TOKEN: ${{ secrets.GHCR_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/pkg.json -w '%{http_code}' -H "Authorization: Bearer $GHCR_PUBLISH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/user/packages/container/$PAQUETE")
+          if [ "$code" = "404" ]; then echo "paquete $PAQUETE inexistente: se creará con la credencial dedicada (nace privado)";
+          elif [ "$code" = "200" ]; then vis=$(jq -r .visibility /tmp/pkg.json); [ "$vis" = "private" ] || { echo "::error::el paquete $PAQUETE ya existe y es '$vis': no se publica"; exit 1; }; echo "paquete $PAQUETE existente y privado";
+          else echo "::error::no se pudo consultar el paquete $PAQUETE (HTTP $code)"; exit 1; fi
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ env.GHCR_OWNER }}
+          password: ${{ secrets.GHCR_PUBLISH_TOKEN }}
+      - name: Construir y publicar con el commit exacto (una sola etiqueta sha-<sha>)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          provenance: false
+          tags: ${{ env.IMAGEN }}:sha-${{ env.SHA }}
+          labels: |
+            org.opencontainers.image.revision=${{ env.SHA }}
+          build-args: |
+            GIT_SHA=${{ env.SHA }}
+          cache-from: type=gha,scope=preview-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=preview-${{ matrix.service }}
+      - name: Verificación posterior — visibilidad PRIVATE y rechazo del acceso anónimo
+        env:
+          GHCR_PUBLISH_TOKEN: ${{ secrets.GHCR_PUBLISH_TOKEN }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/pkg.json -w '%{http_code}' -H "Authorization: Bearer $GHCR_PUBLISH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/user/packages/container/$PAQUETE")
+          [ "$code" = "200" ] || { echo "::error::no se pudo leer el paquete $PAQUETE tras publicar (HTTP $code)"; exit 1; }
+          vis=$(jq -r .visibility /tmp/pkg.json)
+          anon=$(curl -sS "https://ghcr.io/token?scope=repository:$GHCR_OWNER/$PAQUETE:pull" | jq -r '.token // empty')
+          anon_code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $anon" \
+            -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json" \
+            "https://ghcr.io/v2/$GHCR_OWNER/$PAQUETE/manifests/sha-$SHA")
+          {
+            echo "### $PAQUETE"
+            echo "- imagen: \`$IMAGEN:sha-$SHA\`"
+            echo "- commit: \`$SHA\`"
+            echo "- digest: \`$DIGEST\`"
+            echo "- visibilidad (API de GitHub Packages, credencial dedicada): **$vis**"
+            echo "- descarga anónima del manifiesto: HTTP $anon_code"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "RESULTADO $PAQUETE sha=$SHA digest=$DIGEST visibilidad=$vis anonimo=HTTP_$anon_code"
+          [ "$vis" = "private" ] || { echo "::error::EL PAQUETE $PAQUETE QUEDÓ '$vis' (no private). Detener: no publicar nada más; el propietario debe corregir la visibilidad."; exit 1; }
+          [ "$anon_code" != "200" ] || { echo "::error::el manifiesto de $PAQUETE se descarga de forma anónima (HTTP 200). Detener."; exit 1; }
+          echo "OK: $PAQUETE privado y sin acceso anónimo"
+
+  resumen:
+    name: tres imágenes publicadas y verificadas
+    needs: [guard, build-push]
+    if: always() && needs.guard.outputs.habilitado == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Resultado para preview-deploy (workflow_run lee la conclusión de este workflow)
+        env:
+          RESULTADO: ${{ needs.build-push.result }}
+        run: |
+          echo "PR ${{ needs.guard.outputs.pr }} · commit ${{ needs.guard.outputs.head_sha }} · build-push: $RESULTADO"
+          [ "$RESULTADO" = "success" ] || { echo "::error::alguna imagen no se publicó: preview-deploy no desplegará este commit"; exit 1; }

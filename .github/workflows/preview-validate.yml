@@ -1,0 +1,248 @@
+name: preview-validate
+
+# Validación de los artefactos de Preview Environments SIN desplegar ni publicar nada:
+#  - `docker compose config` del Compose de previews con valores ficticios;
+#  - construcción (sin push) de las tres imágenes con el commit del PR, comprobando que el
+#    commit queda en la metadata OCI y en build-info.json;
+#  - pruebas de resolución del backend por hostname en los dos frontends.
+# Corre solo cuando cambian esos artefactos. No usa secretos ni tokens.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - docker-compose.preview.yml
+      - Dockerfile.render
+      - frontend/Dockerfile.preview
+      - frontend/Dockerfile.preview.dockerignore
+      - frontend/nginx.preview.conf
+      - frontend/src/previewResolver.js
+      - frontend/src/previewResolver.test.js
+      - frontend/src/api.js
+      - frontend-client/Dockerfile.preview
+      - frontend-client/Dockerfile.preview.dockerignore
+      - frontend-client/nginx.preview.conf
+      - frontend-client/src/previewResolver.js
+      - frontend-client/src/previewResolver.test.mjs
+      - frontend-client/src/api.js
+      - backend/app/core/preview.py
+      - backend/app/core/hostnames.py
+      - .github/workflows/preview-*.yml
+      - backend/app/auth/jwt_tokens.py
+      - tests/test_preview_compose.py
+      - tests/test_preview_env.py
+      - tests/test_preview_lifecycle.py
+      - tests/test_preview_ghcr_lectura.py
+      - scripts/preview_lifecycle.py
+      - backend/app/core/host_capacity.py
+      - backend/app/api/health.py
+  workflow_dispatch: {}
+
+concurrency:
+  group: preview-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  compose-config:
+    name: docker compose config (valores ficticios)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar el Compose con valores ficticios (no se levanta nada)
+        env:
+          SOURCE_COMMIT: "0000000000000000000000000000000000000000"
+          SERVICE_FQDN_BACKEND_10000: 0.api.preview.audit-ia.ec
+          SERVICE_FQDN_CONSOLA_80: 0.consola.preview.audit-ia.ec
+          SERVICE_FQDN_CLIENTES_80: 0.clientes.preview.audit-ia.ec
+        run: |
+          docker compose -f docker-compose.preview.yml config -q
+          # Redirección directa (no `tee … | head -c 0`: cerrar la tubería antes de tiempo dejaba el archivo vacío)
+          docker compose -f docker-compose.preview.yml config > /tmp/compose-resuelto.yml
+          echo "Servicios:"; docker compose -f docker-compose.preview.yml config --services
+          # Identidad por commit (F1): las tres imágenes salen de SOURCE_COMMIT, no de una variable compartida
+          docker compose -f docker-compose.preview.yml config --images | tee /tmp/imagenes.txt
+          for s in backend consola clientes; do
+            grep -qx "ghcr.io/jcalupinia/auditbrain-preview-$s:sha-0000000000000000000000000000000000000000" /tmp/imagenes.txt \
+              || { echo "ERROR: la imagen de $s no sale de SOURCE_COMMIT"; exit 1; }
+          done
+          # Fallo seguro: sin SOURCE_COMMIT (ausente o vacío) el Compose debe rechazarse
+          if env -u SOURCE_COMMIT docker compose -f docker-compose.preview.yml config -q 2>/dev/null; then
+            echo "ERROR: el Compose aceptó SOURCE_COMMIT ausente"; exit 1; fi
+          if env SOURCE_COMMIT= docker compose -f docker-compose.preview.yml config -q 2>/dev/null; then
+            echo "ERROR: el Compose aceptó SOURCE_COMMIT vacío"; exit 1; fi
+          echo "OK: SOURCE_COMMIT ausente o vacío es rechazado"
+          if grep -q 'PREVIEW_IMAGE_TAG' /tmp/compose-resuelto.yml; then
+            echo "ERROR: el Compose aún referencia PREVIEW_IMAGE_TAG"; exit 1; fi
+          # La etiqueta esperada llega a init y al backend (dos servicios => dos apariciones)
+          [ "$(grep -c 'PREVIEW_EXPECTED_IMAGE_TAG: sha-0000000000000000000000000000000000000000' /tmp/compose-resuelto.yml)" -ge 2 ]
+          echo "OK: PREVIEW_EXPECTED_IMAGE_TAG llega al entorno de init y del backend"
+          # Regresión del redespliegue fallido del 2026-10-20: el analizador de Coolify convierte en variable de la
+          # aplicación cualquier entrada de `environment` cuyo valor empiece por `$` (toma el texto tras :?/:- como valor
+          # y lo vuelca al final del .env, donde la última línea gana). Solo se permiten las mágicas ${SERVICE_*}.
+          docker compose -f docker-compose.preview.yml config --format json --no-interpolate \
+            | jq -r '.services | to_entries[] | .key as $s | (.value.environment // {}) | if type=="array" then .[] else to_entries[] | "\(.key)=\(.value)" end | "\($s): \(.)"' \
+            | awk -F'=' 'NF>1 && $2 ~ /^\$/ && $2 !~ /^\$\{SERVICE_(FQDN|URL)_/ {print; bad=1} END {exit bad}' \
+            || { echo "ERROR: una entrada de environment empieza por \$ (el analizador de Coolify la convertiría en variable)"; exit 1; }
+          echo "OK: ninguna entrada de environment empieza por \$ salvo las mágicas SERVICE_*"
+          # Reproducción documental del incidente: con el .env que arma Coolify cuando existe la variable obsoleta
+          # (SOURCE_COMMIT duplicado, la última línea gana) las imágenes se resuelven mal; debe seguir siendo visible
+          printf 'SOURCE_COMMIT=%s\nSOURCE_COMMIT=SOURCE_COMMIT requerido\n' "$SOURCE_COMMIT" > /tmp/env_obsoleto
+          env -u SOURCE_COMMIT docker compose -f docker-compose.preview.yml --env-file /tmp/env_obsoleto config --images 2>/dev/null \
+            | grep -q 'sha-SOURCE_COMMIT requerido' && echo "OK: documentado que una variable SOURCE_COMMIT obsoleta en Coolify rompería el pull (hay que borrarla en el panel)"
+          # SHA inválido: compose lo acepta, pero init lo rechaza antes de arrancar nada (prueba en el job init-secrets)
+          # Credenciales de prueba exclusivas por PR: el Compose ya no depende de variables compartidas de Coolify
+          if grep -E 'PREVIEW_ADMIN_(EMAIL|PASSWORD)|PREVIEW_API_KEY' /tmp/compose-resuelto.yml; then
+            echo "ERROR: el Compose aún referencia variables compartidas de credenciales"; exit 1; fi
+          grep -q 'preview-admin@audit-ia.ec' /tmp/compose-resuelto.yml
+          echo "OK: sin PREVIEW_ADMIN_*/PREVIEW_API_KEY; correo del administrador de prueba fijo"
+
+  ghcr-lectura:
+    name: lectura real de imágenes privadas en GHCR (controlador)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Solo PR del propio repositorio (los forks no reciben el secreto). Lecturas únicamente: canje de token y HEAD.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: El controlador lee las tres imágenes privadas de un commit publicado y nada con credencial vacía
+        env:
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GHCR_PUBLISH_TOKEN: ${{ secrets.GHCR_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "${GHCR_READ_TOKEN:-}${GHCR_PUBLISH_TOKEN:-}" ] || { echo "::error::sin GHCR_READ_TOKEN ni GHCR_PUBLISH_TOKEN: la lectura real no se puede comprobar"; exit 1; }
+          pip install -q pytest
+          # --noconftest: el conftest global importa la aplicación (FastAPI y toda la pila); esta prueba solo usa la
+          # biblioteca estándar y pytest, y debe correr sin instalar el backend.
+          python -m pytest tests/test_preview_ghcr_lectura.py --noconftest -q -p no:cacheprovider -rs 2>&1 | tee /tmp/ghcr.txt
+          grep -q "4 passed" /tmp/ghcr.txt || { echo "::error::las pruebas de integración no se ejecutaron todas (¿token sin read:packages?)"; exit 1; }
+
+  init-secrets:
+    name: generador de secretos de init (alpine real, dos volúmenes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ejecutar el command real de init en alpine:3.20 (nada se publica ni se despliega)
+        env:
+          SOURCE_COMMIT: "0000000000000000000000000000000000000000"
+          SERVICE_FQDN_BACKEND_10000: 0.api.preview.audit-ia.ec
+          SERVICE_FQDN_CONSOLA_80: 0.consola.preview.audit-ia.ec
+          SERVICE_FQDN_CLIENTES_80: 0.clientes.preview.audit-ia.ec
+        run: |
+          set -euo pipefail
+          # El guion es exactamente el del Compose (sin el sleep final que lo mantiene vivo). `config` re-escapa
+          # `$` como `$$` en su salida; se deshace igual que lo hace Compose al crear el contenedor.
+          docker compose -f docker-compose.preview.yml config --format json \
+            | jq -r '.services.init.command[2]' | sed -e 's/exec sleep infinity//' -e 's/\$\$/$/g' > /tmp/init.sh
+          if grep -q '\$\$' /tmp/init.sh; then echo "ERROR: quedan \$\$ sin deshacer en el guion"; exit 1; fi
+          grep -q 'gen api_key 48' /tmp/init.sh
+          docker volume create pv_a >/dev/null; docker volume create pv_b >/dev/null
+          TAG="sha-$SOURCE_COMMIT"
+          run() { docker run --rm -v "$1:/secrets" -v /tmp/init.sh:/init.sh:ro -e "PREVIEW_EXPECTED_IMAGE_TAG=$TAG" -e "SOURCE_COMMIT=$SOURCE_COMMIT" alpine:3.20 sh /init.sh; }
+          # Puerta de identidad de init (regresión 2026-10-20): etiqueta ausente, inválida o contradictoria => sale con 1
+          # ANTES de tocar el volumen; nada se genera.
+          docker volume create pv_x >/dev/null
+          for caso in "" "sha-SOURCE_COMMIT requerido" "sha-$(printf '%039d' 0)" "latest"; do
+            if docker run --rm -v pv_x:/secrets -v /tmp/init.sh:/init.sh:ro -e "PREVIEW_EXPECTED_IMAGE_TAG=$caso" alpine:3.20 sh /init.sh >/tmp/x.out 2>&1; then
+              echo "ERROR: init aceptó la etiqueta '$caso'"; exit 1; fi
+            grep -q 'etiqueta de imagen invalida' /tmp/x.out
+          done
+          if docker run --rm -v pv_x:/secrets -v /tmp/init.sh:/init.sh:ro -e "PREVIEW_EXPECTED_IMAGE_TAG=$TAG" -e "SOURCE_COMMIT=$(printf '%040d' 1)" alpine:3.20 sh /init.sh >/tmp/x.out 2>&1; then
+            echo "ERROR: init aceptó un SOURCE_COMMIT contradictorio"; exit 1; fi
+          grep -q 'contradice la etiqueta' /tmp/x.out
+          [ "$(docker run --rm -v pv_x:/secrets:ro alpine:3.20 sh -c 'ls -A /secrets | wc -l')" = "0" ] || { echo "ERROR: init generó secretos pese a la etiqueta inválida"; exit 1; }
+          docker volume rm pv_x >/dev/null
+          echo "OK: init rechaza etiqueta ausente/inválida/contradictoria sin generar nada"
+          # Inspección sin imprimir valores: permisos, tamaño, bytes no alfanuméricos y huella
+          insp() { docker run --rm -v "$1:/secrets:ro" alpine:3.20 sh -c '
+              cd /secrets; stat -c "dir %a" .; printf "tmp %s\n" "$(ls -A | grep -c "\.tmp$" || true)"
+              for f in pg_password jwt_secret admin_password api_key; do
+                printf "%s perm=%s bytes=%s noalnum=%s\n" "$f" "$(stat -c %a $f)" "$(stat -c %s $f)" "$(tr -d "A-Za-z0-9" < $f | wc -c)"
+              done; sha256sum pg_password jwt_secret admin_password api_key'; }
+          out1=$(run pv_a); echo "salida 1: $out1"; [ "$out1" = "secrets listos" ]
+          insp pv_a | tee /tmp/a1.txt
+          grep -q '^dir 700$' /tmp/a1.txt; grep -q '^tmp 0$' /tmp/a1.txt
+          grep -q '^pg_password perm=600 bytes=40 noalnum=0$' /tmp/a1.txt
+          grep -q '^jwt_secret perm=600 bytes=64 noalnum=0$' /tmp/a1.txt
+          grep -q '^admin_password perm=600 bytes=32 noalnum=0$' /tmp/a1.txt
+          grep -q '^api_key perm=600 bytes=48 noalnum=0$' /tmp/a1.txt
+          out2=$(run pv_a); [ "$out2" = "secrets listos" ]
+          insp pv_a > /tmp/a2.txt; cmp /tmp/a1.txt /tmp/a2.txt && echo "OK: idempotente (redespliegue del mismo PR no regenera nada)"
+          run pv_b >/dev/null; insp pv_b > /tmp/b1.txt
+          for f in pg_password jwt_secret admin_password api_key; do
+            ha=$(grep " $f$" /tmp/a1.txt | cut -c1-64); hb=$(grep " $f$" /tmp/b1.txt | cut -c1-64)
+            [ "$ha" != "$hb" ] || { echo "ERROR: $f coincide entre dos volúmenes (dos PR)"; exit 1; }
+          done
+          echo "OK: independencia por PR (4/4 valores distintos entre dos volúmenes)"
+          # La salida del guion no contiene ningún secreto (se compara dentro del contenedor, sin imprimirlos)
+          docker run --rm -v pv_a:/secrets:ro -e OUT="$out1$out2" alpine:3.20 sh -c '
+            for f in /secrets/*; do v=$(cat "$f"); case "$OUT" in *"$v"*) echo "ERROR: la salida contiene un secreto"; exit 1;; esac; done
+            echo "OK: la salida no contiene secretos"'
+          docker volume rm pv_a pv_b >/dev/null
+
+  build-images:
+    name: build sin push · ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend
+            dockerfile: Dockerfile.render
+            check: 'python -c "import os,sys; sys.exit(0 if os.environ.get(\"BUILD_COMMIT\")==os.environ[\"ESPERADO\"] else 1)"'
+          - service: consola
+            dockerfile: frontend/Dockerfile.preview
+            check: 'sh -c "grep -q \"$ESPERADO\" /usr/share/nginx/html/build-info.json && grep -q preview-backend-no-resuelto.invalid /usr/share/nginx/html/assets/*.js"'
+          - service: clientes
+            dockerfile: frontend-client/Dockerfile.preview
+            check: 'sh -c "grep -q \"$ESPERADO\" /usr/share/nginx/html/build-info.json && grep -q preview-backend-no-resuelto.invalid /usr/share/nginx/html/assets/*.js"'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Construir (sin publicar) con el commit del PR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: true
+          tags: local/auditbrain-${{ matrix.service }}:validate
+          build-args: |
+            GIT_SHA=${{ github.event.pull_request.head.sha || github.sha }}
+          cache-from: type=gha,scope=preview-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=preview-${{ matrix.service }}
+      - name: Verificar commit en metadata OCI y en la imagen
+        env:
+          ESPERADO: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          REV=$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' local/auditbrain-${{ matrix.service }}:validate)
+          echo "revision=$REV esperado=$ESPERADO"
+          test "$REV" = "$ESPERADO"
+          docker run --rm -e ESPERADO="$ESPERADO" local/auditbrain-${{ matrix.service }}:validate ${{ matrix.check }}
+          docker image ls local/auditbrain-${{ matrix.service }}:validate
+
+  resolvers:
+    name: pruebas de resolución del backend (frontends)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Consola (vitest)
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund && npx vitest run src/previewResolver.test.js
+      - name: Portal (node:test, sin dependencias)
+        run: node --test frontend-client/src/previewResolver.test.mjs

@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+# Imagen de PREVIEW de la consola (Command Center). Contexto de build: RAÍZ del repositorio.
+# Se construye en GitHub Actions (nunca en el servidor) y se publica en GHCR como
+# ghcr.io/jcalupinia/auditbrain-preview-consola:sha-<commit del PR>.
+#
+# VITE_API_BASE lleva un centinela: la URL real del backend la decide el navegador a partir del
+# hostname del preview (frontend/src/previewResolver.js), nunca el build.
+# GIT_SHA se redeclara en la etapa final para que quede en la metadata OCI y en /build-info.json.
+
+ARG GIT_SHA=unknown
+
+FROM node:20-alpine AS build
+ARG GIT_SHA
+ARG VITE_API_BASE=https://preview-backend-no-resuelto.invalid
+ENV VITE_API_BASE=$VITE_API_BASE \
+    VITE_BUILD_COMMIT=$GIT_SHA \
+    CI=true
+WORKDIR /src/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+RUN npm run build
+
+FROM nginx:1.27-alpine
+ARG GIT_SHA
+LABEL org.opencontainers.image.revision=$GIT_SHA \
+      org.opencontainers.image.source="https://github.com/jcalupinia/auditbrain-python-runner" \
+      org.opencontainers.image.title="auditbrain-consola-preview"
+ENV BUILD_COMMIT=$GIT_SHA
+COPY frontend/nginx.preview.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /src/frontend/dist /usr/share/nginx/html
+RUN printf '{"service":"consola","commit":"%s"}\n' "$GIT_SHA" > /usr/share/nginx/html/build-info.json
