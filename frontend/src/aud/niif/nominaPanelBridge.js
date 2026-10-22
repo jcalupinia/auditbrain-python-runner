@@ -53,3 +53,25 @@ export function despacharMensajeNomina(msg, handlers = {}) {
       return null;
   }
 }
+
+// Etapas del ciclo en las que el servidor acepta archivos (servicio.subir_archivo). Antes de
+// ellas, la carga desde el panel devolvía «La carga no está habilitada en esta etapa» y el
+// auditor quedaba trabado: el panel ES la vista y no muestra el botón de preparar el requerimiento.
+export const ETAPAS_CON_CARGA = ["REQUERIMIENTO_APROBADO", "DOCUMENTACION_RECIBIDA"];
+// Etapas previas al requerimiento aprobado: se pueden completar en automático (programa →
+// requerimiento) con `prepararBaseTecnica`, igual que el botón «Confirmar base técnica».
+export const ETAPAS_ANTES_DE_CARGA = ["PRUEBA_SELECCIONADA", "PROGRAMA_PROPUESTO", "PROGRAMA_APROBADO", "REQUERIMIENTO_GENERADO"];
+
+// ¿Hay que preparar el requerimiento antes de subir? Solo en las etapas previas; en las de carga
+// no, y en las posteriores (ya validada o procesada) tampoco: ahí manda «Corregir documentos».
+export function necesitaPrepararParaCargar(estado) {
+  return ETAPAS_ANTES_DE_CARGA.includes(estado);
+}
+
+// Texto para el auditor cuando, tras preparar, la prueba sigue sin admitir carga.
+export function motivoSinCarga(estado) {
+  if (ETAPAS_CON_CARGA.includes(estado)) return "";
+  if (ETAPAS_ANTES_DE_CARGA.includes(estado))
+    return "No se pudo dejar listo el requerimiento de documentos (etapa actual: " + estado + "). Revise el programa de trabajo y el requerimiento de la prueba.";
+  return "La documentación de esta prueba ya fue validada o procesada: use «Corregir documentos» para reabrir la carga.";
+}
