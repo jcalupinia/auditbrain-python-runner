@@ -1,0 +1,58 @@
+name: Conexión privada con Coolify por tailnet
+description: >-
+  Une el runner a la tailnet como nodo EFÍMERO con etiqueta tag:ci (tailscale/github-action, cliente OAuth
+  guardado en secretos), hace que el nombre del panel (coolify.audit-ia.ec) resuelva a la IP de tailnet del
+  servidor y comprueba por esa ruta el health público del panel. Así la API de Coolify ve como origen una IP
+  100.64.0.0/10 (lista «Allowed API IPs») sin abrir la API a Internet ni a los rangos de GitHub. Falla cerrado:
+  si no hay tailnet, resolución o health 200, el paso termina en error antes de que exista cualquier llamada
+  con token. No imprime secretos.
+inputs:
+  oauth-client-id:
+    description: Cliente OAuth de la tailnet (alcance auth_keys, etiqueta tag:ci). Secreto TS_OAUTH_CLIENT_ID.
+    required: true
+  oauth-secret:
+    description: Secreto del cliente OAuth. Secreto TS_OAUTH_SECRET.
+    required: true
+  coolify-url:
+    description: URL https del panel (su nombre se fija en /etc/hosts a la IP de tailnet).
+    required: false
+    default: https://coolify.audit-ia.ec
+  coolify-tailnet-ip:
+    description: IP de tailnet (100.64.0.0/10) del servidor donde corre Coolify. Variable COOLIFY_TAILNET_IP.
+    required: true
+  tailscale-version:
+    description: Versión del cliente Tailscale en el runner.
+    required: false
+    default: latest
+runs:
+  using: composite
+  steps:
+    - name: Unirse a la tailnet (nodo efímero tag:ci)
+      uses: tailscale/github-action@v4
+      with:
+        oauth-client-id: ${{ inputs.oauth-client-id }}
+        oauth-secret: ${{ inputs.oauth-secret }}
+        tags: tag:ci
+        version: ${{ inputs.tailscale-version }}
+    - name: Fijar el panel a la IP de tailnet y comprobar la ruta (fallo cerrado)
+      shell: bash
+      env:
+        COOLIFY_URL: ${{ inputs.coolify-url }}
+        TAILNET_IP: ${{ inputs.coolify-tailnet-ip }}
+      run: |
+        set -euo pipefail
+        rechazar() { echo "::error::conexión privada NO establecida: $1"; exit 1; }
+        case "$COOLIFY_URL" in https://*) ;; *) rechazar "COOLIFY_URL debe ser https://" ;; esac
+        host="${COOLIFY_URL#https://}"; host="${host%%/*}"; host="${host%%:*}"
+        # Solo direcciones del rango CGNAT que Tailscale asigna (100.64.0.0/10): nada público, nada de LAN.
+        [[ "$TAILNET_IP" =~ ^100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || rechazar "COOLIFY_TAILNET_IP '$TAILNET_IP' no está en 100.64.0.0/10"
+        tailscale status --peers=false >/dev/null 2>&1 || rechazar "el runner no está unido a la tailnet"
+        tailscale ping --c 3 --timeout 10s "$TAILNET_IP" >/dev/null 2>&1 || rechazar "el servidor $TAILNET_IP no responde al ping de tailnet (¿ACL tag:ci -> tag:coolify:443? ¿tailscaled activo en el servidor?)"
+        echo "$TAILNET_IP $host" | sudo tee -a /etc/hosts >/dev/null
+        resuelto=$(getent hosts "$host" | awk '{print $1}' | head -1)
+        [ "$resuelto" = "$TAILNET_IP" ] || rechazar "$host resuelve a '$resuelto', no a $TAILNET_IP"
+        # Health público del panel por la ruta privada, con el certificado TLS real del nombre (sin -k).
+        remoto=$(curl -sS --max-time 20 -o /tmp/health.txt -w '%{remote_ip}' "$COOLIFY_URL/api/health") || rechazar "sin respuesta de $COOLIFY_URL/api/health por la tailnet"
+        [ "$remoto" = "$TAILNET_IP" ] || rechazar "la petición salió hacia $remoto en lugar de $TAILNET_IP"
+        grep -q OK /tmp/health.txt || rechazar "health del panel distinto de OK"
+        echo "conexión privada establecida: $host -> $TAILNET_IP (tailnet), health OK"

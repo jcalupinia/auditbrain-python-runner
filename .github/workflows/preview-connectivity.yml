@@ -1,0 +1,63 @@
+name: preview-connectivity
+
+# Prueba de SOLO LECTURA de la conexión privada GitHub Actions -> Coolify (docs/previews-coolify.md §14):
+#  1. une el runner a la tailnet como nodo efímero (tag:ci) y fija coolify.audit-ia.ec a la IP de tailnet del servidor;
+#  2. GET /api/v1/team y GET /api/v1/applications/<uuid>/previews con COOLIFY_API_TOKEN: ambos deben responder 200;
+#  3. comprueba además que la MISMA consulta por la IP pública sigue bloqueada (403) sin tailnet: la lista
+#     «Allowed API IPs» no se ha abierto a Internet;
+#  4. no crea, modifica ni despliega nada; funciona con PREVIEW_PIPELINE_ENABLED desactivado;
+#  5. fallo seguro: si la conexión privada no se establece, termina en error antes de usar el token.
+# Solo workflow_dispatch. Nunca imprime el token ni valores de secretos.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lectura:
+    name: conexión privada y lectura de la API de Coolify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch || 'main' }}
+      - name: Conexión privada (tailnet) — falla cerrado
+        uses: ./.github/actions/coolify-tailnet
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          coolify-url: ${{ secrets.COOLIFY_URL || vars.COOLIFY_URL }}
+          coolify-tailnet-ip: ${{ vars.COOLIFY_TAILNET_IP }}
+      - name: Lecturas autenticadas (team y previews) y control negativo por la IP pública
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL || vars.COOLIFY_URL }}
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_PREVIEW_APP_UUID }}
+        run: |
+          set -euo pipefail
+          [ -n "${COOLIFY_API_TOKEN:-}" ] || { echo "::error::falta COOLIFY_API_TOKEN"; exit 1; }
+          [[ "${APP_UUID:-}" =~ ^[A-Za-z0-9]{10,40}$ ]] || { echo "::error::COOLIFY_PREVIEW_APP_UUID inválido o ausente"; exit 1; }
+          base="${COOLIFY_URL%/}/api/v1"
+          leer() {  # GET de solo lectura; imprime el código y guarda el cuerpo
+            curl -sS --max-time 25 -o "$2" -w '%{http_code}' -H "Authorization: Bearer $COOLIFY_API_TOKEN" -H "Accept: application/json" "$base$1"
+          }
+          c1=$(leer /team /tmp/team.json); echo "GET /team -> HTTP $c1"
+          [ "$c1" = "200" ] || { echo "::error::GET /team devolvió $c1 (403 = la IP de tailnet no está en Allowed API IPs; 401 = token inválido)"; exit 1; }
+          echo "equipo: $(jq -r '.name // .data.name // "?"' /tmp/team.json)"
+          c2=$(leer "/applications/$APP_UUID/previews" /tmp/previews.json); echo "GET /applications/<uuid>/previews -> HTTP $c2"
+          [ "$c2" = "200" ] || { echo "::error::GET previews devolvió $c2"; exit 1; }
+          echo "previews de auditbrain-preview: $(jq -r '[.[] | "PR \(.pull_request_id) (\(.status // "?"))"] | join(", ")' /tmp/previews.json)"
+          # Control negativo: por la IP pública real (DNS, no /etc/hosts) y sin tailnet, la lista de IP debe bloquear (403).
+          host="${COOLIFY_URL#https://}"; host="${host%%/*}"
+          publica=$(dig +short "$host" A | tail -1)
+          if [[ "$publica" =~ ^[0-9.]+$ ]]; then
+            c3=$(curl -sS --max-time 25 -o /dev/null -w '%{http_code}' --resolve "$host:443:$publica" -H "Authorization: Bearer $COOLIFY_API_TOKEN" "$COOLIFY_URL/api/v1/team" || echo 000)
+            echo "control negativo por la IP pública ($publica) -> HTTP $c3 (esperado 403)"
+            [ "$c3" = "403" ] || { echo "::error::la API respondió $c3 desde la IP pública del runner: la lista Allowed API IPs no está restringida como se espera"; exit 1; }
+          else
+            echo "::warning::no se pudo resolver la IP pública de $host para el control negativo"
+          fi
+          echo "RESULTADO: conexión privada operativa; lecturas 200; API bloqueada desde Internet; nada modificado"
