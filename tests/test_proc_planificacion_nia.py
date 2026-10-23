@@ -1332,3 +1332,19 @@ def test_notas_balance_usa_los_codigos_del_rq_006():
     h = next(h for h in m.hojas(r) if h["name"] == "15N_Notas_EEFF")
     etqs = [str((row[0].get("v") if isinstance(row[0], dict) else row[0]) or "") for row in h["rows"]]
     assert any("Inventarios de la empresa" in e for e in etqs)   # el título del RQ, no el estándar
+
+
+def test_rq006_notas_sin_codigos_no_bloquea():
+    """RQ-006 (opcional): un archivo de notas con solo número y título —sin «Cuentas (códigos)» ni «Saldo
+    auditado»— NO debe bloquear (un documento de notas narrativo casi nunca trae los códigos del plan de
+    cuentas). Valida en verde y, sin códigos, el mapeo cuenta→nota cae al estándar."""
+    rows = [{"nota": "1", "titulo": "CAJA-BANCOS", "_row": 2},
+            {"nota": "2", "titulo": "CLIENTES", "_row": 3},
+            {"nota": "4", "titulo": "Pagos anticipados", "saldo_auditado": "1234.50", "_row": 4}]
+    v = m.validar_filas("notas_estados_financieros", rows)
+    assert v["ok"] and not v["errors"], v["errors"]
+    # El proceso completo corre con esas notas (no rompe; usa el mapa estándar al no haber códigos).
+    e0 = m.EJEMPLO
+    ds = {**e0["datasets"], "notas_estados_financieros": rows}
+    r = m.ejecutar(ds, e0["parametros"], e0["corte"])
+    assert any(h["name"] == "15N_Notas_EEFF" for h in m.hojas(r))

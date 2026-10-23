@@ -226,9 +226,14 @@ _NOTAS = [
     campo("nota", "Nota", alias=("nota", "n°", "numero", "número", "no"), ejemplo="4"),
     campo("titulo", "Título de la nota", alias=("titulo", "título", "nombre", "descripcion", "descripción"),
           ejemplo="Cuentas por cobrar comerciales y otras"),
-    campo("codigos", "Cuentas del balance (códigos)", alias=("codigos", "códigos", "cuentas", "codigo", "código", "prefijos"),
-          ejemplo="1103, 1106"),
-    campo("saldo_auditado", "Saldo auditado según la nota", "number",
+    # codigos y saldo_auditado son OPCIONALES: un documento de «Notas a los EEFF» es narrativo y
+    # casi nunca trae los códigos del plan de cuentas, así que exigirlos bloqueaba el requerimiento
+    # (RQ-006, opcional). Sin códigos, el mapeo cuenta→nota cae al mapa estándar (`_notas_balance`)
+    # y el auditor ajusta con el desplegable de la pestaña «Notas a los EEFF»; sin saldo auditado,
+    # la conciliación de esa nota simplemente queda en cero (sin mapear), nunca rompe el proceso.
+    campo("codigos", "Cuentas del balance (códigos)", requerido=False,
+          alias=("codigos", "códigos", "cuentas", "codigo", "código", "prefijos"), ejemplo="1103, 1106"),
+    campo("saldo_auditado", "Saldo auditado según la nota", "number", requerido=False,
           alias=("saldo", "saldo auditado", "total", "importe", "saldo segun nota"), ejemplo="656500.00"),
 ]
 TIPOS_LINEA = ("Saldo", "Movimiento", "Total")
