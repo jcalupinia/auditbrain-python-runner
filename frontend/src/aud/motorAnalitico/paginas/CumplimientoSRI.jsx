@@ -607,7 +607,7 @@ function SubReportes() {
 
 // ---------- Subpágina 3: Consolidación de documentos ----------
 function SubConsolidacion() {
-  const [form, setForm] = useState({ ruc: "", origen: "Recibidos", tipo: tiposDe("Recibidos")[0], estado_emitidos: ESTADOS_EMITIDOS[0], modo_fecha: "Rango de meses", anio: ANIO_ACTUAL, mes_inicio: 1, mes_fin: 12, dia: 0, incluir_xml: true, incluir_pdf: true });
+  const [form, setForm] = useState({ ruc: "", origen: "Recibidos", tipo: tiposDe("Recibidos")[0], estado_emitidos: ESTADOS_EMITIDOS[0], modo_fecha: "Rango de meses", anio: ANIO_ACTUAL, mes_inicio: 1, mes_fin: 12, dia: 0, incluir_xml: true, incluir_pdf: true, incluir_documentos: true, unir_pdf: false, unir_xml: false });
   const [estado, setEstado] = useState("idle");
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState("");
@@ -632,6 +632,9 @@ function SubConsolidacion() {
         mes_inicio: Number(form.mes_inicio), mes_fin: esMes ? Number(form.mes_inicio) : Number(form.mes_fin),
         dia: esMes ? Number(form.dia) : 0,
         incluir_xml: form.incluir_xml, incluir_pdf: form.incluir_pdf,
+        incluir_documentos: form.incluir_documentos,
+        unir_pdf: form.incluir_documentos && form.incluir_pdf && form.unir_pdf,
+        unir_xml: form.incluir_documentos && form.incluir_xml && form.unir_xml,
       });
       setResultado(r); setEstado("listo");
     } catch (e) { setError(e?.message || "No se pudo consolidar."); setEstado("error"); }
@@ -669,22 +672,41 @@ function SubConsolidacion() {
         {form.modo_fecha === "Mes" && (
           <label>Día (0 = todo el mes)<input type="number" min={0} max={31} value={form.dia} onChange={set("dia")} /></label>
         )}
-        <label className="ma-sri-check">Incluir<span className="ma-sri-check-fila">
+        <label className="ma-sri-check">Fuentes del reporte<span className="ma-sri-check-fila">
           <label><input type="checkbox" checked={form.incluir_xml} onChange={set("incluir_xml")} /> XML</label>
           <label><input type="checkbox" checked={form.incluir_pdf} onChange={set("incluir_pdf")} /> PDF</label>
         </span></label>
+        <label className="ma-sri-check">Documentos<span className="ma-sri-check-fila">
+          <label><input type="checkbox" checked={form.incluir_documentos} onChange={set("incluir_documentos")} /> Dejar también una carpeta con los comprobantes del rango (XML y/o PDF según las fuentes)</label>
+        </span></label>
+        {form.incluir_documentos && (
+          <label className="ma-sri-check">Unir<span className="ma-sri-check-fila">
+            <label><input type="checkbox" checked={form.unir_pdf} onChange={set("unir_pdf")} disabled={!form.incluir_pdf} /> Un solo PDF con todos los RIDE</label>
+            <label><input type="checkbox" checked={form.unir_xml} onChange={set("unir_xml")} disabled={!form.incluir_xml} /> Un solo XML con todos los comprobantes</label>
+          </span></label>
+        )}
       </div>
+      <p className="ma-sri-tabla-nota">Se buscan los reportes mensuales ya descargados del rango y se combinan en un solo Excel (una hoja por fuente). Los reportes por fuente y, si lo marcas, los comprobantes copiados y los archivos unidos quedan en la misma carpeta, que se baja en ZIP.</p>
       <div className="ma-sri-descarga-acciones">
         <button type="button" className="ma-sri-boton-ejecutar" onClick={consolidar} disabled={estado === "procesando"}>{estado === "procesando" ? "Consolidando…" : "Iniciar consolidación"}</button>
       </div>
       {estado === "listo" && (
         <div className="ma-sri-resultado ma-sri-resultado-ok">
           <ResumenResultado r={resultado} titulo="✅ Consolidación lista" />
-          {(resultado?.reporte_xml || resultado?.reporte_pdf) && (
+          <div className="ma-sri-resumen-conteos">
+            {typeof resultado?.xml_copiados === "number" && resultado.incluir_documentos && <span>XML copiados: <strong>{resultado.xml_copiados}</strong></span>}
+            {typeof resultado?.pdf_copiados === "number" && resultado.incluir_documentos && <span>PDF copiados: <strong>{resultado.pdf_copiados}</strong></span>}
+            {resultado?.pdf_unido && <span>PDF unido: <strong>{resultado.pdf_unido_paginas}</strong> páginas</span>}
+            {resultado?.xml_unido && <span>XML unido: <strong>{resultado.xml_unido_comprobantes}</strong> comprobantes</span>}
+          </div>
+          {(resultado?.reporte_consolidado || resultado?.reporte_xml || resultado?.reporte_pdf) && (
             <div className="ma-sri-descarga-acciones">
-              {resultado?.reporte_xml && <button type="button" className="ma-boton" onClick={() => bajar(resultado.reporte_xml, "xml")} disabled={Boolean(bajando)}>{bajando === "xml" ? "Preparando…" : "Descargar reporte XML (Excel)"}</button>}
-              {resultado?.reporte_pdf && <button type="button" className="ma-boton" onClick={() => bajar(resultado.reporte_pdf, "pdf")} disabled={Boolean(bajando)}>{bajando === "pdf" ? "Preparando…" : "Descargar reporte PDF (Excel)"}</button>}
-              {resultado?.destino && <button type="button" className="ma-boton" onClick={() => bajar(resultado.destino, "zip")} disabled={Boolean(bajando)}>{bajando === "zip" ? "Preparando…" : "Descargar consolidado (ZIP)"}</button>}
+              {resultado?.reporte_consolidado && <button type="button" className="ma-sri-boton-zip" onClick={() => bajar(resultado.reporte_consolidado, "cons")} disabled={Boolean(bajando)}>{bajando === "cons" ? "Preparando…" : "⬇ Descargar reporte consolidado (Excel)"}</button>}
+              {resultado?.reporte_xml && <button type="button" className="ma-boton" onClick={() => bajar(resultado.reporte_xml, "xml")} disabled={Boolean(bajando)}>{bajando === "xml" ? "Preparando…" : "Reporte desde XML"}</button>}
+              {resultado?.reporte_pdf && <button type="button" className="ma-boton" onClick={() => bajar(resultado.reporte_pdf, "pdf")} disabled={Boolean(bajando)}>{bajando === "pdf" ? "Preparando…" : "Reporte desde PDF"}</button>}
+              {resultado?.pdf_unido && <button type="button" className="ma-boton" onClick={() => bajar(resultado.pdf_unido, "pdfu")} disabled={Boolean(bajando)}>{bajando === "pdfu" ? "Preparando…" : "PDF unido"}</button>}
+              {resultado?.xml_unido && <button type="button" className="ma-boton" onClick={() => bajar(resultado.xml_unido, "xmlu")} disabled={Boolean(bajando)}>{bajando === "xmlu" ? "Preparando…" : "XML unido"}</button>}
+              {resultado?.destino && <button type="button" className="ma-boton" onClick={() => bajar(resultado.destino, "zip")} disabled={Boolean(bajando)}>{bajando === "zip" ? "Preparando…" : (resultado.incluir_documentos ? "Carpeta completa con comprobantes (ZIP)" : "Carpeta completa (ZIP)")}</button>}
             </div>
           )}
         </div>
