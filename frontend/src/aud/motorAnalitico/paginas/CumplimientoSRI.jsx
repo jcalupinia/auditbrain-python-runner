@@ -121,7 +121,7 @@ function VistaEnVivo({ encargo = "SRI vista en vivo" }) {
     <div className="ma-sri-vivo">
       <div className="ma-sri-vivo-cab">
         <span>🔴 Robot en vivo — solo lectura</span>
-        <span className="ma-sri-vivo-nota">Se transmite por el motor de la firma. Verás el navegador del robot cuando esté descargando del SRI.</span>
+        <span className="ma-sri-vivo-nota">Se transmite por el motor de la firma. Verás el navegador del robot cuando esté descargando del SRI. Mientras baja fila por fila la pantalla del portal no cambia, así que la imagen puede quedarse quieta: el robot sigue trabajando (mira el progreso).</span>
       </div>
       {error ? (
         <div className="ma-sri-vivo-aviso">{error}</div>
