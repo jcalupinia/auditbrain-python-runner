@@ -39,6 +39,17 @@
   background: var(--ma-accent); color: #062014; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
 }
 .ma-sri-boton-ejecutar:disabled { opacity: 0.5; cursor: default; background: var(--ma-line); color: var(--ma-soft); }
+/* Botón de arranque ya terminado: pasa a secundario, conserva su sitio. */
+.ma-sri-boton-secundario { margin-left: auto; height: 38px; }
+/* Entrega de archivos: el botón primario de la pantalla una vez termina el robot. */
+.ma-sri-zip { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+.ma-sri-boton-zip {
+  height: 46px; padding: 0 22px; border-radius: 12px; border: 0;
+  background: var(--ma-accent); color: #062014; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+}
+.ma-sri-boton-zip:hover { filter: brightness(1.1); }
+.ma-sri-boton-zip:disabled { opacity: 0.5; cursor: default; }
+.ma-sri-zip-contenido { color: var(--ma-dim); font-size: 0.9rem; }
 
 .ma-sri-cruces { grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
 .ma-sri-tarjeta-cruce {

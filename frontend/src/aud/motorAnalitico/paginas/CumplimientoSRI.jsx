@@ -135,7 +135,14 @@ function VistaEnVivo({ encargo = "SRI vista en vivo" }) {
 }
 
 // Resumen legible del resultado del robot (en vez del JSON crudo).
-function ResumenResultado({ r, titulo }) {
+// Cuenta los reportes Excel que dejó la descarga (mensuales, anual, rango, TXT).
+function contarReportes(r) {
+  const claves = Object.keys(r || {}).filter((k) => /^reporte_(xml|pdf|txt)(_anual|_rango)?$/.test(k) && r[k]);
+  const listas = ["reportes_xml", "reportes_pdf", "reportes_txt_meses"].flatMap((k) => (Array.isArray(r?.[k]) ? r[k] : []));
+  return new Set([...claves.map((k) => String(r[k])), ...listas.map(String)]).size;
+}
+
+function ResumenResultado({ r, titulo, onDescargar, bajando, textoDescarga = "Descargar archivos (ZIP)" }) {
   if (!r || typeof r !== "object") {
     return <div className="ma-sri-resumen"><div className="ma-sri-resumen-titulo">{titulo}</div></div>;
   }
@@ -149,6 +156,12 @@ function ResumenResultado({ r, titulo }) {
   const conteos = [];
   if (pdfEsp != null) conteos.push(`PDF ${pdfOk ?? 0}/${pdfEsp}`);
   if (xmlEsp != null) conteos.push(`XML ${xmlOk ?? 0}/${xmlEsp}`);
+  // Qué contiene el ZIP: lo que el auditor mira antes de bajarlo.
+  const contenido = [];
+  if (xmlOk) contenido.push(`${xmlOk} XML`);
+  if (pdfOk) contenido.push(`${pdfOk} PDF`);
+  const nRep = contarReportes(r);
+  if (nRep) contenido.push(`${nRep} reporte${nRep === 1 ? "" : "s"} Excel`);
   return (
     <div className="ma-sri-resumen">
       <div className="ma-sri-resumen-titulo">{titulo}</div>
@@ -156,6 +169,14 @@ function ResumenResultado({ r, titulo }) {
       {total != null && <div><strong>{total}</strong> comprobantes</div>}
       {conteos.length > 0 && <div className="ma-sri-resumen-conteos">{conteos.join("  ·  ")}</div>}
       {r.mensaje && <div className="ma-sri-resumen-msg">{r.mensaje}</div>}
+      {onDescargar && (
+        <div className="ma-sri-zip">
+          <button type="button" className="ma-sri-boton-zip" onClick={onDescargar} disabled={bajando}>
+            {bajando ? "Preparando ZIP…" : `⬇ ${textoDescarga}`}
+          </button>
+          <span className="ma-sri-zip-contenido">{contenido.length ? `Contiene ${contenido.join(" · ")}` : "Archivos descargados en el servidor"}</span>
+        </div>
+      )}
       <details className="ma-sri-detalle"><summary>Ver detalle técnico</summary><pre>{JSON.stringify(r, null, 2)}</pre></details>
     </div>
   );
@@ -221,6 +242,11 @@ function SubDescarga() {
   const [segundos, setSegundos] = useState(0);
   const [verVivo, setVerVivo] = useState(false);
   const [cancelando, setCancelando] = useState(false);
+  // Tras terminar, el botón de arranque pasa a secundario ("Nueva descarga") para
+  // que el primario de la pantalla sea el del ZIP; vuelve a primario si el
+  // auditor cambia algún filtro.
+  const [formTocado, setFormTocado] = useState(false);
+  const terminado = fase === "listo" && !formTocado;
   const ctx = useRef({ url: "", token: "", id: "", vivo: false });
   useEffect(() => () => { ctx.current.vivo = false; }, []);
   useEffect(() => {
@@ -231,6 +257,7 @@ function SubDescarga() {
 
   const set = (k) => (e) => {
     const v = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+    setFormTocado(true);
     // Las listas de tipo cambian con el origen: si el tipo actual no existe en
     // el nuevo origen, se toma el primero (igual que la app de escritorio).
     setForm((f) => (k === "origen" ? { ...f, origen: v, tipo: tipoValido(v, f.tipo) } : { ...f, [k]: v }));
@@ -252,6 +279,7 @@ function SubDescarga() {
   }
 
   async function lanzar() {
+    setFormTocado(false);
     setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0); setCancelando(false);
     if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
     if (!form.clave) { setError("Falta la clave del SRI del cliente."); return; }
@@ -378,15 +406,10 @@ function SubDescarga() {
         </label>
       </div>
       <div className="ma-sri-descarga-acciones">
-        <button type="button" className="ma-sri-boton-ejecutar" onClick={lanzar} disabled={trabajando}>
-          {trabajando ? "Descargando…" : "Descargar"}
+        <button type="button" className={terminado ? "ma-boton ma-sri-boton-secundario" : "ma-sri-boton-ejecutar"} onClick={lanzar} disabled={trabajando}>
+          {trabajando ? "Descargando del SRI…" : (terminado ? "Nueva descarga" : "Iniciar descarga")}
         </button>
         <BotonDetener ctx={ctx} trabajando={trabajando} cancelando={cancelando} setError={setError} />
-        {fase === "listo" && (
-          <button type="button" className="ma-boton" onClick={bajarZip} disabled={bajando}>
-            {bajando ? "Preparando ZIP…" : "Descargar archivos (ZIP)"}
-          </button>
-        )}
         <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>
           {verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}
         </button>
@@ -416,7 +439,7 @@ function SubDescarga() {
       )}
       {aviso && <div className="ma-sri-resultado ma-sri-resultado-aviso">{aviso}</div>}
       {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}
-      {fase === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenResultado r={resultado} titulo="✅ Descarga completada" /></div>}
+      {fase === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenResultado r={resultado} titulo="✅ Descarga completada" onDescargar={bajarZip} bajando={bajando} /></div>}
       {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
     </section>
   );
@@ -504,7 +527,7 @@ function SubReporteFechas() {
         {form.modo === "Rango de meses" && <label>Mes fin<select value={form.mes_fin} onChange={set("mes_fin")}>{MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}</select></label>}
       </div>
       <div className="ma-sri-descarga-acciones">
-        <button type="button" className="ma-sri-boton-ejecutar" onClick={generar} disabled={estado === "procesando"}>{estado === "procesando" ? "Generando…" : "Generar reporte por fechas"}</button>
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={generar} disabled={estado === "procesando"}>{estado === "procesando" ? "Generando…" : "Iniciar reporte por fechas"}</button>
       </div>
       {estado === "listo" && (
         <div className="ma-sri-resultado ma-sri-resultado-ok">
@@ -648,7 +671,7 @@ function SubConsolidacion() {
         </span></label>
       </div>
       <div className="ma-sri-descarga-acciones">
-        <button type="button" className="ma-sri-boton-ejecutar" onClick={consolidar} disabled={estado === "procesando"}>{estado === "procesando" ? "Consolidando…" : "Consolidar"}</button>
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={consolidar} disabled={estado === "procesando"}>{estado === "procesando" ? "Consolidando…" : "Iniciar consolidación"}</button>
       </div>
       {estado === "listo" && (
         <div className="ma-sri-resultado ma-sri-resultado-ok">
@@ -705,7 +728,7 @@ function SubReconstruccion() {
         <label>RUC del cliente<input value={ruc} onChange={(e) => setRuc(e.target.value)} inputMode="numeric" maxLength={13} placeholder="1791859596001" /></label>
       </div>
       <div className="ma-sri-descarga-acciones">
-        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={estado === "procesando"}>{estado === "procesando" ? "Reconstruyendo…" : "Reconstruir XML"}</button>
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={estado === "procesando"}>{estado === "procesando" ? "Reconstruyendo…" : "Iniciar reconstrucción"}</button>
       </div>
       {estado === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenOffline r={resultado} titulo="✅ Reconstrucción lista" onDescargar={bajar} bajando={bajando} textoDescarga="Descargar XML (ZIP)" /></div>}
       {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
@@ -832,7 +855,7 @@ function SubCruceRetenciones() {
         )}
       </div>
       <div className="ma-sri-descarga-acciones">
-        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Cruzando…" : "Generar cruce"}</button>
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Cruzando…" : "Iniciar cruce"}</button>
         {form.con_portal && <BotonDetener ctx={ctx} trabajando={trabajando} cancelando={cancelando} setError={setError} />}
         {form.con_portal && (
           <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>{verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}</button>
@@ -1008,7 +1031,7 @@ function SubFacturaRetencion() {
         {" "}Un mes sin ninguna retención también se revisa: el período lo marcan las facturas. Lo que no se pudo revisar sale como «No consultado», nunca como «Sin retención».
       </p>
       <div className="ma-sri-descarga-acciones">
-        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Cruzando…" : "Generar cruce"}</button>
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Cruzando…" : "Iniciar cruce"}</button>
         {form.con_portal && <BotonDetener ctx={ctx} trabajando={trabajando} cancelando={cancelando} setError={setError} />}
         {form.con_portal && (
           <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>{verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}</button>
@@ -1155,7 +1178,7 @@ function SubValorNeto() {
         )}
       </div>
       <div className="ma-sri-descarga-acciones">
-        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Calculando…" : "Generar valor neto"}</button>
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Calculando…" : "Iniciar cálculo"}</button>
         {form.con_portal && <BotonDetener ctx={ctx} trabajando={trabajando} cancelando={cancelando} setError={setError} />}
         {form.con_portal && (
           <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>{verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}</button>
@@ -1284,7 +1307,7 @@ function SubDeclaraciones() {
         </label>
       </div>
       <div className="ma-sri-descarga-acciones">
-        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Descargando…" : "Descargar declaración"}</button>
+        <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Descargando…" : "Iniciar descarga"}</button>
         <BotonDetener ctx={ctx} trabajando={trabajando} cancelando={cancelando} setError={setError} />
         <button type="button" className="ma-boton" onClick={() => setVerVivo((v) => !v)}>{verVivo ? "Ocultar vista en vivo" : "🔴 Ver el robot en vivo"}</button>
         <span className="ma-sri-descarga-clave-nota">La clave va directo al motor de la firma; no se guarda ni pasa por el servidor web.</span>
