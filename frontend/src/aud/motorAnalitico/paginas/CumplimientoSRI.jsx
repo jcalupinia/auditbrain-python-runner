@@ -184,6 +184,7 @@ function ResumenResultado({ r, titulo, onDescargar, bajando, textoDescarga = "De
 
 // Resumen de un reporte offline (reconstrucción / cruces): conteos + por mes.
 const _ETIQUETAS_OFFLINE = {
+  nc_descargadas: "NC bajadas del SRI", encontradas_remoto: "Facturas consultadas en el portal",
   generados: "XML generados", total_filas: "Filas leídas", repetidos: "Repetidas",
   fallidos: "Sin generar", invalidos: "No validan XSD",
   total_retenciones: "Retenciones", total_documentos: "Documentos sustento",
@@ -200,6 +201,7 @@ function ResumenOffline({ r, titulo, onDescargar, bajando, textoDescarga }) {
   return (
     <div className="ma-sri-resumen">
       <div className="ma-sri-resumen-titulo">{titulo}</div>
+      {r.periodo && <div>Período: <strong>{r.periodo}</strong></div>}
       {r.message && <div className="ma-sri-resumen-msg">{r.message}</div>}
       {chips.length > 0 && (
         <div className="ma-sri-resumen-conteos">
@@ -1087,7 +1089,7 @@ function SubFacturaRetencion() {
 
 // ---------- Subpágina: Valor neto (factura − notas de crédito) ----------
 function SubValorNeto() {
-  const [form, setForm] = useState({ ruc: "", con_portal: false, clave: "" });
+  const [form, setForm] = useState({ ruc: "", anio: ANIO_ACTUAL, mes: 0, con_portal: false, clave: "", refrescar_portal: false });
   const [fase, setFase] = useState("idle"); // idle|procesando|captcha|listo|error
   const [resultado, setResultado] = useState(null);
   const [permiso, setPermiso] = useState(null);
@@ -1127,13 +1129,14 @@ function SubValorNeto() {
     setError(""); setResultado(null); setProgreso([]); setCaptchaImg(null); setSegundos(0); setCancelando(false);
     if (!/^\d{13}$/.test(form.ruc.trim())) { setError("El RUC debe tener 13 dígitos."); return; }
     if (form.con_portal && !form.clave) { setError("Falta la clave del SRI para buscar en el portal."); return; }
-    const carpeta = `descargas/${form.ruc.trim()}`;
     setFase("procesando");
     try {
       const encargo = `SRI valor neto ${form.ruc.trim()}`;
       const p = await sriPermiso(encargo);
-      const params = { carpeta_nc: carpeta, ruc: form.ruc.trim() };
-      if (form.con_portal) params.clave = form.clave;
+      // Modo período: el motor resuelve la carpeta de NC por RUC/año/mes y, si
+      // no hay NC descargadas y hay clave, las baja antes de cruzar.
+      const params = { ruc: form.ruc.trim(), anio: Number(form.anio), mes: Number(form.mes) };
+      if (form.con_portal) { params.clave = form.clave; params.refrescar_portal = form.refrescar_portal; }
       const r = await sriValorNeto(p.url, p.token, params);
       if (form.con_portal && r && r.id) {
         ctx.current = { ...sesionDesdePermiso(p), encargo, id: r.id, vivo: true };
@@ -1164,16 +1167,28 @@ function SubValorNeto() {
     <section className="ma-tarjeta ma-sri-descarga">
       <div className="ma-sri-descarga-cab">
         <h3>Valor neto (factura − notas de crédito)</h3>
-        <span>Cruza cada nota de crédito contra su factura para obtener el valor neto de compra. Por defecto usa lo ya descargado; puedes pedir que el robot baje del SRI las facturas modificadas que falten.</span>
+        <span>Cruza cada nota de crédito emitida del período contra su factura y obtiene el valor neto. Trabaja sobre lo ya descargado en el servidor (Emitidos · Autorizados · Notas de crédito); si marcas «consultar el SRI», el robot baja las notas de crédito del período si faltan y las facturas que no estén en disco.</span>
       </div>
       <div className="ma-sri-form">
         <label>RUC del cliente<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" disabled={trabajando} /></label>
+        <label>Año<select value={form.anio} onChange={set("anio")} disabled={trabajando}>{ANIOS.map((a) => <option key={a} value={a}>{a}</option>)}</select></label>
+        <label>Mes
+          <select value={form.mes} onChange={set("mes")} disabled={trabajando}>
+            <option value={0}>Año completo</option>
+            {MESES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+          </select>
+        </label>
         <label className="ma-sri-check">Portal
-          <span className="ma-sri-check-fila"><label><input type="checkbox" checked={form.con_portal} onChange={set("con_portal")} disabled={trabajando} /> Bajar del SRI las facturas que falten (login + captcha)</label></span>
+          <span className="ma-sri-check-fila"><label><input type="checkbox" checked={form.con_portal} onChange={set("con_portal")} disabled={trabajando} /> Consultar el SRI lo que falte: notas de crédito del período y facturas (login + captcha)</label></span>
         </label>
         {form.con_portal && (
           <label>Clave del SRI
             <input type="password" value={form.clave} onChange={set("clave")} placeholder="•••••••" autoComplete="off" disabled={trabajando} />
+          </label>
+        )}
+        {form.con_portal && (
+          <label className="ma-sri-check">Refrescar
+            <span className="ma-sri-check-fila"><label><input type="checkbox" checked={form.refrescar_portal} onChange={set("refrescar_portal")} disabled={trabajando} /> Volver a bajar las notas de crédito aunque ya existan</label></span>
           </label>
         )}
       </div>
@@ -1201,7 +1216,7 @@ function SubValorNeto() {
       {trabajando && (
         <div className="ma-sri-trabajando">
           <span className="ma-sri-spinner" aria-hidden="true" />
-          <span>El robot está trabajando en el servidor… <strong>{segundos}s</strong>{fase === "captcha" ? " · esperando que resuelvas el captcha" : (form.con_portal ? " · bajando del SRI las facturas que falten" : " · calculando")}</span>
+          <span>El robot está trabajando en el servidor… <strong>{segundos}s</strong>{fase === "captcha" ? " · esperando que resuelvas el captcha" : (form.con_portal ? " · consultando el SRI lo que falte y cruzando" : " · calculando")}</span>
         </div>
       )}
       {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}
