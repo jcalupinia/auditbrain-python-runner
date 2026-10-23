@@ -176,3 +176,13 @@
 .ma-sri-detalle { margin-top: 6px; }
 .ma-sri-detalle summary { cursor: pointer; color: var(--ma-dim); font-size: 0.82rem; }
 .ma-sri-detalle pre { margin: 6px 0 0; font-family: var(--ma-mono); font-size: 0.75rem; max-height: 200px; overflow: auto; }
+
+/* Tarjetas de resultado de los cruces (mismo patrón que el escritorio). */
+.ma-sri-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 8px 0; }
+.ma-sri-stat { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--ma-line); background: var(--ma-bg-2, transparent); }
+.ma-sri-stat-label { font-size: 0.78rem; color: var(--ma-dim); }
+.ma-sri-stat-value { font-size: 1.35rem; font-weight: 700; color: var(--ma-text); }
+.ma-sri-stat.is-ok { border-color: var(--ma-accent); }
+.ma-sri-stat.is-ok .ma-sri-stat-value { color: var(--ma-accent); }
+.ma-sri-stat.is-warn { border-color: var(--ma-p2, #d97706); background: var(--ma-p2-bg, rgba(217, 119, 6, 0.1)); }
+.ma-sri-stat.is-warn .ma-sri-stat-value { color: var(--ma-p2, #d97706); }

@@ -58,8 +58,8 @@ const SUBS = [
   { id: "reportes", titulo: "Historial" },
   { id: "consolidacion", titulo: "Consolidación de documentos" },
   { id: "reconstruccion", titulo: "Reconstruir XML" },
-  { id: "cruce", titulo: "Retención ↔ Factura" },
-  { id: "facturaret", titulo: "Factura ↔ Retención" },
+  { id: "cruce", titulo: "Retención → Factura" },
+  { id: "facturaret", titulo: "Factura → Retención" },
   { id: "valorneto", titulo: "Valor neto (NC)" },
   { id: "declaraciones", titulo: "Declaraciones" },
   { id: "ayuda", titulo: "Ayuda" },
@@ -865,7 +865,12 @@ function SubReconstruccion() {
 
 // ---------- Subpágina: Cruce Retención ↔ Factura ----------
 function SubCruceRetenciones() {
-  const [form, setForm] = useState({ ruc: "", sentido: "emitidas", direccion: "facturas", subcarpeta_facturas: "", refrescar_portal: false, con_portal: false, clave: "" });
+  // Este cruce va SIEMPRE de la retención a la factura (una fila por
+  // retención). El camino inverso vive en la pestaña «Factura → Retención».
+  const [form, setForm] = useState({ ruc: "", sentido: "emitidas", refrescar_portal: false, con_portal: false, clave: "" });
+  const emitidas = form.sentido === "emitidas";
+  const origenFacturas = emitidas ? "Recibidos" : "Emitidos";
+  const origenRetenciones = emitidas ? "Emitidos" : "Recibidos";
   const [fase, setFase] = useState("idle"); // idle|procesando|captcha|listo|error
   const [resultado, setResultado] = useState(null);
   const [permiso, setPermiso] = useState(null);
@@ -910,11 +915,7 @@ function SubCruceRetenciones() {
     try {
       const encargo = `SRI cruce ${form.ruc.trim()}`;
       const p = await sriPermiso(encargo);
-      const params = { carpeta_retenciones: carpeta, base_ruc: carpeta, sentido: form.sentido, direccion: form.direccion };
-      // Dirección "facturas": la carpeta de facturas define el período (incluye
-      // los meses sin ninguna retención). Es una subcarpeta de descargas/<ruc>.
-      const sub = form.subcarpeta_facturas.trim().replace(/^[/\\]+|[/\\]+$/g, "");
-      if (form.direccion === "facturas" && sub) params.carpetas_facturas = [`${carpeta}/${sub}`];
+      const params = { carpeta_retenciones: carpeta, base_ruc: carpeta, sentido: form.sentido, direccion: "retenciones" };
       if (form.con_portal) { params.ruc = form.ruc.trim(); params.clave = form.clave; params.refrescar_portal = form.refrescar_portal; }
       const r = await sriCruceRetenciones(p.url, p.token, params);
       if (form.con_portal && r && r.id) {
@@ -945,30 +946,19 @@ function SubCruceRetenciones() {
   return (
     <section className="ma-tarjeta ma-sri-descarga">
       <div className="ma-sri-descarga-cab">
-        <h3>Retención ↔ Factura</h3>
-        <span>Cruza los comprobantes de retención contra sus facturas de sustento. Ideal para verificar la retención que le hicimos al proveedor contra su factura de compra. Por defecto usa solo lo ya descargado; puedes pedir que el robot baje del SRI lo que falte.</span>
+        <h3>Retención → Factura</h3>
+        <span><strong>De qué factura salió cada retención.</strong> Parte de los comprobantes de retención ya descargados y busca la factura de sustento de cada uno: una fila por retención. Solo hacen falta las retenciones: el sistema deduce de ellas qué meses de facturas revisar. Si quieres saber <em>a qué facturas no les hicieron retención</em>, usa la pestaña «Factura → Retención».</span>
       </div>
       <div className="ma-sri-form">
         <label>RUC del cliente<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" disabled={trabajando} /></label>
-        <label>Sentido
+        <label>¿Qué retenciones tienes?
           <select value={form.sentido} onChange={set("sentido")} disabled={trabajando}>
-            <option value="emitidas">Retención emitida ↔ factura de compra (Recibidos)</option>
-            <option value="recibidas">Retención recibida ↔ factura de venta (Emitidos)</option>
+            <option value="emitidas">Emitidas — yo retuve a mi proveedor</option>
+            <option value="recibidas">Recibidas — me retuvieron sobre una venta</option>
           </select>
         </label>
-        <label>Dirección
-          <select value={form.direccion} onChange={set("direccion")} disabled={trabajando}>
-            <option value="facturas">Una fila por factura (busca su retención)</option>
-            <option value="retenciones">Una fila por retención (busca su factura)</option>
-          </select>
-        </label>
-        {form.direccion === "facturas" && (
-          <label>Carpeta de facturas (recomendado)
-            <input value={form.subcarpeta_facturas} onChange={set("subcarpeta_facturas")} placeholder={form.sentido === "recibidas" ? "Emitidos/Autorizados/Factura/2026" : "Recibidos/Factura/2026"} title={`Subcarpeta dentro de descargas/${form.ruc.trim() || "<ruc>"} con las facturas ya descargadas. Define el período del reporte: se revisan los meses que cubren esas facturas, también los que no tienen ninguna retención. Si la dejas vacía, el período sale de las retenciones.`} disabled={trabajando} />
-          </label>
-        )}
         <label className="ma-sri-check">Portal
-          <span className="ma-sri-check-fila"><label><input type="checkbox" checked={form.con_portal} onChange={set("con_portal")} disabled={trabajando} /> Bajar del SRI lo que falte (login + captcha)</label></span>
+          <span className="ma-sri-check-fila"><label><input type="checkbox" checked={form.con_portal} onChange={set("con_portal")} disabled={trabajando} /> Bajar del SRI las facturas que falten (login + captcha)</label></span>
         </label>
         {form.con_portal && (
           <label>Clave del SRI
@@ -981,6 +971,12 @@ function SubCruceRetenciones() {
           </label>
         )}
       </div>
+      <p className="ma-sri-tabla-nota">
+        Tus <strong>retenciones</strong> están en <strong>{origenRetenciones}</strong> y sus <strong>facturas</strong> se buscarán en <strong>{origenFacturas}</strong>
+        {" "}(carpeta <code>descargas/{form.ruc.trim() || "<ruc>"}</code>, lo que ya bajó la pestaña Descarga).
+        {!emitidas && " Las facturas están en Emitidos, que filtra por día: si hay que bajarlas del portal, son muchas consultas y puede tardar varios minutos."}
+        {" "}El Excel trae tres hojas: la conciliación completa, solo las retenciones sin factura y los sustentos que no son facturas (documentos IFIS, notas de venta, liquidaciones…).
+      </p>
       <div className="ma-sri-descarga-acciones">
         <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Cruzando…" : "Iniciar cruce"}</button>
         {form.con_portal && <BotonDetener ctx={ctx} trabajando={trabajando} cancelando={cancelando} setError={setError} />}
@@ -1009,13 +1005,54 @@ function SubCruceRetenciones() {
         </div>
       )}
       {progreso.length > 0 && <ul className="ma-sri-progreso">{progreso.slice(-8).map((m, i) => <li key={i}>{m}</li>)}</ul>}
-      {fase === "listo" && <div className="ma-sri-resultado ma-sri-resultado-ok"><ResumenOffline r={resultado} titulo="✅ Cruce listo" onDescargar={resultado?.excel_path ? bajar : null} bajando={bajando} textoDescarga="Descargar Excel" /></div>}
+      {fase === "listo" && resultado && (
+        <div className="ma-sri-resultado ma-sri-resultado-ok">
+          <div className="ma-sri-resumen">
+            <div className="ma-sri-resumen-titulo">✅ Reporte Retenciones vs Facturas listo</div>
+            {resultado.message && <div className="ma-sri-resumen-msg">{resultado.message}</div>}
+            <TarjetasResultado r={resultado} items={[
+              { k: "total_retenciones", t: "Retenciones leídas" },
+              { k: "con_factura", t: "Con factura", tono: "ok" },
+              { k: "sin_factura_electronica", t: "Sin factura electrónica", tono: "warn" },
+              { k: "sin_factura", t: "Sin factura", tono: "warn" },
+              { k: "mes_sin_descargar", t: "Mes sin descargar", tono: "warn" },
+              { k: "no_facturas", t: "Otro sustento" },
+              { k: "tipo_ilegible", t: "Ilegibles" },
+            ]} />
+            {Array.isArray(resultado.meses_sin_datos) && resultado.meses_sin_datos.length > 0 && <div className="ma-sri-resultado-aviso">Meses sin facturas descargadas: {resultado.meses_sin_datos.join(", ")}</div>}
+            {resultado.portal_error && <div className="ma-sri-resultado-aviso">Portal: {resultado.portal_error}</div>}
+            {resultado.excel_path && (
+              <div className="ma-sri-zip">
+                <button type="button" className="ma-sri-boton-zip" onClick={bajar} disabled={bajando}>{bajando ? "Preparando…" : "⬇ Descargar reporte Retenciones vs Facturas (Excel)"}</button>
+              </div>
+            )}
+            <details className="ma-sri-detalle"><summary>Ver detalle técnico</summary><pre>{JSON.stringify(resultado, null, 2)}</pre></details>
+          </div>
+        </div>
+      )}
       {error && <div className="ma-sri-resultado ma-sri-resultado-error">{error}</div>}
     </section>
   );
 }
 
 // ---------- Subpágina: Factura ↔ Retención (sentido inverso: facturas sin retención) ----------
+// Tarjetas de resultado al estilo del escritorio: título, valor y tono
+// ("ok" verde, "warn" naranja). Solo se muestran las que traen número.
+function TarjetasResultado({ r, items }) {
+  const visibles = items.filter((it) => typeof r?.[it.k] === "number");
+  if (!visibles.length) return null;
+  return (
+    <div className="ma-sri-stats">
+      {visibles.map((it) => (
+        <div key={it.k} className={`ma-sri-stat${it.tono && r[it.k] > 0 ? ` is-${it.tono}` : (it.tono === "ok" ? " is-ok" : "")}`}>
+          <span className="ma-sri-stat-label">{it.t}</span>
+          <span className="ma-sri-stat-value">{r[it.k]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const _ETIQUETAS_FVR = {
   total_facturas: "Facturas revisadas", con_retencion: "Con retención", sin_retencion: "Sin retención",
   no_consultado: "No consultadas", error_consulta: "Error de consulta", duplicados: "Con retención duplicada",
@@ -1113,15 +1150,15 @@ function SubFacturaRetencion() {
   return (
     <section className="ma-tarjeta ma-sri-descarga">
       <div className="ma-sri-descarga-cab">
-        <h3>Factura ↔ Retención</h3>
-        <span>Parte de las facturas y busca la retención de cada una. El hallazgo principal son las <strong>facturas sin retención</strong>. Es el sentido inverso de «Retención ↔ Factura», que sigue disponible.</span>
+        <h3>Factura → Retención</h3>
+        <span><strong>A qué facturas no les hicieron retención.</strong> Parte de las facturas y busca la retención de cada una: una fila por factura. El hallazgo principal son las <strong>facturas sin retención</strong>. Si quieres saber <em>de qué factura salió cada retención</em>, usa la pestaña «Retención → Factura».</span>
       </div>
       <div className="ma-sri-form">
         <label>RUC del contribuyente auditado<input value={form.ruc} onChange={set("ruc")} inputMode="numeric" maxLength={13} placeholder="1791859596001" disabled={trabajando} /></label>
-        <label>Tipo de factura
+        <label>¿Qué facturas tienes?
           <select value={form.tipo_factura} onChange={set("tipo_factura")} disabled={trabajando}>
-            <option value="emitidas">Facturas emitidas — ventas realizadas por el contribuyente</option>
-            <option value="recibidas">Facturas recibidas — compras realizadas por el contribuyente</option>
+            <option value="emitidas">Emitidas — las que yo emití (ventas)</option>
+            <option value="recibidas">Recibidas — las que me emitieron (compras)</option>
           </select>
         </label>
         <label>Carpeta de facturas (opcional)
@@ -1152,10 +1189,13 @@ function SubFacturaRetencion() {
         )}
       </div>
       <p className="ma-sri-tabla-nota">
+        Tus <strong>facturas</strong> están en <strong>{emitidas ? "Emitidos" : "Recibidos"}</strong> y sus <strong>retenciones</strong> se buscarán en <strong>{emitidas ? "Recibidos" : "Emitidos"}</strong>.
         {emitidas
-          ? "Las facturas se consultan en el portal Emitidos y las retenciones se buscan en Recibidos. El sistema identifica qué facturas de venta tienen retención del cliente y cuáles no."
-          : "Las facturas se consultan en el portal Recibidos y las retenciones se buscan en Emitidos. El sistema identifica qué facturas de compra tienen una retención emitida por el contribuyente y cuáles no."}
+          ? " Sobre una venta te retiene el cliente: se revisa qué facturas de venta tienen retención recibida y cuáles no."
+          : " Sobre una compra retienes tú: se revisa qué facturas de compra tienen retención emitida y cuáles no. Las retenciones están en Emitidos, que filtra por día: si hay que bajarlas del portal puede tardar varios minutos."}
+        {emitidas && " Las facturas están en Emitidos, que filtra por día: si hay que bajarlas del portal puede tardar varios minutos."}
         {" "}Un mes sin ninguna retención también se revisa: el período lo marcan las facturas. Lo que no se pudo revisar sale como «No consultado», nunca como «Sin retención».
+        {" "}El Excel trae seis hojas: resumen, facturas vs retenciones, solo las facturas sin retención, retenciones sin factura, otros sustentos y errores.
       </p>
       <div className="ma-sri-descarga-acciones">
         <button type="button" className="ma-sri-boton-ejecutar" onClick={ejecutar} disabled={trabajando}>{trabajando ? "Cruzando…" : "Iniciar cruce"}</button>
@@ -1188,19 +1228,27 @@ function SubFacturaRetencion() {
       {fase === "listo" && resultado && (
         <div className="ma-sri-resultado ma-sri-resultado-ok">
           <div className="ma-sri-resumen">
-            <div className="ma-sri-resumen-titulo">✅ Cruce listo</div>
+            <div className="ma-sri-resumen-titulo">✅ Reporte Facturas vs Retenciones listo</div>
             {resultado.message && <div className="ma-sri-resumen-msg">{resultado.message}</div>}
             {resultado.periodo_analizado && <div>Período analizado: <strong>{resultado.periodo_analizado}</strong></div>}
             {Array.isArray(resultado.meses_consultados) && resultado.meses_consultados.length > 0 && <div>Meses de retención revisados: {resultado.meses_consultados.join(", ")}</div>}
             {Array.isArray(resultado.meses_no_consultados) && resultado.meses_no_consultados.length > 0 && <div className="ma-sri-resultado-aviso">No revisados: {resultado.meses_no_consultados.join(", ")}</div>}
+            <TarjetasResultado r={resultado} items={[
+              { k: "total_facturas", t: "Facturas revisadas" },
+              { k: "con_retencion", t: "Con retención", tono: "ok" },
+              { k: "sin_retencion", t: "Sin retención", tono: "warn" },
+              { k: "no_consultado", t: "No consultadas", tono: "warn" },
+              { k: "error_consulta", t: "Error de consulta", tono: "warn" },
+              { k: "duplicados", t: "Retención duplicada" },
+            ]} />
             <div className="ma-sri-resumen-conteos">
-              {Object.entries(_ETIQUETAS_FVR).filter(([k]) => typeof resultado[k] === "number").map(([k, et]) => (
-                <span key={k} className={k === "sin_retencion" && resultado[k] > 0 ? "ma-sri-resultado-aviso" : undefined}>{et}: <strong>{resultado[k]}</strong></span>
+              {Object.entries(_ETIQUETAS_FVR).filter(([k]) => typeof resultado[k] === "number" && !["total_facturas", "con_retencion", "sin_retencion", "no_consultado", "error_consulta", "duplicados"].includes(k)).map(([k, et]) => (
+                <span key={k}>{et}: <strong>{resultado[k]}</strong></span>
               ))}
             </div>
             {resultado.excel_path && (
               <div className="ma-sri-descarga-acciones">
-                <button type="button" className="ma-boton" onClick={bajar} disabled={bajando}>{bajando ? "Preparando…" : "Descargar Excel (6 hojas)"}</button>
+                <button type="button" className="ma-sri-boton-zip" onClick={bajar} disabled={bajando}>{bajando ? "Preparando…" : "⬇ Descargar reporte Facturas vs Retenciones (Excel)"}</button>
               </div>
             )}
             <details className="ma-sri-detalle"><summary>Ver detalle técnico</summary><pre>{JSON.stringify(resultado, null, 2)}</pre></details>
