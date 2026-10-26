@@ -14,6 +14,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import create_engine
 
 from backend.app.ingesta.ingesta_masiva import crear_tablas, consultar_filas, ingerir_archivo
+from backend.app.ingesta.mayor_secciones import transformar_mayor_secciones
 
 router = APIRouter(prefix="/masiva", tags=["ingesta-masiva"])
 _CHUNK = 1024 * 1024
@@ -55,10 +56,15 @@ async def cargar(
     tipo_documento: str = Form(...),
     mapeo_confirmado: str = Form(...),
     saltar_filas: int = Form(1),
+    formato_mayor: str = Form("tabular"),
 ):
     """Sube CSV/XLSX sin retener poblacion completa; responde solo metadatos."""
     nombre = (file.filename or "").lower()
     sufijo = Path(nombre).suffix
+    if formato_mayor not in ("tabular", "secciones"):
+        raise HTTPException(400, "Formato de mayor no admitido")
+    if formato_mayor == "secciones" and sufijo != ".xlsx":
+        raise HTTPException(400, "El mayor por secciones requiere XLSX")
     if sufijo not in (".csv", ".xlsx"):
         raise HTTPException(400, "Solo CSV o XLSX")
     if any(not x.strip() or len(x) > 128 for x in (cliente_id, encargo_id, periodo)):
@@ -66,6 +72,7 @@ async def cargar(
     mapeo = _mapeo(mapeo_confirmado)
     engine = _engine_aislado()
     ruta = None
+    temporal_normalizado = None
     try:
         with tempfile.NamedTemporaryFile(prefix="ingesta_", suffix=sufijo, delete=False) as tmp:
             ruta = Path(tmp.name)
@@ -80,17 +87,38 @@ async def cargar(
                 tmp.write(chunk)
         if n == 0:
             raise HTTPException(400, "Archivo vacio")
+        resumen = None
+        ruta_proceso = ruta
+        mapeo_proceso = mapeo
+        salto_proceso = saltar_filas
+        if formato_mayor == "secciones":
+            with tempfile.NamedTemporaryFile(prefix="mayor_normalizado_", suffix=".csv", delete=False) as normalized:
+                temporal_normalizado = Path(normalized.name)
+            try:
+                resumen = transformar_mayor_secciones(ruta, temporal_normalizado)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            if not resumen["cuadra_reporte"]:
+                raise HTTPException(422, "Totales del mayor no concilian con los movimientos: " + json.dumps(resumen))
+            ruta_proceso = temporal_normalizado
+            mapeo_proceso = {"cuenta": 0, "fecha": 1, "debe": 2, "haber": 3}
+            salto_proceso = 1
         try:
-            return ingerir_archivo(
-                engine, ruta, cliente_id=cliente_id, encargo_id=encargo_id,
+            resultado = ingerir_archivo(
+                engine, ruta_proceso, cliente_id=cliente_id, encargo_id=encargo_id,
                 periodo=periodo, tipo_documento=tipo_documento,
-                mapeo_confirmado=mapeo, saltar_filas=saltar_filas,
+                mapeo_confirmado=mapeo_proceso, saltar_filas=salto_proceso,
             )
+            if resumen is not None:
+                resultado["control_mayor"] = resumen
+            return resultado
         except (ValueError, KeyError) as exc:
             raise HTTPException(400, str(exc)) from exc
     finally:
         if ruta is not None:
             ruta.unlink(missing_ok=True)
+        if temporal_normalizado is not None:
+            temporal_normalizado.unlink(missing_ok=True)
         engine.dispose()
 
 
