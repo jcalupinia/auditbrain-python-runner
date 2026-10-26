@@ -141,3 +141,45 @@ def pagina(
             raise HTTPException(404, "Dataset no encontrado en este encargo")
     finally:
         engine.dispose()
+
+
+@router.get("/sharepoint/piloto")
+def sharepoint_piloto_disponible():
+    """Devuelve disponibilidad de configuracion; no divulga secretos."""
+    claves = ("MS_GRAPH_TENANT_ID", "MS_GRAPH_CLIENT_ID", "MS_GRAPH_CLIENT_SECRET",
+              "INGESTA_SP_DRIVE_ID", "INGESTA_SP_ITEM_ID", "INGESTA_MASIVA_SQLITE_PATH")
+    return {"configurado": all(os.environ.get(k) for k in claves),
+            "nota": "Solo archivo expresamente permitido en el servidor"}
+
+
+@router.post("/sharepoint/piloto/cargar")
+async def cargar_sharepoint_piloto(
+    cliente_id: str = Form(...),
+    encargo_id: str = Form(...),
+    periodo: str = Form(...),
+):
+    """Lee el unico archivo permitido por configuracion; no acepta rutas Graph."""
+    from backend.app.ingesta.graph_piloto import descargar_mayor_piloto
+    ruta = normalizado = None
+    engine = None
+    try:
+        engine = _engine_aislado()
+        ruta, referencia = await descargar_mayor_piloto()
+        with tempfile.NamedTemporaryFile(prefix="mayor_graph_", suffix=".csv", delete=False) as tmp:
+            normalizado = Path(tmp.name)
+        control = transformar_mayor_secciones(ruta, normalizado)
+        if not control["cuadra_reporte"]:
+            raise HTTPException(422, "Mayor SharePoint no concilia contra totales originales")
+        r = ingerir_archivo(
+            engine, normalizado, cliente_id=cliente_id, encargo_id=encargo_id,
+            periodo=periodo, tipo_documento="mayor",
+            mapeo_confirmado={"cuenta": 0, "fecha": 1, "debe": 2, "haber": 3},
+        )
+        return {**r, "control_mayor": control, "referencia_sharepoint": referencia}
+    finally:
+        if ruta is not None:
+            ruta.unlink(missing_ok=True)
+        if normalizado is not None:
+            normalizado.unlink(missing_ok=True)
+        if engine is not None:
+            engine.dispose()
