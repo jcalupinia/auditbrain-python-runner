@@ -101,3 +101,16 @@ def test_aislamiento_por_cliente_y_encargo(tmp_path):
                 cliente_id=cliente, encargo_id=encargo)
     assert len(consultar_filas(engine, res["dataset_id"],
         cliente_id="clienteA", encargo_id="audit2026")) == 1
+
+
+@pytest.mark.parametrize("opcion,valor", [
+    ("lote", True), ("lote", 2.5), ("lote", 0), ("lote", 10001),
+    ("saltar_filas", True), ("saltar_filas", -1), ("saltar_filas", 1.5),
+])
+def test_rechaza_parametros_de_control_invalidos(tmp_path, opcion, valor):
+    engine = _setup(tmp_path)
+    ruta = _archivo(tmp_path, 1)
+    with pytest.raises(ValueError):
+        _ingesta(engine, ruta, **{opcion: valor})
+    with engine.connect() as conn:
+        assert conn.scalar(select(func.count()).select_from(datasets)) == 0
