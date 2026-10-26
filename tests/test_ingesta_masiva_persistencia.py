@@ -72,3 +72,32 @@ def test_no_crea_tablas_automaticamente(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'vacia.db'}")
     from sqlalchemy import inspect
     assert "ingesta_masiva_datasets" not in inspect(engine).get_table_names()
+
+
+@pytest.mark.parametrize("mapeo", [
+    {"cuenta": True, "fecha": 1, "debe": 2, "haber": 3},
+    {"cuenta": -1, "fecha": 1, "debe": 2, "haber": 3},
+    {"cuenta": 0.0, "fecha": 1, "debe": 2, "haber": 3},
+    {"cuenta": "0", "fecha": 1, "debe": 2, "haber": 3},
+])
+def test_rechaza_indices_invalidos_antes_de_crear_dataset(tmp_path, mapeo):
+    engine = _setup(tmp_path)
+    ruta = _archivo(tmp_path, 1)
+    with pytest.raises(ValueError, match="indices del mapeo"):
+        ingerir_archivo(
+            engine, ruta, cliente_id="clienteA", encargo_id="audit2026",
+            periodo="2026", tipo_documento="mayor", mapeo_confirmado=mapeo,
+        )
+    with engine.connect() as conn:
+        assert conn.scalar(select(func.count()).select_from(datasets)) == 0
+
+
+def test_aislamiento_por_cliente_y_encargo(tmp_path):
+    engine = _setup(tmp_path)
+    res = _ingesta(engine, _archivo(tmp_path, 1))
+    for cliente, encargo in [("otro", "audit2026"), ("clienteA", "otro")]:
+        with pytest.raises(LookupError):
+            consultar_filas(engine, res["dataset_id"],
+                cliente_id=cliente, encargo_id=encargo)
+    assert len(consultar_filas(engine, res["dataset_id"],
+        cliente_id="clienteA", encargo_id="audit2026")) == 1
