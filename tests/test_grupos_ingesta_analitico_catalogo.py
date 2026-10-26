@@ -21,7 +21,8 @@ def test_cuatro_herramientas_ingesta_ruteadas():
     for clave in ("MOTOR", "NARRATIVO", "RESOLVER", "MAPEO"):
         identificador = f"AUD.INGESTA.{clave}"
         assert catalogo.count(f'id: "{identificador}"') == 1
-        assert f'activeTool === "{identificador}"' in vista
+        assert f'"{identificador}":' in vista
+    assert "<IngestaUnificadaTool" in vista
 
 
 def test_analitico_ruteado():
