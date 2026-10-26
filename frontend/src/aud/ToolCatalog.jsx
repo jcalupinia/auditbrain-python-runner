@@ -7,7 +7,7 @@ import InformeCumplimientoTributarioTool from "./InformeCumplimientoTributarioTo
 import MotorBalancesTool from "./MotorBalancesTool.jsx";
 import VnrTool from "./vnr/VnrTool.jsx";
 import ConfirmacionesTool from "./confirmaciones/ConfirmacionesTool.jsx";
-import MotorIngestaTool from "./ingesta/MotorIngestaTool.jsx";
+import IngestaUnificadaTool from "./ingesta/IngestaUnificadaTool.jsx";
 import ExtractorNarrativoTool from "./ingesta/ExtractorNarrativoTool.jsx";
 import ResolutorSemanticoTool from "./ingesta/ResolutorSemanticoTool.jsx";
 import CapaMapeoTool from "./ingesta/CapaMapeoTool.jsx";
@@ -64,48 +64,17 @@ export default function ToolCatalog({ projectId }) {
     );
   }
 
-  if (activeTool === "AUD.INGESTA.MOTOR") {
-    return (
-      <div className="aud-tool-wrap">
-        <button className="link aud-back" onClick={() => setActiveTool(null)}>
-          {STRINGS.back_to_catalog}
-        </button>
-        <MotorIngestaTool />
-      </div>
-    );
-  }
-
-  if (activeTool === "AUD.INGESTA.NARRATIVO") {
-    return (
-      <div className="aud-tool-wrap">
-        <button className="link aud-back" onClick={() => setActiveTool(null)}>
-          {STRINGS.back_to_catalog}
-        </button>
-        <ExtractorNarrativoTool />
-      </div>
-    );
-  }
-
-  if (activeTool === "AUD.INGESTA.RESOLVER") {
-    return (
-      <div className="aud-tool-wrap">
-        <button className="link aud-back" onClick={() => setActiveTool(null)}>
-          {STRINGS.back_to_catalog}
-        </button>
-        <ResolutorSemanticoTool />
-      </div>
-    );
-  }
-
-  if (activeTool === "AUD.INGESTA.MAPEO") {
-    return (
-      <div className="aud-tool-wrap">
-        <button className="link aud-back" onClick={() => setActiveTool(null)}>
-          {STRINGS.back_to_catalog}
-        </button>
-        <CapaMapeoTool />
-      </div>
-    );
+  if (activeTool?.startsWith("AUD.INGESTA.")) {
+    const tabs = {
+      "AUD.INGESTA.MOTOR": "masiva",
+      "AUD.INGESTA.MAPEO": "mapeo",
+      "AUD.INGESTA.NARRATIVO": "narrativo",
+      "AUD.INGESTA.RESOLVER": "resolver",
+    };
+    return <div className="aud-tool-wrap">
+      <button className="link aud-back" onClick={() => setActiveTool(null)}>{STRINGS.back_to_catalog}</button>
+      <IngestaUnificadaTool key={activeTool} initialTab={tabs[activeTool] || "masiva"} />
+    </div>;
   }
 
   if (activeTool === "AUD.INVENTARIOS.VNR") {
