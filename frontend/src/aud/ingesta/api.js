@@ -127,7 +127,7 @@ export async function cargarMasiva(file, context) {
   if (!file || file.size > 100 * 1024 * 1024) throw Error("Archivo vacio o mayor a 100 MB.");
   const fd = new FormData();
   fd.append("file", file);
-  for (const key of ["cliente_id", "encargo_id", "periodo", "tipo_documento"]) {
+  for (const key of ["cliente_id", "encargo_id", "periodo", "tipo_documento", "formato_mayor"]) {
     fd.append(key, String(context[key] || ""));
   }
   fd.append("mapeo_confirmado", JSON.stringify(context.mapeo_confirmado || {}));
