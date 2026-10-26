@@ -114,6 +114,8 @@ def ingerir_archivo(
     permitidos = {c.nombre for c in esquema.campos}
     if not mapeo_confirmado or set(mapeo_confirmado) - permitidos:
         raise ValueError("mapeo_confirmado vacio o contiene campos desconocidos")
+    if any(type(indice) is not int or indice < 0 for indice in mapeo_confirmado.values()):
+        raise ValueError("los indices del mapeo deben ser enteros no negativos")
     if len(set(mapeo_confirmado.values())) != len(mapeo_confirmado):
         raise ValueError("una columna no puede asignarse a varios campos")
     for campo in esquema.obligatorios:
