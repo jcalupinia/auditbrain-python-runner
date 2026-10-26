@@ -3,7 +3,7 @@ import MotorIngestaTool from "./MotorIngestaTool.jsx";
 import CapaMapeoTool from "./CapaMapeoTool.jsx";
 import ExtractorNarrativoTool from "./ExtractorNarrativoTool.jsx";
 import ResolutorSemanticoTool from "./ResolutorSemanticoTool.jsx";
-import { cargarMasiva, consultarMasiva } from "./api.js";
+import { cargarMasiva, consultarMasiva, estadoSharePointPiloto, cargarSharePointPiloto } from "./api.js";
 import "./ingesta.css";
 
 const TABS = [
@@ -25,6 +25,7 @@ function CargaMasiva() {
   const [filas, setFilas] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [spStatus, setSpStatus] = useState(null);
 
   async function ejecutar(e) {
     e.preventDefault();
@@ -67,7 +68,21 @@ function CargaMasiva() {
         <p className="muted">Antes de cargar, utilice la pestaña «Mapeo de columnas» para verificar el formato del archivo. Esta carga usa exclusivamente el mapeo que usted confirma.</p>
         <button className="btn" type="submit" disabled={busy || !archivo}>{busy ? "Procesando…" : "Cargar mayor y registrar población"}</button>
       </form>
-      <details><summary>Archivo desde SharePoint</summary><p role="status">La selección directa todavía no está habilitada: requiere un conector autenticado en el servidor y autorización por expediente. No introduzca enlaces privados ni tokens aquí.</p></details>
+      <details>
+        <summary>Mayor piloto desde SharePoint</summary>
+        <p className="muted">Solo el archivo autorizado por el administrador de Preview; el navegador no recibe credenciales ni URLs privadas.</p>
+        <button type="button" className="btn secondary" onClick={async () => { try { setSpStatus(await estadoSharePointPiloto()); setError(""); } catch (e) { setError(e.message); } }}>Verificar conexión</button>
+        {spStatus && <p role="status">{spStatus.configurado ? "Conector configurado" : "Conector pendiente de configurar en el servidor"}</p>}
+        <button type="button" className="btn" disabled={!spStatus?.configurado || busy || !cliente.trim() || !encargo.trim() || !periodo.trim()} onClick={async () => {
+          setBusy(true); setError(""); setResultado(null); setFilas([]);
+          try {
+            const r = await cargarSharePointPiloto({cliente_id:cliente.trim(),encargo_id:encargo.trim(),periodo:periodo.trim()});
+            setResultado(r);
+            const pagina = await consultarMasiva(r.dataset_id, cliente.trim(), encargo.trim(), 20);
+            setFilas(pagina.filas || []);
+          } catch(e) { setError(e.message); } finally { setBusy(false); }
+        }}>Importar mayor desde SharePoint</button>
+      </details>
       {error && <p className="nf-error" role="alert">{error}</p>}
       {resultado && <div className="ing-card" role="status">
         <h4>Población registrada</h4>
