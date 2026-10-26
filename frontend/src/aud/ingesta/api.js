@@ -138,3 +138,16 @@ export async function consultarMasiva(datasetId, clienteId, encargoId, limite = 
   const p = new URLSearchParams({ cliente_id: clienteId, encargo_id: encargoId, limite: String(limite) });
   return (await call("masiva/" + encodeURIComponent(datasetId) + "/filas?" + p)).json();
 }
+
+
+export async function estadoSharePointPiloto() {
+  return (await call("masiva/sharepoint/piloto")).json();
+}
+
+export async function cargarSharePointPiloto({ cliente_id, encargo_id, periodo }) {
+  const fd = new FormData();
+  fd.append("cliente_id", cliente_id);
+  fd.append("encargo_id", encargo_id);
+  fd.append("periodo", periodo);
+  return (await call("masiva/sharepoint/piloto/cargar", { method: "POST", body: fd })).json();
+}
