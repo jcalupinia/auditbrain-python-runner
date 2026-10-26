@@ -58,8 +58,8 @@ def transformar_mayor_secciones(archivo, destino, *, hoja=None):
                     else:
                         cuentas.add(cuenta_actual)
                     continue
-                if str(g or "").strip().startswith("Totales"):
-                    total_reportado = (_numero(h), _numero(i))
+                if str(f or "").strip().startswith("Totales"):
+                    total_reportado = (_numero(g), _numero(h))
                     continue
                 if str(a or "").strip().startswith("Saldo Final"):
                     continue
