@@ -32,7 +32,7 @@ sin red ni credenciales):
 - `POST /api/v1/ingesta/masiva/cargar` → `ingesta_masiva.ingerir_archivo` persiste en
   **SQLite aislada** (opt-in por `INGESTA_MASIVA_SQLITE_PATH`) y devuelve `dataset_id`,
   `total_filas`, `filas_revision`, `estado`.
-- `GET /api/v1/ingesta/masiva/{dataset_id}/filas?cliente_id&encargo_id` → página de la
+- `GET /api/v1/ingesta/masiva/{dataset_id}/filas?cliente_id=&encargo_id=` → página de la
   población persistida (la fuente que consume el Motor Analítico por `dataset_id`).
 - Mayor por secciones: `formato_mayor=secciones` normaliza y exige cuadre
   (`cuadra_reporte`) antes de persistir.
@@ -59,3 +59,5 @@ El Preview levanta backend + consola + portal con **BD y secretos exclusivos del
   `/run/secrets/admin_password` (no se imprime).
 - Al **cerrar o fusionar** este PR, el controlador elimina el preview (contenedores,
   red, dominios y BD del PR). Este PR **no debe fusionarse**: es solo validación.
+
+<!-- re-disparo de preview-images tras renovar GHCR_PUBLISH_TOKEN -->
