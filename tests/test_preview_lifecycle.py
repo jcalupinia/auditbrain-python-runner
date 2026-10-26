@@ -103,7 +103,10 @@ class GitHubFalso:
         self.comentarios[n] = texto
 
 
-def pr_de(n, sha=SHA_A, autor="jcalupinia", estado="open", fork=False, draft=False, labels=(), merged=False, creado="2026-10-20T10:00:00Z"):
+def pr_de(n, sha=SHA_A, autor="jcalupinia", estado="open", fork=False, draft=False, labels=(), merged=False, creado=None):
+    # Fecha relativa para que las pruebas de caducidad no fallen con el paso del calendario.
+    if creado is None:
+        creado = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {"number": n, "state": estado, "draft": draft, "merged": merged, "created_at": creado, "html_url": f"https://github.com/{REPO}/pull/{n}",
             "head": {"sha": sha, "repo": {"full_name": "otro/fork" if fork else REPO}}, "base": {"ref": "main"},
             "user": {"login": autor}, "labels": [{"name": l} for l in labels]}

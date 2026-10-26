@@ -142,3 +142,20 @@ class TestMasterRouter:
         with pytest.raises(master_router.RouterError) as e:
             asyncio.run(master_router.route(payload))
         assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_lectura_http_acotada():
+    """La API no solicita una lectura sin limite del archivo subido."""
+    class ArchivoControlado:
+        def __init__(self):
+            self.solicitudes = []
+
+        async def read(self, size=-1):
+            self.solicitudes.append(size)
+            return b"contenido de prueba"
+
+    archivo = ArchivoControlado()
+    contenido = await ingesta_api._leer(archivo)
+    assert contenido == b"contenido de prueba"
+    assert archivo.solicitudes == [ingesta_api._MAX_MB * 1024 * 1024 + 1]
