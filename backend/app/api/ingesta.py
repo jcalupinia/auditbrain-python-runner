@@ -68,7 +68,8 @@ class ResolverResponse(BaseModel):
 
 
 async def _leer(file: UploadFile) -> bytes:
-    contenido = await file.read()
+    # Lectura acotada: no cargar en RAM un upload arbitrariamente grande.
+    contenido = await file.read(_MAX_MB * 1024 * 1024 + 1)
     if not contenido:
         raise HTTPException(status_code=400, detail="Archivo vacío.")
     if len(contenido) > _MAX_MB * 1024 * 1024:
