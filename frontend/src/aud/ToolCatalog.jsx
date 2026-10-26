@@ -8,9 +8,6 @@ import MotorBalancesTool from "./MotorBalancesTool.jsx";
 import VnrTool from "./vnr/VnrTool.jsx";
 import ConfirmacionesTool from "./confirmaciones/ConfirmacionesTool.jsx";
 import IngestaUnificadaTool from "./ingesta/IngestaUnificadaTool.jsx";
-import ExtractorNarrativoTool from "./ingesta/ExtractorNarrativoTool.jsx";
-import ResolutorSemanticoTool from "./ingesta/ResolutorSemanticoTool.jsx";
-import CapaMapeoTool from "./ingesta/CapaMapeoTool.jsx";
 
 const PruebasEncargo = lazy(() => import("./niif/PruebasEncargo.jsx"));
 const MotorAnaliticoTool = lazy(() => import("./motorAnalitico/MotorAnaliticoTool.jsx"));
