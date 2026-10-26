@@ -106,10 +106,10 @@ def ingerir_archivo(
     """
     if not all([cliente_id, encargo_id, periodo]):
         raise ValueError("cliente_id, encargo_id y periodo son obligatorios")
-    if not isinstance(saltar_filas, int) or saltar_filas < 0:
-        raise ValueError("saltar_filas debe ser no negativo")
-    if not 1 <= lote <= 10_000:
-        raise ValueError("lote fuera de rango")
+    if type(saltar_filas) is not int or saltar_filas < 0:
+        raise ValueError("saltar_filas debe ser un entero no negativo")
+    if type(lote) is not int or not 1 <= lote <= 10_000:
+        raise ValueError("lote debe ser un entero entre 1 y 10000")
     esquema = resolver_esquema(tipo_documento)
     permitidos = {c.nombre for c in esquema.campos}
     if not mapeo_confirmado or set(mapeo_confirmado) - permitidos:
