@@ -31,7 +31,7 @@ def _ingesta(engine, ruta, **kwargs):
         engine, ruta, cliente_id="clienteA", encargo_id="audit2026",
         periodo="2026", tipo_documento="mayor",
         mapeo_confirmado={"cuenta": 0, "fecha": 1, "debe": 2, "haber": 3},
-        lote=2000, **kwargs
+        lote=kwargs.pop("lote", 2000), **kwargs
     )
 
 
