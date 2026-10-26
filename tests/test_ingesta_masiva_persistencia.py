@@ -114,3 +114,21 @@ def test_rechaza_parametros_de_control_invalidos(tmp_path, opcion, valor):
         _ingesta(engine, ruta, **{opcion: valor})
     with engine.connect() as conn:
         assert conn.scalar(select(func.count()).select_from(datasets)) == 0
+
+
+@pytest.mark.parametrize("lote", [True, False, 0, -1, 10001, 2.5, "2000"])
+def test_rechaza_controles_de_lote_invalidos(tmp_path, lote):
+    engine = _setup(tmp_path)
+    with pytest.raises(ValueError, match="lote debe ser un entero"):
+        _ingesta(engine, _archivo(tmp_path, 1), lote=lote)
+    with engine.connect() as conn:
+        assert conn.scalar(select(func.count()).select_from(datasets)) == 0
+
+
+@pytest.mark.parametrize("saltar", [True, False, -1, 1.5, "1"])
+def test_rechaza_controles_de_salto_invalidos(tmp_path, saltar):
+    engine = _setup(tmp_path)
+    with pytest.raises(ValueError, match="saltar_filas debe ser un entero"):
+        _ingesta(engine, _archivo(tmp_path, 1), saltar_filas=saltar)
+    with engine.connect() as conn:
+        assert conn.scalar(select(func.count()).select_from(datasets)) == 0
