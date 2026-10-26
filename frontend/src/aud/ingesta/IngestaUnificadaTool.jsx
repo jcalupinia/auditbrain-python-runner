@@ -20,6 +20,7 @@ function CargaMasiva() {
   const [encargo, setEncargo] = useState("");
   const [periodo, setPeriodo] = useState("");
   const [mapeo, setMapeo] = useState('{"cuenta":0,"fecha":1,"debe":2,"haber":3}');
+  const [formato, setFormato] = useState("secciones");
   const [resultado, setResultado] = useState(null);
   const [filas, setFilas] = useState([]);
   const [error, setError] = useState("");
@@ -34,7 +35,7 @@ function CargaMasiva() {
       const r = await cargarMasiva(archivo, {
         cliente_id: cliente.trim(), encargo_id: encargo.trim(),
         periodo: periodo.trim(), tipo_documento: "mayor",
-        mapeo_confirmado: confirmado,
+        mapeo_confirmado: confirmado, formato_mayor: formato,
       });
       setResultado(r);
       const pagina = await consultarMasiva(r.dataset_id, cliente.trim(), encargo.trim(), 20);
@@ -54,6 +55,12 @@ function CargaMasiva() {
           <label>Período <input required value={periodo} maxLength={128} onChange={e => setPeriodo(e.target.value)} placeholder="2026" /></label>
         </div>
         <div className="ing-row">
+          <label>Formato de mayor
+            <select value={formato} onChange={e => setFormato(e.target.value)}>
+              <option value="secciones">Mayor detallado por cuenta (MANACRIPEX)</option>
+              <option value="tabular">Tabla plana CSV/XLSX</option>
+            </select>
+          </label>
           <label>Mayor CSV/XLSX <input type="file" required accept=".csv,.xlsx" onChange={e => setArchivo(e.target.files?.[0] || null)} /></label>
           <label>Mapeo confirmado (campo: índice de columna) <textarea required value={mapeo} rows={3} onChange={e => setMapeo(e.target.value)} /></label>
         </div>
@@ -66,6 +73,7 @@ function CargaMasiva() {
         <h4>Población registrada</h4>
         <p>ID: <code>{resultado.dataset_id}</code></p>
         <p>Estado: {resultado.estado} · Movimientos: {resultado.total_filas} · Con excepciones: {resultado.filas_revision}</p>
+        {resultado.control_mayor && <p>Control del reporte: {resultado.control_mayor.cuentas} cuentas · Debe {resultado.control_mayor.debe} · Haber {resultado.control_mayor.haber} · Conciliado: {resultado.control_mayor.cuadra_reporte ? "Sí" : "No"}</p>}
       </div>}
       {filas.length > 0 && <details><summary>Primeros {filas.length} movimientos (consulta paginada)</summary><pre style={{overflowX:"auto"}}>{JSON.stringify(filas, null, 2)}</pre></details>}
     </section>
