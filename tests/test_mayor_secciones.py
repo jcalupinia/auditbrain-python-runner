@@ -14,7 +14,7 @@ def _libro(path, total="15"):
     s.append(["210101", "Banco", "Saldo Inicial--->", 0])
     s.append(["2026-01-03", 3, "CP", 3, "", "Pago", 0, 15, 15])
     s.append(["Saldo Final de la Cuenta-------->", 15])
-    s.append([None, None, None, None, None, None, "Totales  -------->", total, 15])
+    s.append([None, None, None, None, None, "Totales  -------->", total, 15])
     w.save(path)
 
 
