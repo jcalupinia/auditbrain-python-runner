@@ -46,6 +46,10 @@ router = APIRouter(
     dependencies=[Depends(require_runner_access)],
 )
 
+# Router masivo opt-in; hereda autenticacion del router /ingesta.
+from backend.app.api.ingesta_masiva_api import router as masiva_router
+router.include_router(masiva_router)
+
 # Tamaño máximo del archivo aceptado (MB). Barrera simple contra abusos.
 _MAX_MB = 25
 
