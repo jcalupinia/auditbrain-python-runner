@@ -272,12 +272,23 @@ def test_sincronizar_despliega_verifica_y_publica_enlaces():
     assert '"decision": "ADMIT"' in c and "t" * 32 not in c
 
 
-def test_sincronizar_actualiza_preview_existente_sin_recrearlo():
+def test_sincronizar_no_redespliega_un_preview_sano_del_mismo_sha():
+    # Anti-bucle (#392): el preview ya existe, está «running» y sirve el mismo commit -> ni crear ni deploy.
     gh = GitHubFalso({5: pr_de(5, sha=SHA_B)})
     co = CoolifyFalso(previews=[{"pull_request_id": 5, "status": "running"}])
     ctx = contexto(co, gh, fetch_ok({5: SHA_B}))
     assert pl.sincronizar(ctx, 5) == 0
-    assert co.llamadas == [("deploy", 5)]  # sin «crear»: el preview ya existía
+    assert co.llamadas == []
+    assert gh.etiquetas[5] == {pl.ETIQUETA_ACTIVO} and "sin redesplegar" in gh.comentarios[5]
+
+
+def test_sincronizar_redespliega_un_preview_detenido():
+    # El preview existe pero NO está en ejecución («exited») -> se redespliega (sin recrearlo).
+    gh = GitHubFalso({5: pr_de(5)})
+    co = CoolifyFalso(previews=[{"pull_request_id": 5, "status": "exited"}])
+    ctx = contexto(co, gh, fetch_ok({5: SHA_A}))
+    assert pl.sincronizar(ctx, 5) == 0
+    assert co.llamadas == [("deploy", 5)] and gh.etiquetas[5] == {pl.ETIQUETA_ACTIVO}
 
 
 def test_sincronizar_ignora_un_head_superado():
@@ -375,6 +386,45 @@ def test_verificar_preview_detecta_commit_distinto_y_pr_distinto():
     assert pl.verificar_preview(5, SHA_A, "preview.audit-ia.ec", f) == []
     assert any("build.commit" in p for p in pl.verificar_preview(5, SHA_B, "preview.audit-ia.ec", f))
     assert pl.verificar_preview(6, SHA_A, "preview.audit-ia.ec", f)  # nada responde para el PR 6
+
+
+def _fetch_arranque(n, sha, fallos, codigo=0):
+    """API devuelve error (codigo=0 conexión rechazada; 503 temporal) las primeras `fallos` veces y
+    luego 200 con el commit esperado; los frontends siempre responden OK."""
+    estado = {"api": 0}
+
+    def fetch(method, url, token=None, body=None, headers=None, timeout=30):
+        if url == f"https://{n}.api.preview.audit-ia.ec/api/v1/health":
+            estado["api"] += 1
+            if estado["api"] <= fallos:
+                return codigo, None
+            return 200, {"build": {"commit": sha}, "preview": {"pr": str(n)}}
+        if url in (f"https://{n}.consola.preview.audit-ia.ec/build-info.json",
+                   f"https://{n}.clientes.preview.audit-ia.ec/build-info.json"):
+            return 200, {"commit": sha}
+        return 404, None
+    return fetch
+
+
+def test_verificar_con_reintentos_sano_de_inmediato():
+    prob, intentos, _ = pl.verificar_con_reintentos(5, SHA_A, "preview.audit-ia.ec", pl.Politica(),
+                                                    _fetch_arranque(5, SHA_A, 0), lambda s: None)
+    assert prob == [] and intentos == 1
+
+
+@pytest.mark.parametrize("codigo", [0, 503])
+def test_verificar_con_reintentos_sano_tras_el_arranque(codigo):
+    # Backend arrancando (conexión rechazada HTTP 0 o 503 temporal) dos veces y luego sano: no marca fallo.
+    prob, intentos, _ = pl.verificar_con_reintentos(5, SHA_A, "preview.audit-ia.ec", pl.Politica(),
+                                                    _fetch_arranque(5, SHA_A, 2, codigo), lambda s: None)
+    assert prob == [] and intentos == 3
+
+
+def test_verificar_con_reintentos_backend_que_nunca_responde_se_agota_sin_bucle():
+    pol = pl.Politica(verificacion_intentos=4)
+    prob, intentos, _ = pl.verificar_con_reintentos(5, SHA_A, "preview.audit-ia.ec", pol,
+                                                    _fetch_arranque(5, SHA_A, 999), lambda s: None)
+    assert prob and intentos == 4  # acotado por intentos: no hay bucle infinito
 
 
 # ------------------------------------------------------------------ reintentar, cerrar, caducidad
