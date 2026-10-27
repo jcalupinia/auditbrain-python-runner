@@ -99,7 +99,10 @@ async def cargar(
             if not primero:
                 raise HTTPException(422, "Archivo sin encabezados")
             propuesta = proponer_mapeo(primero[0])
-            if propuesta["requiere_revision"]:
+            requiere_confirmacion = bool(propuesta["ambiguos"]) or propuesta["modo"] == "ambiguo" or not {"cuenta", "fecha"} <= propuesta["mapeo"].keys()
+            if propuesta["modo"] == "importe_firmado" and positivo_es not in ("debe", "haber"):
+                requiere_confirmacion = True
+            if requiere_confirmacion:
                 raise HTTPException(422, detail={"mensaje": "Confirmar mapeo y polaridad", "propuesta": propuesta})
             mapeo_proceso, salto_proceso = propuesta["mapeo"], 1
         elif formato_mayor == "tabular" and mapeo is None:
