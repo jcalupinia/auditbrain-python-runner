@@ -63,6 +63,20 @@ def test_formato_distinto_codigo_fecha_debe_haber():
     assert list(d["Explicación -observación-"]) == ["Sueldos enero", "Ajuste", "Aporte patronal"]
 
 
+def test_formato_con_importe_unico_y_otros_encabezados():
+    """Otros mayores traen un `Importe`/`Valor` con signo en UNA columna (no Debe/Haber) y con
+    encabezados distintos (`Fecha contable`, `Cuenta contable`, `Glosa`). Debe leerse igual."""
+    cols = ["Fecha contable", "Cuenta contable", "Glosa", "Valor"]
+    filas = [
+        ["05/01/2025", "5PYG.01", "Sueldos enero", 1000.0],
+        ["28/02/2025", "5BS.21204.001", "Provisión décimo", -250.0],
+    ]
+    d = MY._load(_xlsx(pd.DataFrame(filas, columns=cols)))
+    assert list(d["Importe"]) == [1000.0, -250.0]        # columna única, con su signo
+    assert list(d["cta"]) == ["5PYG.01", "5BS.21204.001"]
+    assert list(d["m"]) == [1, 2]
+
+
 def test_detecta_encabezado_bajo_una_fila_de_titulo():
     """Si el Mayor trae un título/logo encima, se detecta la fila real de encabezados."""
     df = pd.DataFrame([
