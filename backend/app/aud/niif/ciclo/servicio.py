@@ -1513,8 +1513,18 @@ def subir_archivo(db: Session, p: Prueba, revision: int, requerimiento: str, com
     reqs_val = requests_vivos(p)
     if not any(r["id"] == requerimiento for r in reqs_val):
         raise ReglaIncumplida("Vincule un requerimiento aprobado.")
+    # En una herramienta bespoke (p. ej. nómina) los sub-casilleros del panel
+    # (RQ-003 «Sierra / Amazonía», RQ-004 «Mayor de pasivos…», RQ-005 «Aportes»…)
+    # son una AYUDA DE ORGANIZACIÓN de la carga: el motor clasifica cada archivo por
+    # su contenido, no por el nombre del sub-casillero. Esos requerimientos NO declaran
+    # `components`, así que `check_upload` rechazaba el componente con «no se entrega por
+    # componentes». Para bespoke se valida solo el FORMATO (se pasa componente=None); la
+    # etiqueta del sub-casillero igual se guarda en el archivo para mostrarla agrupada.
+    # En las pruebas declarativas se sigue exigiendo el componente del catálogo.
+    es_besp = procesadores.es_bespoke(p.definicion)
     try:
-        check_upload(datos.requests_as_items(reqs_val), requerimiento, componente or None, nombre)
+        check_upload(datos.requests_as_items(reqs_val), requerimiento,
+                     None if es_besp else (componente or None), nombre)
     except ValueError as e:
         raise ReglaIncumplida(str(e))
     if not contenido or len(contenido) > almacen.MAX_ARCHIVO:
