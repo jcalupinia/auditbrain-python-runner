@@ -22,6 +22,7 @@ OJO — esto resuelve la LECTURA, no el PLAN DE CUENTAS: los cálculos siguen ca
 cuentas del encargo de referencia (``5BS.21203.*`` IESS por pagar, ``5BS.21204.*`` beneficios,
 ``5PYG``/``5D`` gastos). Un Mayor de otra empresa con otro plan de cuentas se LEERÁ bien, pero
 los importes no cuadrarán hasta mapear también su plan de cuentas (trabajo aparte)."""
+import os
 import re
 import unicodedata
 
@@ -190,12 +191,46 @@ def _cat_bs(c):
     return 'AJUSTES'
 
 
+# Plan de cuentas del encargo de referencia que ESPERAN los cálculos del motor. No es
+# configurable por cliente todavía: los generadores clavan estas cuentas (ver módulos mk_*).
+# Mientras no exista la calibración por cliente (Capa 2), si el Mayor cargado no trae estas
+# cuentas, la herramienta AVISA en vez de entregar cédulas en cero como si estuvieran bien.
+CUENTA_IESS_POR_PAGAR = "5BS.21203"
+CUENTA_BENEFICIOS_POR_PAGAR = "5BS.21204"
+
+
+def _tiene_cuenta(df, prefijo) -> bool:
+    return df is not None and not df.empty and df["cta"].astype(str).str.startswith(prefijo).any()
+
+
+def _plan_de_cuentas_coincide(iess, bs) -> bool:
+    """¿Los mayores de pasivo traen las cuentas que el motor espera? Es el discriminador más
+    fiable de que el Mayor es del encargo de referencia y no de otro cliente/plan de cuentas."""
+    return _tiene_cuenta(iess, CUENTA_IESS_POR_PAGAR) and _tiene_cuenta(bs, CUENTA_BENEFICIOS_POR_PAGAR)
+
+
 def cargar(rutas):
     """Carga los tres mayores y el anexo desde las rutas de la prueba y puebla los globales."""
     global G, I, B, ANEXO
+    _faltan = [n for n, p in (("gastos", rutas.lm_gasto), ("IESS por pagar", rutas.lm_iess),
+                              ("beneficios por pagar", rutas.lm_bs)) if not p or not os.path.exists(p)]
+    if _faltan:
+        raise ValueError(
+            "Falta el Mayor de " + ", ".join(_faltan) + " (RQ-004). Cargue los tres mayores y "
+            "asegúrese de que el nombre de cada archivo identifique cuál es "
+            "(que contenga «GASTO», «IESS» o «BENEFICIOS»).")
     G = _load(rutas.lm_gasto)
     I = _load(rutas.lm_iess)
     B = _load(rutas.lm_bs)
+    if not _plan_de_cuentas_coincide(I, B):
+        raise ValueError(
+            "Esta herramienta está calibrada para el plan de cuentas del encargo de referencia "
+            f"(IESS por pagar {CUENTA_IESS_POR_PAGAR}.*, beneficios por pagar "
+            f"{CUENTA_BENEFICIOS_POR_PAGAR}.*, gastos 5PYG/5D). El Mayor cargado no contiene esas "
+            "cuentas: parece de otro cliente o con otro plan de cuentas, por lo que los cálculos de "
+            "esta herramienta NO aplican y no se generan las cédulas (evita entregar cifras en cero "
+            "como si fueran correctas). Para usarla con este cliente hay que calibrar su plan de "
+            "cuentas (contacte a AuditConsulting).")
     G['concepto'] = G['desc'].str.replace('MQLA ', '', regex=False).map(lambda x: _norm.get(x, x))
     G['mqla'] = G['desc'].str.startswith('MQLA')
     B['concepto'] = B['Explicación -observación-'].astype(str).str.split('/').str[0].str.strip()

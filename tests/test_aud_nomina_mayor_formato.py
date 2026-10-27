@@ -96,3 +96,43 @@ def test_falta_columna_esencial_da_mensaje_claro():
     msg = str(e.value)
     assert "No reconozco las columnas del Mayor" in msg
     assert "ColumnaA" in msg  # lista lo que encontró para orientar al usuario
+
+
+def _rutas(tmp, gasto, iess, bs):
+    from backend.app.aud.niif.procesadores.nomina.rutas import Rutas
+    return Rutas(home=tmp, out=tmp, anexo="", rol="", consolidado="",
+                 lm_gasto=gasto, lm_iess=iess, lm_bs=bs)
+
+
+def _mayor(cuentas):
+    df = pd.DataFrame([["15/01/2025", c, "Mov", 10.0] for c in cuentas],
+                      columns=["Fecha", "Código", "Descripción", "Importe"])
+    return _xlsx(df)
+
+
+def test_salvaguarda_avisa_si_el_plan_de_cuentas_no_coincide():
+    """Capa 2 pendiente: con un Mayor de otro plan de cuentas, `cargar` AVISA claro en vez de
+    producir cédulas en cero (los cálculos están clavados a 5BS.21203/21204, 5PYG/5D)."""
+    tmp = tempfile.mkdtemp()
+    r = _rutas(tmp, _mayor(["1.1.01.001"]), _mayor(["2.1.03.001"]), _mayor(["2.1.04.001"]))
+    with pytest.raises(ValueError) as e:
+        MY.cargar(r)
+    assert "calibrada para el plan de cuentas" in str(e.value)
+
+
+def test_salvaguarda_no_molesta_al_plan_de_cuentas_de_referencia():
+    """El plan de cuentas de referencia (5BS.21203 IESS, 5BS.21204 beneficios) sí pasa la
+    salvaguarda (no debe disparar el aviso)."""
+    assert bool(MY._plan_de_cuentas_coincide(
+        MY._load(_mayor(["5BS.21203.001", "5BS.21203.002"])),
+        MY._load(_mayor(["5BS.21204.001", "5BS.21204.003"])),
+    ))
+
+
+def test_salvaguarda_avisa_si_falta_un_mayor():
+    """Si no se cargó/identificó uno de los tres mayores, el mensaje dice cuál falta."""
+    tmp = tempfile.mkdtemp()
+    r = _rutas(tmp, _mayor(["5PYG.01"]), "", _mayor(["5BS.21204.001"]))
+    with pytest.raises(ValueError) as e:
+        MY.cargar(r)
+    assert "Falta el Mayor de" in str(e.value) and "IESS por pagar" in str(e.value)
