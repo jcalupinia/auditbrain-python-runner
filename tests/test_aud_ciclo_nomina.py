@@ -700,6 +700,36 @@ def test_carga_desde_el_panel_sube_y_aparece_en_el_casillero(client):
     assert '"req": "RQ-002"' in html or '"req":"RQ-002"' in html
 
 
+def test_carga_por_subcasillero_en_rq_con_componente(client):
+    """Regresión: RQ-003/004/005 tienen sub-casilleros en el panel y mandan su etiqueta como
+    `componente` (p. ej. «Sierra / Amazonía»). Esos requerimientos NO declaran `components`, así
+    que `check_upload` los rechazaba con «no se entrega por componentes» y el panel no dejaba
+    cargar. En una herramienta bespoke el sub-casillero es solo organización (el motor clasifica
+    por contenido): debe aceptar la carga, guardar la etiqueta y agruparla en el panel."""
+    tok, pid = _staff_con_proyecto(client)
+    pr = _ficha_y_prueba_nomina(client, tok, pid)
+    prid = pr["id"]
+    aprob = _a_requerimiento_aprobado(client, tok, prid)
+    assert aprob["estado"] == "REQUERIMIENTO_APROBADO"
+    rev = aprob["revision"]
+    casos = [
+        ("RQ-003", "Sierra / Amazonía", "Consolidado_Sierra.xlsx"),
+        ("RQ-004", "Mayor de pasivos (5BS.212…)", "Mayor_Pasivos.xlsx"),
+        ("RQ-005", "Aportes", "Comprobantes_Aportes.pdf"),
+    ]
+    for rq, comp, nom in casos:
+        r = client.post(f"{BASE}/pruebas/{prid}/archivos", headers=_h(tok),
+                        data={"revision": str(rev), "requerimiento": rq, "componente": comp},
+                        files={"archivo": (nom, b"PK\x03\x04 contenido ficticio")})
+        assert r.status_code in (200, 201), f"{rq}·{comp}: {r.text}"
+        rev = client.get(f"{BASE}/pruebas/{prid}", headers=_h(tok)).json()["revision"]
+    # El panel lista cada archivo con su sub-casillero (componente) para agruparlo.
+    html = client.get(f"{BASE}/pruebas/{prid}/panel-nomina", headers=_h(tok)).text
+    for _, comp, nom in casos:
+        assert nom in html, f"falta {nom} en el panel"
+    assert "Sierra / Amazonía" in html
+
+
 def test_nomina_sin_flag_bespoke_congelado_igual_enruta_al_motor(client):
     """Regresión del «Número inválido» al cargar la nómina.
 
