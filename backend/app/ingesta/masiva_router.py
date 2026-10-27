@@ -15,6 +15,8 @@ from sqlalchemy import create_engine
 
 from backend.app.ingesta.ingesta_masiva import crear_tablas, consultar_filas, ingerir_archivo
 from backend.app.ingesta.mayor_secciones import transformar_mayor_secciones
+from backend.app.ingesta.mapeo.mayores_auto import proponer_mapeo
+from backend.app.ingesta.streaming_lotes import iterar_lotes
 
 router = APIRouter(prefix="/masiva", tags=["ingesta-masiva"])
 _CHUNK = 1024 * 1024
@@ -54,7 +56,8 @@ async def cargar(
     encargo_id: str = Form(...),
     periodo: str = Form(...),
     tipo_documento: str = Form(...),
-    mapeo_confirmado: str = Form(...),
+    mapeo_confirmado: str = Form(""),
+    positivo_es: str | None = Form(None),
     saltar_filas: int = Form(1),
     formato_mayor: str = Form("tabular"),
 ):
@@ -69,7 +72,7 @@ async def cargar(
         raise HTTPException(400, "Solo CSV o XLSX")
     if any(not x.strip() or len(x) > 128 for x in (cliente_id, encargo_id, periodo)):
         raise HTTPException(400, "Cliente, encargo y periodo son obligatorios")
-    mapeo = _mapeo(mapeo_confirmado)
+    mapeo = _mapeo(mapeo_confirmado) if mapeo_confirmado.strip() else None
     engine = _engine_aislado()
     ruta = None
     temporal_normalizado = None
@@ -91,6 +94,16 @@ async def cargar(
         ruta_proceso = ruta
         mapeo_proceso = mapeo
         salto_proceso = saltar_filas
+        if formato_mayor == "tabular" and tipo_documento == "mayor" and mapeo is None:
+            primero = next(iter(iterar_lotes(ruta, lote=1)), [])
+            if not primero:
+                raise HTTPException(422, "Archivo sin encabezados")
+            propuesta = proponer_mapeo(primero[0])
+            if propuesta["requiere_revision"]:
+                raise HTTPException(422, detail={"mensaje": "Confirmar mapeo y polaridad", "propuesta": propuesta})
+            mapeo_proceso, salto_proceso = propuesta["mapeo"], 1
+        elif formato_mayor == "tabular" and mapeo is None:
+            raise HTTPException(422, "Mapeo confirmado requerido")
         if formato_mayor == "secciones":
             with tempfile.NamedTemporaryFile(prefix="mayor_normalizado_", suffix=".csv", delete=False) as normalized:
                 temporal_normalizado = Path(normalized.name)
@@ -108,6 +121,7 @@ async def cargar(
                 engine, ruta_proceso, cliente_id=cliente_id, encargo_id=encargo_id,
                 periodo=periodo, tipo_documento=tipo_documento,
                 mapeo_confirmado=mapeo_proceso, saltar_filas=salto_proceso,
+                positivo_es=positivo_es,
             )
             if resumen is not None:
                 resultado["control_mayor"] = resumen
