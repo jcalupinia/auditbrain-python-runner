@@ -23,10 +23,12 @@ VERIFICACIÓN (regla de la casa): el mapeo se valida contra el propio anexo del 
 (saldo anterior ± movimientos = saldo al corte). El desglose fino que el cliente no tagea
 (p. ej. GOCES de vacaciones) queda para validación del socio, no se inventa.
 """
+import datetime
 import re
 import unicodedata
 
 import pandas as pd
+from openpyxl import Workbook
 
 
 def _n(s) -> str:
@@ -166,3 +168,66 @@ def adaptar(G, P):
     B = P2.copy()
     B["concepto"] = B["clase"]  # compat: algún paso leía B.concepto; la clase ya está fijada
     return G2, I, B, {"gasto": nr_g, "pasivo": nr_p}
+
+
+def _es_fecha(v):
+    return isinstance(v, (pd.Timestamp, datetime.date, datetime.datetime))
+
+
+def reescribir_anexo(anexo_path, destino) -> str:
+    """Reescribe el anexo (RQ-002) de un cliente al LAYOUT de referencia que esperan los ~10
+    lectores del motor, remapeando SOLO los códigos de pasivo (los de gasto ya empiezan por «5»
+    y se clasifican por el nombre). Layout de salida (1-based):
+      fila 1: título · fila 2: fechas (col C anterior, col F corte) · fila 3: encabezados ·
+      fila 4+: cuentas de pasivo (código de referencia 5BS.212xx), una fila en blanco, gastos.
+    Devuelve la ruta del archivo escrito. Las cuentas de pasivo cuyo nombre no se reconoce se
+    OMITEN (no se inventan); el motor avisará si falta algún saldo."""
+    df = pd.read_excel(anexo_path, header=None)
+    ncols = df.shape[1]
+    # fila de fechas: la primera (entre las 5 primeras) con una fecha en col C o F
+    d_ant = d_cor = None
+    for i in range(min(5, len(df))):
+        v2 = df.iloc[i, 2] if ncols > 2 else None
+        v5 = df.iloc[i, 5] if ncols > 5 else None
+        if _es_fecha(v2) or _es_fecha(v5):
+            d_ant, d_cor = v2, v5
+            break
+
+    pas, gas = [], []
+    for _, r in df.iterrows():
+        cod = str(r[0]).strip()
+        if not cod or not cod[0].isdigit() or cod.count(".") < 2:
+            continue  # no es fila de cuenta (título, total, fechas, en blanco)
+        nombre = str(r[1]).strip() if ncols > 1 else ""
+        s_ant = float(r[2]) if (ncols > 2 and isinstance(r[2], (int, float)) and pd.notna(r[2])) else 0.0
+        s_cor = float(r[5]) if (ncols > 5 and isinstance(r[5], (int, float)) and pd.notna(r[5])) else 0.0
+        # Pasivo vs gasto SE DECIDE POR EL CÓDIGO, no por el nombre: en el PUC de Ecuador el
+        # pasivo empieza por «2» y el gasto/resultado por «5/6/7». (Clave: un gasto como «Aporte
+        # patronal IESS» contiene «aporte» y, si se mapeara por nombre, se colaría como pasivo.)
+        if cod.startswith("2"):
+            ref = _match(nombre, _PASIVO)
+            if ref is not None:
+                pas.append((ref, nombre, s_ant, s_cor))     # pasivo de nómina → código de referencia
+            # un pasivo cuyo nombre no es de nómina se omite (no se inventa)
+        elif cod.startswith(("5", "6", "7")):
+            gas.append((cod, nombre, s_ant, s_cor))          # gasto/resultado: ya empieza por 5, se deja igual
+
+    wb = Workbook()
+    ws = wb.active
+    ws.cell(1, 1, "Anexo de nómina — saldos por cuenta")
+    if d_ant is not None:
+        ws.cell(2, 3, d_ant)
+    if d_cor is not None:
+        ws.cell(2, 6, d_cor)
+    for col, txt in ((1, "Código"), (2, "Descripción"), (3, "Saldo anterior"), (6, "Saldo corte")):
+        ws.cell(3, col, txt)
+    fila = 4
+    for cod, nom, sa, sc in pas:
+        ws.cell(fila, 1, cod); ws.cell(fila, 2, nom); ws.cell(fila, 3, sa); ws.cell(fila, 6, sc)
+        fila += 1
+    fila += 1  # fila en blanco que separa pasivo de gasto (el motor la preserva)
+    for cod, nom, sa, sc in gas:
+        ws.cell(fila, 1, cod); ws.cell(fila, 2, nom); ws.cell(fila, 3, sa); ws.cell(fila, 6, sc)
+        fila += 1
+    wb.save(destino)
+    return destino

@@ -94,3 +94,38 @@ def test_reporta_cuentas_no_reconocidas_sin_inventar():
     P, nr = PC.adaptar_pasivo(MY._load(_xlsx(pd.DataFrame(filas, columns=cols))))
     assert any(c == "2.9.9.9.9" for c, _ in nr)
     assert "2.9.9.9.9" in set(P["cta"])  # se deja tal cual, no se fuerza a un código del motor
+
+
+def test_reescribir_anexo_remapea_pasivo_y_distingue_del_gasto():
+    """El anexo reescrito lleva el pasivo a códigos 5BS.212xx (por nombre, SOLO cuentas que
+    empiezan por «2») y conserva los gastos (empiezan por «5»); el gasto «Aporte patronal IESS»
+    NO se confunde con el pasivo «Aportes por pagar» aunque ambos digan «aporte»."""
+    import datetime
+    from backend.app.aud.niif.procesadores.nomina.cedulas_nuevas import leer_anexo
+
+    # Layout del cliente: fila0 encabezados, fila1 fechas (col C/F), fila2+ cuentas (pasivo 2.x, gasto 5.x)
+    filas = [
+        ["Código", "Descripción", "Saldo", "Variación", "%", "Saldo"],
+        [None, None, datetime.datetime(2025, 12, 31), None, None, datetime.datetime(2026, 7, 31)],
+        ["2.1.7.1.1", "Aportes por Pagar", 100.0, None, None, 80.0],
+        ["2.1.7.6.1", "Décimo Tercer Sueldo por Pagar", 50.0, None, None, 70.0],
+        ["2.1.7.6.3", "Vacaciones por Pagar", 30.0, None, None, 40.0],
+        ["Total", None, 180.0, None, None, 190.0],
+        [None, None, None, None, None, None],
+        ["5.2.1.2.1.1", "Sueldos", 1000.0, None, None, 600.0],
+        ["5.2.1.2.1.2", "Aporte patronal IESS", 120.0, None, None, 70.0],
+    ]
+    cliente = os.path.join(tempfile.mkdtemp(), "anexo_cliente.xlsx")
+    pd.DataFrame(filas).to_excel(cliente, index=False, header=False)
+    destino = os.path.join(tempfile.mkdtemp(), "anexo_adaptado.xlsx")
+    PC.reescribir_anexo(cliente, destino)
+
+    pas, gas = leer_anexo(destino)
+    pas_cod = {c: (s24, s25) for c, _, s24, s25 in pas}
+    assert pas_cod["5BS.21203.001"] == (100.0, 80.0)   # Aportes por pagar (pasivo)
+    assert pas_cod["5BS.21204.001"] == (50.0, 70.0)    # Décimo tercero por pagar
+    assert pas_cod["5BS.21204.003"] == (30.0, 40.0)    # Vacaciones por pagar
+    # el gasto «Aporte patronal IESS» NO entró como pasivo (sigue siendo gasto, código 5.x)
+    assert "5BS.21203.001" in pas_cod and len(pas) == 3
+    gas_cod = {c for c, _, _, _ in gas}
+    assert "5.2.1.2.1.2" in gas_cod and "5.2.1.2.1.1" in gas_cod

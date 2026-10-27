@@ -239,19 +239,25 @@ def cargar(rutas):
                 "(IESS por pagar / beneficios por pagar). Revise que el mayor traiga la columna "
                 "con el NOMBRE de cada cuenta (Aportes por pagar, Décimo tercero por pagar, "
                 "Vacaciones por pagar, etc.).")
-        # CALIBRACIÓN EN PROGRESO (Etapa 2 pendiente): los mayores de este cliente ya se leen,
-        # mapean y concilian, pero el anexo (RQ-002) viene en el plan de cuentas del cliente y el
-        # motor lo lee por los de referencia, así que las cédulas que usan el anexo aún no saldrían
-        # correctas. Hasta completar y validar esa adaptación, se DETIENE con un aviso claro en vez
-        # de generar cédulas con cifras incompletas (regla: no entregar números a medias como si
-        # estuvieran bien). El encargo de referencia sigue funcionando normalmente.
+        # Adapta el anexo (RQ-002) al layout/códigos de referencia que esperan los ~10 lectores
+        # del motor (remapea solo los códigos de pasivo; los de gasto ya empiezan por «5»). Se
+        # apunta rutas.anexo (== CTX.anexo) al archivo reescrito para que todas las cédulas lo lean.
+        if rutas.anexo and os.path.exists(rutas.anexo):
+            rutas.anexo = perfil_cuentas.reescribir_anexo(
+                rutas.anexo, os.path.join(rutas.home, "anexo_adaptado.xlsx"))
+        # CALIBRACIÓN EN VALIDACIÓN: los mayores y el anexo de este cliente ya se adaptan al plan
+        # del motor y CONCILIAN (verificado contra su propio anexo). Falta correr y VERIFICAR las
+        # 15 cédulas con los documentos reales del cliente (Consolidado IESS RQ-003, Rol RQ-006 y
+        # comprobantes RQ-005 — el motor no arranca sin el Consolidado) y la validación del socio
+        # (NIA/M23), incluido el desglose que la contabilidad del cliente no separa (p. ej. GOCES
+        # de vacaciones). Hasta ese visto bueno se DETIENE con un aviso claro, para no emitir
+        # cédulas sin verificar. El encargo de referencia sigue funcionando normalmente.
         raise ValueError(
-            "La calibración de este cliente (plan de cuentas distinto al del encargo de "
-            "referencia) está EN PROGRESO. Sus mayores ya se leen y concilian con el anexo, pero "
-            "falta adaptar el anexo (RQ-002) y la validación del socio, por lo que la herramienta "
-            "todavía NO genera las cédulas para este cliente (para no entregar cifras incompletas). "
-            "La herramienta sigue disponible para el encargo de referencia. Contacte a "
-            "AuditConsulting para completar la calibración de este cliente.")
+            "Cliente con plan de cuentas distinto: sus MAYORES y ANEXO ya se adaptan y CONCILIAN "
+            "con el motor (parte técnica lista). Falta la validación final del socio con los "
+            "documentos reales del cliente (Consolidado IESS, Rol y comprobantes) antes de emitir "
+            "las cédulas, por lo que la herramienta todavía no las genera para este cliente. "
+            "Contacte a AuditConsulting para cerrar la validación.")
     else:
         # --- Plan de referencia: tres mayores -----------------------------------------
         _faltan = [n for n, p in (("gastos", rutas.lm_gasto), ("IESS por pagar", rutas.lm_iess),
