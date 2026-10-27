@@ -14,7 +14,10 @@ concurrency:
 jobs:
   playwright:
     name: Playwright (chromium · 59 tests)
-    runs-on: ubuntu-latest
+    # Fijado a 24.04: el runner `ubuntu-latest` pasó a Ubuntu 26.04 y Playwright 1.56.1 no soporta
+    # instalar Chromium ahí (`npx playwright install --with-deps chromium` falla en ubuntu26.04-x64).
+    # 24.04 (Noble) sí está soportado. Revertir a `ubuntu-latest` cuando Playwright soporte 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
