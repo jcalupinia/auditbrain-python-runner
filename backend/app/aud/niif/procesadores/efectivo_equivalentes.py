@@ -44,13 +44,21 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (a_num y fil
 VERSION = "efectivo_equivalentes 1.0"
 RUBRO = "CAJA_BANCOS"
 
-# Requerimientos obligatorios SOLO en la visita final del encargo. Los estados y
-# conciliaciones bancarias POSTERIORES al corte (RQ-004, ventana de depuración)
-# recién existen después de la fecha de corte: en la visita preliminar aún no se
-# dispone de ellos, así que no deben bloquear el proceso; en la visita final sí son
-# obligatorios. El overlay `servicio._politica_catalogo_viva` lo resuelve según la
-# visita de la ficha (`reg["engagement"]["visit"]`).
-REQUERIDOS_SOLO_FINAL = ("RQ-004",)
+# Requerimientos obligatorios SOLO en la visita final del encargo. El overlay
+# `servicio._politica_catalogo_viva` vuelve obligatorio en la visita «Final»
+# cualquier id que esté aquí. Se mantiene el mecanismo por si alguna herramienta lo
+# necesita, pero para efectivo queda VACÍO (decisión del dueño, 2026-10-27):
+#
+# Los estados y conciliaciones bancarias POSTERIORES al corte (RQ-004, ventana de
+# depuración) pueden no estar disponibles al momento de ejecutar la prueba —incluso
+# en la visita final el banco puede no haber emitido aún el estado del período
+# siguiente—. Su ausencia NO debe impedir «Procesar»: se trata como limitación de
+# alcance / hallazgo documentado (NIA 560/500), no como bloqueo. Por eso RQ-004 es
+# SIEMPRE opcional (`required=False` en su `req("RQ-004", …)`, como los demás
+# soportes RQ-003/005/006/007/008) y jamás entra en los huecos obligatorios. La
+# limitación queda en el papel de trabajo por la marca de partidas conciliatorias
+# «Sin liquidación posterior» que el propio motor calcula (CASH-04/05).
+REQUERIDOS_SOLO_FINAL = ()
 
 DT, CP, NC, ND, OT = "Depósito en tránsito", "Cheque pendiente", "Nota de crédito", "Nota de débito", "Otra partida"
 BANCO, CAJA, INV = "Banco", "Caja", "Inversión"
@@ -1363,7 +1371,7 @@ def definicion() -> dict:
             req("RQ-003", "Conciliaciones y estados bancarios del mes de corte", None, "CAJ-02", "Soporte de saldos y partidas",
                 formats=_FORM_SOPORTE, use="soporte", required=False),
             req("RQ-004", "Estados bancarios posteriores al corte (ventana de depuración)", None, "CAJ-03", "Liquidación posterior de las partidas",
-                formats=_FORM_SOPORTE, use="soporte"),
+                formats=_FORM_SOPORTE, use="soporte", required=False),
             req("RQ-005", "Respuestas de confirmación bancaria recibidas por el auditor", None, "CAJ-04", "Evidencia externa de saldos y restricciones",
                 formats=_FORM_SOPORTE_PDF, use="soporte", required=False),
             req("RQ-006", "Contratos de garantía, pignoración, embargos o fideicomisos", None, "CAJ-06", "Sustento del efectivo restringido",
