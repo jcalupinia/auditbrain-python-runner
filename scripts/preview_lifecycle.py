@@ -279,6 +279,15 @@ class Politica:
     disco_min_gib: float = 3.0
     frescura_max_s: int = 180
     retry_after_s: int = 900
+    # Verificación posterior al despliegue (F2, incidente del preview #392): el backend tiene
+    # `start_period: 60s` en el healthcheck del Compose, así que un sondeo único e inmediato tras
+    # «finished» casi siempre ve el backend aún arrancando (HTTP 0 / 503) y marca el preview «en espera»,
+    # lo que dispara un redespliegue en el ciclo siguiente -> bucle. Estas cotas (todas configurables por
+    # PREVIEW_*) reintentan el health check con backoff acotado, respetando ese arranque, sin bucle infinito.
+    verificacion_intentos: int = 8          # número máximo de sondeos del health check
+    verificacion_espera_inicial_s: int = 10 # primera espera entre sondeos
+    verificacion_espera_max_s: int = 30     # techo de la espera entre sondeos (backoff progresivo)
+    verificacion_tiempo_max_s: int = 180    # tiempo total máximo de verificación (> start_period 60s + margen)
 
     @classmethod
     def desde_entorno(cls) -> "Politica":
@@ -453,6 +462,37 @@ def verificar_preview(n: int, sha: str, dominio_base: str, fetch=_req) -> list[s
     return problemas
 
 
+def verificar_con_reintentos(n: int, sha: str, dominio_base: str, politica: Politica,
+                             fetch=_req, sleep=time.sleep) -> tuple[list[str], int, int]:
+    """Verifica el preview reintentando mientras el backend arranca (respeta su `start_period`).
+
+    Distingue «despliegue finalizado» de «aplicación sana»: tras un despliegue terminado el backend
+    puede tardar hasta ~60 s en responder 200. Reintenta con backoff acotado (espera inicial que se
+    duplica hasta un techo) y se detiene en cuanto el preview sirve el commit, al agotar los intentos
+    o al superar el tiempo total. Nunca es un bucle infinito. Registra evidencia de cada intento.
+
+    Devuelve (problemas, intentos, segundos); problemas == [] significa que el preview está sano.
+    """
+    inicio = time.monotonic()
+    espera = max(1, politica.verificacion_espera_inicial_s)
+    intento = 0
+    problemas: list[str] = ["sin verificación"]
+    while True:
+        intento += 1
+        problemas = verificar_preview(n, sha, dominio_base, fetch)
+        transcurrido = int(time.monotonic() - inicio)
+        if not problemas:
+            log(f"verificación PR {n}: sana en el intento {intento} (~{transcurrido} s)")
+            return [], intento, transcurrido
+        agotado = intento >= politica.verificacion_intentos or transcurrido >= politica.verificacion_tiempo_max_s
+        log(f"verificación PR {n}: intento {intento} sin éxito ({'; '.join(problemas)})"
+            + ("; se agota la verificación" if agotado else f"; reintento en {espera} s"))
+        if agotado:
+            return problemas, intento, transcurrido
+        sleep(espera)
+        espera = min(espera * 2, politica.verificacion_espera_max_s)
+
+
 # ------------------------------------------------------------------ orquestación
 @dataclasses.dataclass
 class Contexto:
@@ -538,6 +578,19 @@ def sincronizar(ctx: Contexto, n: int, sha_esperado: str | None = None) -> int:
     if decision.decision != "ADMIT":
         return _resultado(ctx, n, ETIQUETA_ESPERA, f"en espera: capacidad ({decision.reason_code})",
                           f"{decision.detalle}. Reintento automático en ~{(decision.retry_after or 0)//60} min. No se detiene ningún otro preview para hacer sitio.", decision)
+    # Anti-bucle de redespliegue (incidente del preview del PR #392): si el preview del PR ya existe,
+    # está EN EJECUCIÓN y YA sirve exactamente este commit en los tres servicios, NO se redespliega. Un
+    # redespliegue derriba un contenedor sano y arranca otro ciclo de ~60 s en el que la verificación
+    # inmediata falla y vuelve a encolar el PR -> bucle. Se comprueba una sola vez (sondeo barato); si el
+    # preview no está sano todavía, se continúa con el despliegue normal.
+    if propio is not None and str(propio.get("status", "")).lower().startswith(("running", "degraded", "restarting")):
+        if not verificar_preview(n, sha, ctx.dominio_base, ctx.fetch):
+            u = urls_preview(n, ctx.dominio_base)
+            cuerpo = (f"El preview ya servía el commit `{sha}` en los tres servicios; no se redesplegó para no "
+                      f"derribar un contenedor sano.\n\n- Consola: {u['consola']}\n- Portal de clientes: {u['clientes']}\n"
+                      f"- API: {u['api']}/api/v1/health")
+            log(f"PR {n}: preview ya sano con {sha[:12]}; se omite el redespliegue")
+            return _resultado(ctx, n, ETIQUETA_ACTIVO, "ya estaba listo (sin redesplegar)", cuerpo, decision)
     if propio is None:
         ctx.co.asegurar_preview(n, pr.get("html_url", ""))
     dep = ctx.co.desplegar(n)
@@ -551,12 +604,13 @@ def sincronizar(ctx: Contexto, n: int, sha_esperado: str | None = None) -> int:
     if final != "finished":
         return _resultado(ctx, n, ETIQUETA_ESPERA, f"despliegue terminó en «{final}»",
                           f"Coolify no completó el despliegue del commit `{sha[:12]}` (estado {final}). Revisa el registro del despliegue en Coolify; se reintenta con el siguiente push o en el próximo ciclo.", decision)
-    problemas = verificar_preview(n, sha, ctx.dominio_base, ctx.fetch)
+    problemas, intentos, segundos = verificar_con_reintentos(n, sha, ctx.dominio_base, ctx.politica, ctx.fetch, ctx.sleep)
     u = urls_preview(n, ctx.dominio_base)
     if problemas:
         return _resultado(ctx, n, ETIQUETA_ESPERA, "desplegado pero la verificación falló",
-                          "El preview no sirve el commit esperado en los tres servicios: " + "; ".join(problemas), decision)
-    cuerpo = (f"Commit `{sha}` · imágenes `sha-{sha[:12]}…` (GHCR privado) · verificado: `build.commit` = head en API, consola y portal.\n\n"
+                          f"El preview no sirve el commit esperado en los tres servicios tras {intentos} intento(s) (~{segundos} s): "
+                          + "; ".join(problemas), decision)
+    cuerpo = (f"Commit `{sha}` · imágenes `sha-{sha[:12]}…` (GHCR privado) · verificado tras {intentos} intento(s) (~{segundos} s): `build.commit` = head en API, consola y portal.\n\n"
               f"- Consola: {u['consola']}\n- Portal de clientes: {u['clientes']}\n- API: {u['api']}/api/v1/health\n\n"
               f"Base de datos y secretos exclusivos de este PR. Cada push actualiza solo este preview; al cerrar o fusionar el PR se elimina.")
     return _resultado(ctx, n, ETIQUETA_ACTIVO, "listo", cuerpo, decision)
