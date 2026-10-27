@@ -460,8 +460,13 @@ def _definicion_viva(p: Prueba) -> dict:
     out = dict(d)
     if viva.get("requests"):
         out["requests"] = list(viva["requests"])
-    if viva.get("principal"):
-        out["principal"] = viva["principal"]
+    # El `principal` sale de la ficha VIVA o, si la herramienta solo lo declara como constante
+    # del motor (`PRINCIPAL`) sin ponerlo en `definicion()`, de ahí: así TODAS las herramientas
+    # exponen su anexo principal al frontend (mensaje real de «falta el anexo» y guard de «Procesar»),
+    # no solo las que lo escriben a mano en `definicion()`.
+    principal = viva.get("principal") or getattr(mod, "PRINCIPAL", None)
+    if principal:
+        out["principal"] = principal
     return out
 
 

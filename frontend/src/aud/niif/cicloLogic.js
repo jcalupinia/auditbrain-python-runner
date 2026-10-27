@@ -134,6 +134,15 @@ export function detalleRequerimiento(r) {
   ].filter(Boolean);
 }
 
+// Mensaje de «falta el anexo principal» tomado de la FICHA de la herramienta: nombra el
+// requerimiento real cuyo anexo de cálculo es el principal (`d.principal`), en vez de un texto
+// fijo de una herramienta concreta (planificación/cartera) que contaminaba a todas. Cae a un
+// texto neutro si la ficha aún no declara principal. Lo usan las dos rutas de «Procesar».
+export function mensajeFaltaPrincipal(d, requests = []) {
+  const doc = (requests.find((r) => r.dataset && r.dataset === (d || {}).principal) || {}).document;
+  return doc ? `Sube «${doc}» antes de procesar.` : "Sube el anexo principal de la prueba antes de procesar.";
+}
+
 // E8 · Objeto «herramienta» que esperan buildWorkbook/buildHtml del sitio,
 // armado con lo que guardó el servidor: el registro de la prueba tiene la
 // misma forma que el del sitio; aquí solo se le agregan definición, estado,
