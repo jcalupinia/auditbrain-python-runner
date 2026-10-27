@@ -239,6 +239,19 @@ def cargar(rutas):
                 "(IESS por pagar / beneficios por pagar). Revise que el mayor traiga la columna "
                 "con el NOMBRE de cada cuenta (Aportes por pagar, Décimo tercero por pagar, "
                 "Vacaciones por pagar, etc.).")
+        # CALIBRACIÓN EN PROGRESO (Etapa 2 pendiente): los mayores de este cliente ya se leen,
+        # mapean y concilian, pero el anexo (RQ-002) viene en el plan de cuentas del cliente y el
+        # motor lo lee por los de referencia, así que las cédulas que usan el anexo aún no saldrían
+        # correctas. Hasta completar y validar esa adaptación, se DETIENE con un aviso claro en vez
+        # de generar cédulas con cifras incompletas (regla: no entregar números a medias como si
+        # estuvieran bien). El encargo de referencia sigue funcionando normalmente.
+        raise ValueError(
+            "La calibración de este cliente (plan de cuentas distinto al del encargo de "
+            "referencia) está EN PROGRESO. Sus mayores ya se leen y concilian con el anexo, pero "
+            "falta adaptar el anexo (RQ-002) y la validación del socio, por lo que la herramienta "
+            "todavía NO genera las cédulas para este cliente (para no entregar cifras incompletas). "
+            "La herramienta sigue disponible para el encargo de referencia. Contacte a "
+            "AuditConsulting para completar la calibración de este cliente.")
     else:
         # --- Plan de referencia: tres mayores -----------------------------------------
         _faltan = [n for n, p in (("gastos", rutas.lm_gasto), ("IESS por pagar", rutas.lm_iess),
