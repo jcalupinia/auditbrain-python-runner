@@ -165,6 +165,10 @@ def resolver(archivos: list[dict], ficha: dict, home: str, out: str) -> Rutas:
                 r.lm_iess = ruta
             elif "BENEFICIO" in nom or "_BS" in nom or "BENEF" in nom:
                 r.lm_bs = ruta
+            elif "PASIVO" in nom:
+                # Otros clientes traen el pasivo en UN solo mayor combinado (IESS + beneficios):
+                # se adapta al plan del motor en perfil_cuentas.
+                r.lm_pasivo = ruta
         elif rq == "RQ-005":
             os.makedirs(comp_dir, exist_ok=True)
             if ruta.lower().endswith(".zip"):

@@ -19,8 +19,10 @@ class Rutas:
     consolidado: str   # RQ-003 Consolidado IESS .xlsx (ya convertido de .xls)
     exclusiones: str = ""   # RQ-003 Exclusiones (opcional)
     lm_gasto: str = ""      # RQ-004 Mayor de gastos
-    lm_iess: str = ""       # RQ-004 Mayor IESS por pagar (5BS.21203)
-    lm_bs: str = ""         # RQ-004 Mayor beneficios por pagar (5BS.21204)
+    lm_iess: str = ""       # RQ-004 Mayor IESS por pagar (5BS.21203) — plan de referencia
+    lm_bs: str = ""         # RQ-004 Mayor beneficios por pagar (5BS.21204) — plan de referencia
+    lm_pasivo: str = ""     # RQ-004 Mayor de pasivo COMBINADO (otros clientes: un solo archivo);
+                            #        se adapta al plan del motor en perfil_cuentas
     comprobantes_dir: str = ""  # RQ-005 carpeta con los PDF
     papel: str = ""         # papel del equipo (transitorio; se elimina en la ola B)
     logo: str = ""          # logo de la firma del encargo (marca.py)

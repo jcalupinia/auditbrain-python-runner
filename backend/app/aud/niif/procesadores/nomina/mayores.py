@@ -99,7 +99,8 @@ def _num(s: pd.Series) -> pd.Series:
     t = s.astype(str).str.strip().str.replace(r"[^\d,.\-]", "", regex=True)
     # si tiene ambos separadores, el decimal es el último que aparece
     def _conv(v):
-        if not v:
+        v = str(v).strip()
+        if v in ("", "nan", "NaN", "None", "-"):
             return 0.0
         ult = max(v.rfind("."), v.rfind(","))
         if "." in v and "," in v:
@@ -209,33 +210,60 @@ def _plan_de_cuentas_coincide(iess, bs) -> bool:
     return _tiene_cuenta(iess, CUENTA_IESS_POR_PAGAR) and _tiene_cuenta(bs, CUENTA_BENEFICIOS_POR_PAGAR)
 
 
+# Cuentas no reconocidas por el adaptador en el último `cargar` (para el reporte al auditor).
+CUENTAS_NO_RECONOCIDAS: dict = {}
+
+
 def cargar(rutas):
-    """Carga los tres mayores y el anexo desde las rutas de la prueba y puebla los globales."""
-    global G, I, B, ANEXO
-    _faltan = [n for n, p in (("gastos", rutas.lm_gasto), ("IESS por pagar", rutas.lm_iess),
-                              ("beneficios por pagar", rutas.lm_bs)) if not p or not os.path.exists(p)]
-    if _faltan:
-        raise ValueError(
-            "Falta el Mayor de " + ", ".join(_faltan) + " (RQ-004). Cargue los tres mayores y "
-            "asegúrese de que el nombre de cada archivo identifique cuál es "
-            "(que contenga «GASTO», «IESS» o «BENEFICIOS»).")
-    G = _load(rutas.lm_gasto)
-    I = _load(rutas.lm_iess)
-    B = _load(rutas.lm_bs)
-    if not _plan_de_cuentas_coincide(I, B):
-        raise ValueError(
-            "Esta herramienta está calibrada para el plan de cuentas del encargo de referencia "
-            f"(IESS por pagar {CUENTA_IESS_POR_PAGAR}.*, beneficios por pagar "
-            f"{CUENTA_BENEFICIOS_POR_PAGAR}.*, gastos 5PYG/5D). El Mayor cargado no contiene esas "
-            "cuentas: parece de otro cliente o con otro plan de cuentas, por lo que los cálculos de "
-            "esta herramienta NO aplican y no se generan las cédulas (evita entregar cifras en cero "
-            "como si fueran correctas). Para usarla con este cliente hay que calibrar su plan de "
-            "cuentas (contacte a AuditConsulting).")
-    G['concepto'] = G['desc'].str.replace('MQLA ', '', regex=False).map(lambda x: _norm.get(x, x))
-    G['mqla'] = G['desc'].str.startswith('MQLA')
-    B['concepto'] = B['Explicación -observación-'].astype(str).str.split('/').str[0].str.strip()
-    B['clase'] = B.concepto.map(_cat_bs)
-    I['clase'] = I['REF'].astype(str).str.strip().str.upper()
+    """Carga los tres mayores y el anexo desde las rutas de la prueba y puebla los globales.
+
+    Dos caminos:
+    - Plan de REFERENCIA: tres mayores (gasto, IESS, beneficios) ya en 5BS.*/5PYG.
+    - OTRO CLIENTE: mayor de gasto + UN mayor de pasivo combinado (`lm_pasivo`); se adapta al
+      plan del motor con ``perfil_cuentas`` (clasificando por nombre de cuenta)."""
+    global G, I, B, ANEXO, CUENTAS_NO_RECONOCIDAS
+    from backend.app.aud.niif.procesadores.nomina import perfil_cuentas
+    CUENTAS_NO_RECONOCIDAS = {}
+
+    if rutas.lm_pasivo and os.path.exists(rutas.lm_pasivo):
+        # --- Cliente con pasivo combinado: adaptar al plan del motor -------------------
+        if not rutas.lm_gasto or not os.path.exists(rutas.lm_gasto):
+            raise ValueError("Falta el Mayor de gastos (RQ-004). Cargue el mayor de gastos junto "
+                             "con el mayor de pasivo.")
+        G = _load(rutas.lm_gasto)
+        P = _load(rutas.lm_pasivo)
+        G, I, B, CUENTAS_NO_RECONOCIDAS = perfil_cuentas.adaptar(G, P)
+        if not _plan_de_cuentas_coincide(I, B):
+            raise ValueError(
+                "No pude mapear el plan de cuentas del Mayor de pasivo a las cuentas del motor "
+                "(IESS por pagar / beneficios por pagar). Revise que el mayor traiga la columna "
+                "con el NOMBRE de cada cuenta (Aportes por pagar, Décimo tercero por pagar, "
+                "Vacaciones por pagar, etc.).")
+    else:
+        # --- Plan de referencia: tres mayores -----------------------------------------
+        _faltan = [n for n, p in (("gastos", rutas.lm_gasto), ("IESS por pagar", rutas.lm_iess),
+                                  ("beneficios por pagar", rutas.lm_bs)) if not p or not os.path.exists(p)]
+        if _faltan:
+            raise ValueError(
+                "Falta el Mayor de " + ", ".join(_faltan) + " (RQ-004). Cargue los mayores y "
+                "asegúrese de que el nombre de cada archivo identifique cuál es "
+                "(que contenga «GASTO», «IESS», «BENEFICIOS» o «PASIVO» para el pasivo combinado).")
+        G = _load(rutas.lm_gasto)
+        I = _load(rutas.lm_iess)
+        B = _load(rutas.lm_bs)
+        if not _plan_de_cuentas_coincide(I, B):
+            raise ValueError(
+                "Esta herramienta está calibrada para el plan de cuentas del encargo de referencia "
+                f"(IESS por pagar {CUENTA_IESS_POR_PAGAR}.*, beneficios por pagar "
+                f"{CUENTA_BENEFICIOS_POR_PAGAR}.*, gastos 5PYG/5D). El Mayor cargado no contiene esas "
+                "cuentas: si es otro cliente con el pasivo en un solo mayor, nombre ese archivo con "
+                "«PASIVO» para que se adapte automáticamente; si no, hay que calibrar su plan de "
+                "cuentas (contacte a AuditConsulting).")
+        G['concepto'] = G['desc'].str.replace('MQLA ', '', regex=False).map(lambda x: _norm.get(x, x))
+        G['mqla'] = G['desc'].str.startswith('MQLA')
+        B['concepto'] = B['Explicación -observación-'].astype(str).str.split('/').str[0].str.strip()
+        B['clase'] = B.concepto.map(_cat_bs)
+        I['clase'] = I['REF'].astype(str).str.strip().str.upper()
     ANEXO = {}
     for r in pd.read_excel(rutas.anexo, header=None).iloc[3:].itertuples(index=False):
         if isinstance(r[0], str) and r[0][:1] == '5':
