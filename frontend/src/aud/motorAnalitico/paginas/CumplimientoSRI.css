@@ -39,6 +39,17 @@
   background: var(--ma-accent); color: #062014; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
 }
 .ma-sri-boton-ejecutar:disabled { opacity: 0.5; cursor: default; background: var(--ma-line); color: var(--ma-soft); }
+/* Botón de arranque ya terminado: pasa a secundario, conserva su sitio. */
+.ma-sri-boton-secundario { margin-left: auto; height: 38px; }
+/* Entrega de archivos: el botón primario de la pantalla una vez termina el robot. */
+.ma-sri-zip { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+.ma-sri-boton-zip {
+  height: 46px; padding: 0 22px; border-radius: 12px; border: 0;
+  background: var(--ma-accent); color: #062014; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+}
+.ma-sri-boton-zip:hover { filter: brightness(1.1); }
+.ma-sri-boton-zip:disabled { opacity: 0.5; cursor: default; }
+.ma-sri-zip-contenido { color: var(--ma-dim); font-size: 0.9rem; }
 
 .ma-sri-cruces { grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
 .ma-sri-tarjeta-cruce {
@@ -165,3 +176,13 @@
 .ma-sri-detalle { margin-top: 6px; }
 .ma-sri-detalle summary { cursor: pointer; color: var(--ma-dim); font-size: 0.82rem; }
 .ma-sri-detalle pre { margin: 6px 0 0; font-family: var(--ma-mono); font-size: 0.75rem; max-height: 200px; overflow: auto; }
+
+/* Tarjetas de resultado de los cruces (mismo patrón que el escritorio). */
+.ma-sri-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 8px 0; }
+.ma-sri-stat { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--ma-line); background: var(--ma-bg-2, transparent); }
+.ma-sri-stat-label { font-size: 0.78rem; color: var(--ma-dim); }
+.ma-sri-stat-value { font-size: 1.35rem; font-weight: 700; color: var(--ma-text); }
+.ma-sri-stat.is-ok { border-color: var(--ma-accent); }
+.ma-sri-stat.is-ok .ma-sri-stat-value { color: var(--ma-accent); }
+.ma-sri-stat.is-warn { border-color: var(--ma-p2, #d97706); background: var(--ma-p2-bg, rgba(217, 119, 6, 0.1)); }
+.ma-sri-stat.is-warn .ma-sri-stat-value { color: var(--ma-p2, #d97706); }
