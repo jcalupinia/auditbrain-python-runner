@@ -39,7 +39,10 @@ from backend.app.aud.niif.procesadores.base import (  # noqa: F401  (filas_mapea
 )
 
 VERSION = "pce-cohortes 1.0"
-RUBRO = "CXC"
+# Rubro PROPIO (no "CXC"): comparte el ciclo de cuentas por cobrar con `cxc_cartera`, pero cada
+# motor tiene su tarjeta (un rubro = un motor). Antes ambos eran "CXC" y caían en la misma tarjeta
+# del catálogo. `cxc_cartera` conserva "CXC"; este motor (PCE · NIIF 9) va en "CXC_ECL".
+RUBRO = "CXC_ECL"
 
 # --- bandas y segmentos ------------------------------------------------------
 # Nombres y límites idénticos al artefacto de referencia (autoridad numérica).
@@ -969,7 +972,7 @@ def definicion() -> dict:
                "a nivel de documento, nunca consolidado por cliente; sin filas de total.")
     return {
         "name": "Pérdida crediticia esperada (NIIF 9)",
-        "area": "Cuentas por cobrar",
+        "area": "Deterioro de cartera (NIIF 9)",
         "processor": "pce_cohortes_niif9",
         "principal": PRINCIPAL,   # anexo de cartera del ejercicio corriente (guard de «Procesar» en el frontend)
         "frameworks": ["NIIF completas"],
