@@ -60,7 +60,23 @@ jobs:
       pr: ${{ steps.puerta.outputs.pr }}
       matriz: ${{ steps.puerta.outputs.matriz }}
     steps:
+      # Un PR draft nunca publica: comprobarlo antes de exigir credenciales.
+      # El guard de publicación sigue validando token, propietario y permisos
+      # para todo evento que realmente pueda publicar imágenes.
+      - name: Detectar PR en borrador sin usar secretos
+        id: borrador
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$PR_DRAFT" = "true" ]; then
+            echo "omitir=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::PR en borrador: no se publican imágenes ni se requieren credenciales GHCR"
+          else
+            echo "omitir=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Credencial de publicación dedicada (existe, es del propietario y tiene write:packages)
+        if: steps.borrador.outputs.omitir != 'true'
         env:
           GHCR_PUBLISH_TOKEN: ${{ secrets.GHCR_PUBLISH_TOKEN }}
         run: |
@@ -78,6 +94,7 @@ jobs:
           [ -z "$extra" ] || echo "::warning::la credencial tiene alcances adicionales a los mínimos: $extra (recomendado: solo write:packages)"
 
       - name: Puerta del evento (PR del repositorio, autor autorizado, SHA exacto)
+        if: steps.borrador.outputs.omitir != 'true'
         id: puerta
         env:
           GH_TOKEN: ${{ github.token }}

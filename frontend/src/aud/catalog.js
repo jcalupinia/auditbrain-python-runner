@@ -126,6 +126,7 @@ export const CATEGORIES = [
   { id: "CAJA_BANCOS", label: "Caja y bancos", type: "ciclo" },
   { id: "INVERSIONES", label: "Inversiones", type: "ciclo" },
   { id: "CXC", label: "Cuentas por cobrar", type: "ciclo" },
+  { id: "CXC_ECL", label: "Deterioro de cartera · PCE (NIIF 9)", type: "ciclo" },
   { id: "INVENTARIOS", label: "Inventarios", type: "ciclo", tools: [{ id: "AUD.INVENTARIOS.VNR", label: "Valor neto de realización", description: "NIIF completas o PYMES · evidencia, cálculo, ajustes, reversos y diferidos · Excel auditable y HTML.", pruebas: ["Inventario valorado", "Precios de venta", "Costos necesarios para vender", "Cálculo del VNR", "Conciliación con el mayor", "Ajustes y reversiones", "Impuesto diferido"] }] },
   { id: "ACTIVOS_FIJOS", label: "Propiedad, planta y equipo", type: "ciclo" },
   { id: "ARRENDAMIENTOS", label: "Arrendamientos", type: "ciclo" },

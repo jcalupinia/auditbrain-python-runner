@@ -105,7 +105,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Solo PR del propio repositorio (los forks no reciben el secreto). Lecturas únicamente: canje de token y HEAD.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Un PR draft no puede publicar imágenes: reservar la comprobación GHCR real
+    # para PR listos, sin desactivar el control de lectura cuando sí corresponde.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

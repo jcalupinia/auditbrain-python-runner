@@ -18,6 +18,7 @@ import {
   mapeoConManual,
   marcoAplicable,
   mejorEncabezado,
+  mensajeFaltaPrincipal,
   niasDe,
   nombreEstado,
   pasoPreparar,
@@ -804,7 +805,7 @@ export function VistaTrabajo({ prueba, onAccion, onRecargar, ocupado }) {
       }
       if (pendientes.length) { setPendientesMapeo(pendientes); return PENDIENTE_MAPEO; }
       const corriente = (d.principal && datasets[d.principal]) || datasets.a3 || datasets.actual;
-      if (!corriente) throw new Error("Suba el anexo de cartera del ejercicio corriente antes de procesar.");
+      if (!corriente) throw new Error(mensajeFaltaPrincipal(d, p.registro.requests || []));
       return paso("map_validate", { datasets });
     }
     const [poblacion, flujos] = (p.modelos || []);

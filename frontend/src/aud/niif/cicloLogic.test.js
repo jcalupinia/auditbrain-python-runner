@@ -6,6 +6,7 @@ import {
   alternarProcedimiento,
   estadoTributario,
   etapaDe,
+  mensajeFaltaPrincipal,
   nombreEstado,
   procedimientosSinFuente,
   textoTributarioInicial,
@@ -424,5 +425,31 @@ describe("subida de varios archivos a la vez (un cliente con varios bancos)", ()
     const subir = async () => ({}); // backend viejo sin revisión en la respuesta
     const { revision } = await subirArchivosEnCadena([{ name: "a.pdf" }], 5, subir);
     expect(revision).toBe(5);
+  });
+});
+
+describe("mensaje de «falta el anexo principal» (aislamiento entre herramientas)", () => {
+  // Efectivo: el mensaje nombra SU anexo, no el de planificación ni el de cartera.
+  const reqsEfectivo = [
+    { id: "RQ-001", dataset: "cuentas", document: "Anexo de cuentas de caja, bancos e inversiones al corte" },
+    { id: "RQ-002", dataset: "partidas", document: "Partidas conciliatorias de cada cuenta al corte" },
+  ];
+
+  it("nombra el requerimiento cuyo anexo es el principal de la ficha", () => {
+    const msg = mensajeFaltaPrincipal({ principal: "cuentas" }, reqsEfectivo);
+    expect(msg).toBe("Sube «Anexo de cuentas de caja, bancos e inversiones al corte» antes de procesar.");
+    expect(msg).not.toMatch(/planificación|cartera|balance de comprobación/i);
+  });
+
+  it("otra herramienta con otro principal recibe SU propio anexo", () => {
+    const reqsCartera = [{ id: "RQ-001", dataset: "cartera_t", document: "Cartera del ejercicio corriente" }];
+    expect(mensajeFaltaPrincipal({ principal: "cartera_t" }, reqsCartera))
+      .toBe("Sube «Cartera del ejercicio corriente» antes de procesar.");
+  });
+
+  it("sin principal declarado cae a un texto neutro, sin nombrar ninguna herramienta", () => {
+    const msg = mensajeFaltaPrincipal({}, reqsEfectivo);
+    expect(msg).toBe("Sube el anexo principal de la prueba antes de procesar.");
+    expect(msg).not.toMatch(/planificación|cartera/i);
   });
 });

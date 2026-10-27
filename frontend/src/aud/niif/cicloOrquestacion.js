@@ -10,7 +10,7 @@
 
 import * as api from "../../api";
 
-import { admiteExtraccionIA, archivosDe, erroresLegibles, mapeoConManual, mejorEncabezado, pasoPreparar } from "./cicloLogic";
+import { admiteExtraccionIA, archivosDe, erroresLegibles, mapeoConManual, mejorEncabezado, mensajeFaltaPrincipal, pasoPreparar } from "./cicloLogic";
 
 // Se devuelve en vez de la prueba cuando el reconocimiento por alias no cubre las
 // columnas obligatorias de algún archivo y hay quien atienda el mapeo manual
@@ -100,7 +100,7 @@ async function mapear(p, files, { manualMaps = {}, onPendientes = null } = {}) {
     }
     if (pendientes.length && onPendientes) { onPendientes(pendientes); return PENDIENTE_MAPEO; }
     if (!Object.keys(datasets).length)
-      throw new Error("Sube al menos el balance de comprobación del corte antes de producir la planificación.");
+      throw new Error(mensajeFaltaPrincipal(d, p.registro.requests || []));
     return paso(p, "map_validate", { datasets });
   }
   const [poblacion, flujos] = p.modelos || [];
