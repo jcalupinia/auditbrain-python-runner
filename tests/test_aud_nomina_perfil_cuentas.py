@@ -154,3 +154,32 @@ def test_reescribir_consolidado_al_formato_del_motor():
     assert r0["mes"] == 7 and r0["ced"] == "1700000001"
     assert r0["pat"] == 66.9 and r0["ind"] == 56.7
     assert r0["ccc"] == 6.0 and r0["total"] == 123.6
+
+
+def test_reescribir_rol_mapea_por_seccion_y_nombre():
+    """El rol del cliente (otra hoja, secciones Datos Generales/Ingresos/Provisiones) se reescribe
+    al layout de 67 columnas de la hoja «normal»; se mapea por sección+nombre (genérico), vacaciones
+    gozadas y finiquitos quedan en 0 (pendientes del socio) y los campos clave se reconocen."""
+    from backend.app.aud.niif.procesadores.nomina import motor
+
+    # fila0 sección, fila1 campos, fila2+ datos. «Décimo Tercero»/«Fondos reserva» aparecen en
+    # Ingresos y en Provisiones: la sección desambigua.
+    sec = ["Datos Generales", None, None, "Ingresos", None, None, None, "Provisiones", None, None]
+    hdr = ["Cédula", "Empleado", "Cargo", "Sueldo", "Fondos Reserva", "Décimo Tercero", "Décimo Cuarto",
+           "Decimo Tercer Sueldo", "Vacaciones", "Fondos de reserva"]
+    datos = [
+        ["1700000001", "PEREZ JUAN", "Analista", 600, 50.0, 10.0, 0.0, 50.0, 25.0, 0.0],
+        ["1700000002", "GOMEZ ANA", "Jefe", 1400, 116.62, 20.0, 0.0, 116.0, 58.0, 0.0],
+    ]
+    rol = _xlsx(pd.DataFrame([sec, hdr, *datos]))
+    destino = os.path.join(tempfile.mkdtemp(), "rol_adaptado.xlsx")
+    PC.reescribir_rol(rol, destino, mes=7)
+    assert PC.ROL_CAMPOS_FALTANTES == []           # todos los campos clave reconocidos
+
+    rows = motor.leer_rol_normal(destino)
+    assert len(rows) == 2
+    r0 = rows[0]
+    assert r0["mes"] == 7 and r0["nombre"] == "PEREZ JUAN"
+    assert r0["sueldo"] == 600 and r0["fr_rol"] == 50.0 and r0["d13mens"] == 10.0
+    assert r0["prov_d13"] == 50.0 and r0["prov_vac"] == 25.0   # de la sección Provisiones
+    assert r0["vac_gozada"] == 0.0 and r0["finiquito"] == 0.0  # pendientes del socio, no inventados

@@ -266,3 +266,138 @@ def reescribir_consolidado(cons_path, destino) -> str:
         r += 1
     wb.save(destino)
     return destino
+
+
+# --- Rol de pagos (RQ-006) -------------------------------------------------------------------
+# El motor lee el rol de la hoja «normal» (empleados + jubilados) con un layout de 67 columnas en
+# posiciones exactas. Otros clientes traen el rol en otra hoja y otro layout (secciones Datos
+# Generales / Ingresos / Egresos / Provisiones…). `reescribir_rol` mapea por SECCIÓN + NOMBRE de
+# campo (robusto) al layout del motor. Vacaciones GOZADAS y FINIQUITOS no suelen venir en el rol
+# del cliente: se dejan en 0 y quedan PENDIENTES DE VALIDACIÓN DEL SOCIO (decisión del dueño), no
+# se inventan. Admite rol de un mes (se pasa `mes`) o combinado (columna de período por fila).
+
+# Posición (0-based) de cada campo en la hoja «normal» que lee motor.leer_rol_normal.
+_ROL_POS = {"mes": 0, "nombre": 1, "cargo": 2, "ingreso": 3, "salida": 4, "sueldo": 5,
+            "vac_gozada": 6, "vac_finiquito": 18, "fr_rol": 24, "d13mens": 25, "d14mens": 26,
+            "prov_d13": 63, "prov_d14": 64, "prov_vac": 65, "prov_fr": 66}
+
+
+# Campos del rol que el motor necesita de verdad para las cédulas (los demás son opcionales).
+_ROL_CAMPOS_CLAVE = ("nombre", "sueldo", "fr_rol", "d13mens", "d14mens",
+                     "prov_d13", "prov_d14", "prov_vac", "prov_fr")
+
+
+def _mapa_rol(filas):
+    """Localiza la fila de encabezados y mapea cada dato del motor a su columna en el rol del
+    cliente, de forma GENÉRICA (los roles varían). Usa la SECCIÓN (fila superior, si existe) para
+    desambiguar los nombres repetidos (p. ej. «Fondos de reserva» aparece en Ingresos, Egresos y
+    Provisiones); si no hay secciones, cae a nombre + heurística. Devuelve (hi, campos, faltantes):
+    faltantes = campos clave que NO se reconocieron (se reportan; no se inventan)."""
+    hi = 0
+    for i, r in enumerate(filas[:12]):
+        celdas = [_n(c) for c in (r or []) if c is not None]
+        tiene_id = any("cedula" in c for c in celdas) or any(c in ("empleado", "nombre") for c in celdas)
+        if tiene_id and any(c == "sueldo" for c in celdas):
+            hi = i
+            break
+    sec_row = filas[hi - 1] if hi > 0 else [None] * len(filas[hi])
+    secciones, actual = [], ""
+    for s in sec_row:
+        actual = _n(s) if s not in (None, "") else actual
+        secciones.append(actual)
+    heads = [_n(h) if h is not None else "" for h in filas[hi]]
+
+    def buscar(*, nombre, seccion=None, excluir_sec=(), excluir_nom=()):
+        """Mejor columna: primero con la sección pedida; si no, por nombre evitando secciones
+        a excluir (p. ej. provisión/egreso para un ingreso). `nombre` es una función(h)->bool."""
+        if seccion is not None:
+            for j, h in enumerate(heads):
+                sec = secciones[j] if j < len(secciones) else ""
+                if h and nombre(h) and seccion in sec:
+                    return j
+        for j, h in enumerate(heads):
+            sec = secciones[j] if j < len(secciones) else ""
+            if h and nombre(h) and not any(e in sec for e in excluir_sec) \
+                    and not any(e in h for e in excluir_nom):
+                return j
+        return None
+
+    campos = {}
+    campos["nombre"] = buscar(nombre=lambda h: h in ("empleado", "nombre"))
+    campos["cargo"] = buscar(nombre=lambda h: h == "cargo")
+    campos["ingreso"] = buscar(nombre=lambda h: "fecha de registro" in h or "fecha de ingreso" in h or h == "ingreso")
+    # Ingresos (lo pagado en el mes): preferir la sección «ingreso», evitando egresos/provisiones.
+    campos["sueldo"] = buscar(nombre=lambda h: h == "sueldo", seccion="ingreso",
+                              excluir_sec=("egreso", "provision"), excluir_nom=("variable",))
+    campos["fr_rol"] = buscar(nombre=lambda h: "fondos" in h and "reserva" in h, seccion="ingreso",
+                              excluir_sec=("egreso", "provision"))
+    campos["d13mens"] = buscar(nombre=lambda h: "decimo tercero" in h or "decimo tercer" in h,
+                               seccion="ingreso", excluir_sec=("provision",))
+    campos["d14mens"] = buscar(nombre=lambda h: "decimo cuarto" in h, seccion="ingreso",
+                               excluir_sec=("provision",))
+    # Provisiones de beneficios sociales.
+    campos["prov_d13"] = buscar(nombre=lambda h: "decimo tercer" in h or "decimo tercero" in h, seccion="provision")
+    campos["prov_d14"] = buscar(nombre=lambda h: "decimo cuarto" in h, seccion="provision")
+    campos["prov_vac"] = buscar(nombre=lambda h: "vacacion" in h, seccion="provision")
+    campos["prov_fr"] = buscar(nombre=lambda h: "fondos" in h and "reserva" in h, seccion="provision")
+    campos["mes"] = buscar(nombre=lambda h: h in ("mes", "periodo", "período"))
+    faltantes = [c for c in _ROL_CAMPOS_CLAVE if campos.get(c) is None]
+    return hi, campos, faltantes
+
+
+# Campos del rol no reconocidos en el último reescribir_rol (para el reporte al auditor).
+ROL_CAMPOS_FALTANTES: list = []
+
+
+def reescribir_rol(rol_path, destino, mes=None) -> str:
+    """Reescribe el rol del cliente a la hoja «normal» con el layout de 67 columnas del motor.
+    `mes`: número de mes cuando el rol es de un solo período (si el rol trae columna de período,
+    se usa esa por fila). Vacaciones gozadas y finiquitos quedan en 0 (pendientes del socio).
+    Crea también una hoja «pasantes» vacía (este cliente no la separa)."""
+    import openpyxl
+
+    global ROL_CAMPOS_FALTANTES
+    ws_in = openpyxl.load_workbook(rol_path, read_only=True, data_only=True).active
+    filas = list(ws_in.iter_rows(values_only=True))
+    hi, campos, ROL_CAMPOS_FALTANTES = _mapa_rol(filas)
+    if campos["nombre"] is None or campos["sueldo"] is None:
+        raise ValueError("No reconozco el rol: no encuentro las columnas de empleado y de sueldo. "
+                         "El adaptador mapea por nombre de campo (y sección si existe); revise que "
+                         "el rol traiga al menos columnas de empleado y sueldo.")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "normal"
+    for c in range(1, 68):
+        ws.cell(5, c, f"c{c}")  # fila de encabezados (el motor lee desde la fila 6)
+
+    def val(fila, campo):
+        j = campos.get(campo)
+        return fila[j] if (j is not None and j < len(fila)) else None
+
+    r = 6
+    for fila in filas[hi + 1:]:
+        nombre = val(fila, "nombre")
+        if nombre is None or str(nombre).strip() == "" or str(nombre).strip().lower().startswith("total"):
+            continue
+        m = mes
+        if campos["mes"] is not None:
+            from backend.app.aud.niif.procesadores.nomina.motor import mnum
+            m = mnum(val(fila, "mes"))
+        fila_out = [None] * 67
+        fila_out[_ROL_POS["mes"]] = m if m is not None else 1
+        fila_out[_ROL_POS["nombre"]] = str(nombre).strip()
+        for campo in ("cargo", "ingreso", "sueldo", "fr_rol", "d13mens", "d14mens",
+                      "prov_d13", "prov_d14", "prov_vac", "prov_fr"):
+            v = val(fila, campo)
+            if v is not None:
+                fila_out[_ROL_POS[campo]] = v
+        # vac_gozada / vac_finiquito: PENDIENTES DEL SOCIO → se dejan en 0 (no se inventan)
+        for c, v in enumerate(fila_out, start=1):
+            if v is not None:
+                ws.cell(r, c, v)
+        r += 1
+
+    wb.create_sheet("pasantes")  # este cliente no separa pasantes; hoja vacía para el motor
+    wb.save(destino)
+    return destino

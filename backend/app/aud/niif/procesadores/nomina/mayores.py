@@ -256,6 +256,18 @@ def cargar(rutas):
                         rutas.consolidado, os.path.join(rutas.home, "consolidado_adaptado.xlsx"))
             except Exception:
                 pass  # si no se puede inspeccionar, se deja como está (el motor avisará)
+        # Adapta el Rol (RQ-006) al layout de 67 columnas (hoja «normal») que lee el motor, cuando
+        # el rol del cliente viene en otra hoja/estructura (mapea por sección + nombre, genérico).
+        # Vacaciones gozadas y finiquitos quedan en 0 (pendientes del socio). Un rol combinado usa
+        # su columna de período; un rol de un solo mes necesita además el nº de mes (TODO resolver).
+        if rutas.rol and os.path.exists(rutas.rol):
+            try:
+                import openpyxl
+                if "normal" not in openpyxl.load_workbook(rutas.rol, read_only=True).sheetnames:
+                    rutas.rol = perfil_cuentas.reescribir_rol(
+                        rutas.rol, os.path.join(rutas.home, "rol_adaptado.xlsx"))
+            except Exception:
+                pass
         # CALIBRACIÓN EN VALIDACIÓN: los mayores y el anexo de este cliente ya se adaptan al plan
         # del motor y CONCILIAN (verificado contra su propio anexo). Falta correr y VERIFICAR las
         # 15 cédulas con los documentos reales del cliente (Consolidado IESS RQ-003, Rol RQ-006 y
