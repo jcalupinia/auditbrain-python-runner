@@ -185,6 +185,19 @@ def test_reescribir_rol_mapea_por_seccion_y_nombre():
     assert r0["vac_gozada"] == 0.0 and r0["finiquito"] == 0.0  # pendientes del socio, no inventados
 
 
+def test_mayor_se_clasifica_por_contenido_si_el_nombre_no_identifica():
+    """El resolver clasifica un mayor RQ-004 por sus códigos de cuenta cuando el nombre no dice
+    GASTO/PASIVO (robustez: funciona aunque el archivo se llame «MayorA.xlsx»)."""
+    from backend.app.aud.niif.procesadores import nomina_beneficios as nb
+
+    gasto = _xlsx(pd.DataFrame([["Código", "Cuenta"], ["5.2.1.2.1.1", "Sueldos"],
+                                ["5.2.1.2.1.2", "Aporte patronal"], ["5.2.1.2.1.3", "Décimo"]]))
+    pasivo = _xlsx(pd.DataFrame([["Código", "Cuenta"], ["2.1.7.1.1", "Aportes por pagar"],
+                                 ["2.1.7.6.1", "Décimo tercero por pagar"], ["2.1.7.6.3", "Vacaciones"]]))
+    assert nb._tipo_mayor_por_contenido(gasto) == "gasto"
+    assert nb._tipo_mayor_por_contenido(pasivo) == "pasivo"
+
+
 def test_mes_de_nombre_del_archivo():
     assert PC.mes_de_nombre("Periodo_enero_S_2.xlsx") == 1
     assert PC.mes_de_nombre("Periodo_julio_S_4.xlsx") == 7

@@ -135,6 +135,35 @@ def _a_xlsx(ruta: str, destino_dir: str) -> str:
     return dest if os.path.exists(dest) else ruta
 
 
+def _tipo_mayor_por_contenido(ruta: str) -> str | None:
+    """Clasifica un mayor RQ-004 por sus CÓDIGOS de cuenta cuando el nombre no lo identifica:
+    'iess'/'bs'/'gasto' del plan de referencia (5BS.21203/5BS.21204/5PYG-5D), o 'pasivo'/'gasto'
+    de otro plan (PUC Ecuador: pasivo empieza por «2», gasto por «5/6/7»). None si no se reconoce."""
+    try:
+        import pandas as pd
+        d = pd.read_excel(ruta, nrows=300, header=None)
+    except Exception:  # noqa: BLE001
+        return None
+    for col in range(min(4, d.shape[1])):
+        cods = [str(v).strip() for v in d.iloc[:, col]
+                if v is not None and str(v).strip()[:1].isdigit() and str(v).count(".") >= 2]
+        if len(cods) < 3:
+            continue
+        if any(c.startswith("5BS.21203") for c in cods):
+            return "iess"
+        if any(c.startswith("5BS.21204") for c in cods):
+            return "bs"
+        if any(c.startswith(("5PYG", "5D")) for c in cods):
+            return "gasto"
+        n2 = sum(1 for c in cods if c.startswith("2"))
+        n567 = sum(1 for c in cods if c.startswith(("5", "6", "7")))
+        if n2 and n2 >= n567:
+            return "pasivo"
+        if n567:
+            return "gasto"
+    return None
+
+
 def resolver(archivos: list[dict], ficha: dict, home: str, out: str) -> Rutas:
     """Mapea los archivos de la prueba (requerimiento/componente/ruta/nombre) al objeto Rutas.
 
@@ -169,6 +198,18 @@ def resolver(archivos: list[dict], ficha: dict, home: str, out: str) -> Rutas:
                 # Otros clientes traen el pasivo en UN solo mayor combinado (IESS + beneficios):
                 # se adapta al plan del motor en perfil_cuentas.
                 r.lm_pasivo = ruta
+            else:
+                # El nombre no identifica el mayor → clasificar POR CONTENIDO (códigos de cuenta),
+                # para que funcione aunque el archivo no se llame GASTO/IESS/BENEFICIO/PASIVO.
+                t = _tipo_mayor_por_contenido(ruta)
+                if t == "gasto":
+                    r.lm_gasto = ruta
+                elif t == "pasivo":
+                    r.lm_pasivo = ruta
+                elif t == "iess":
+                    r.lm_iess = ruta
+                elif t == "bs":
+                    r.lm_bs = ruta
         elif rq == "RQ-005":
             os.makedirs(comp_dir, exist_ok=True)
             if ruta.lower().endswith(".zip"):
