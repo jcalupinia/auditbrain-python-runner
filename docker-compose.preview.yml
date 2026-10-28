@@ -141,6 +141,8 @@ services:
     # contradictorio => el proceso termina con código 3 igual que antes. Variables de shell escapadas con $$.
     command: >
       sh -c 'set -eu
+             export SOURCE_COMMIT="$${PREVIEW_SOURCE_COMMIT:-}"
+             export SOURCE_COMMIT="$${SOURCE_COMMIT#commit-}"
              export PREVIEW_PUBLIC_HOST="$${PREVIEW_PUBLIC_HOST:-$${COOLIFY_FQDN:-}}"
              if [ -n "$${AUDITBRAIN_JWT_SECRET:-}$${AUDITBRAIN_API_KEY:-}$${AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD:-}" ]; then
                echo "preview: credencial heredada del entorno (JWT, API key o admin); el backend no arranca" >&2
@@ -163,18 +165,22 @@ services:
       - APP_ENV=preview
       # Identidad del PR: única fuente primaria, rellenada por Coolify con el dominio del preview.
       - PREVIEW_PUBLIC_HOST=${SERVICE_FQDN_BACKEND_10000}
-      # Identidad por commit (F1, hallazgo C-01): Coolify escribe SOURCE_COMMIT (head del PR) en el .env
-      # con el que `docker compose` interpola este archivo y que además adjunta a TODOS los servicios como
-      # `env_file: .env` (ApplicationDeploymentJob, Coolify 4.4.6): por eso el proceso recibe SOURCE_COMMIT
-      # SIN declararlo aquí. El backend exige que su BUILD_COMMIT coincida con SOURCE_COMMIT y con la
-      # etiqueta esperada.
-      # PROHIBIDO volver a escribir `- SOURCE_COMMIT=${SOURCE_COMMIT:?…}` (ni ninguna entrada cuyo valor
-      # empiece por `$` salvo las mágicas SERVICE_*): el analizador de Coolify (parseDockerComposeFile)
-      # convierte esa entrada en una variable de la aplicación con el texto tras `:?` como valor
-      # («SOURCE_COMMIT requerido»), la vuelca al final del .env del preview y, como la última línea gana,
-      # las imágenes se resolvieron como `sha-SOURCE_COMMIT requerido` (redespliegue fallido del 2026-10-20).
-      # `sha-${…}` no empieza por `$`, así que el analizador la deja pasar y la interpola docker compose.
+      # Identidad por commit (F1, hallazgo C-01): el backend exige que su BUILD_COMMIT coincida con
+      # SOURCE_COMMIT (head del PR) y con la etiqueta esperada. SOURCE_COMMIT debe llegar al ENTORNO del
+      # proceso. Coolify NO lo inyecta por `env_file: .env` (ese .env solo lo usa `docker compose` para
+      # interpolar este archivo, no entra al runtime del contenedor): verificado en el preview #405, cuyo
+      # backend quedó en bucle de reinicio con «SOURCE_COMMIT ausente o inválido». Por eso se transporta
+      # explícitamente con un PREFIJO que NO empieza por `$` (igual que PREVIEW_EXPECTED_IMAGE_TAG) y el
+      # `command` lo recupera (`$${PREVIEW_SOURCE_COMMIT#commit-}` → SOURCE_COMMIT). Cada PR trae el suyo,
+      # interpolado por Coolify desde el mismo ${SOURCE_COMMIT}; no se fija ningún valor en el archivo.
+      # PROHIBIDO escribir `- SOURCE_COMMIT=${SOURCE_COMMIT:?…}` (ni ninguna entrada cuyo valor empiece por
+      # `$` salvo las mágicas SERVICE_*): el analizador de Coolify (parseDockerComposeFile) la convertiría
+      # en una variable de la aplicación con el texto tras `:?` como valor («SOURCE_COMMIT requerido»),
+      # volcada al final del .env del preview, y las imágenes se resolverían como `sha-SOURCE_COMMIT
+      # requerido` (redespliegue fallido del 2026-10-20). Un valor que empieza por `commit-`/`sha-` no lo
+      # es, así que el analizador lo deja pasar y lo interpola docker compose.
       - PREVIEW_EXPECTED_IMAGE_TAG=sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}
+      - PREVIEW_SOURCE_COMMIT=commit-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}
       - PREVIEW_SECRETS_DIR=/run/secrets
       - CLIENT_PORTAL_SESSION_CHECK_ENABLED=false
       - CLIENT_PORTAL_DEVICE_CHECK_ENABLED=false
