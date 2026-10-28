@@ -239,19 +239,46 @@ def cargar(rutas):
                 "(IESS por pagar / beneficios por pagar). Revise que el mayor traiga la columna "
                 "con el NOMBRE de cada cuenta (Aportes por pagar, Décimo tercero por pagar, "
                 "Vacaciones por pagar, etc.).")
-        # CALIBRACIÓN EN PROGRESO (Etapa 2 pendiente): los mayores de este cliente ya se leen,
-        # mapean y concilian, pero el anexo (RQ-002) viene en el plan de cuentas del cliente y el
-        # motor lo lee por los de referencia, así que las cédulas que usan el anexo aún no saldrían
-        # correctas. Hasta completar y validar esa adaptación, se DETIENE con un aviso claro en vez
-        # de generar cédulas con cifras incompletas (regla: no entregar números a medias como si
-        # estuvieran bien). El encargo de referencia sigue funcionando normalmente.
-        raise ValueError(
-            "La calibración de este cliente (plan de cuentas distinto al del encargo de "
-            "referencia) está EN PROGRESO. Sus mayores ya se leen y concilian con el anexo, pero "
-            "falta adaptar el anexo (RQ-002) y la validación del socio, por lo que la herramienta "
-            "todavía NO genera las cédulas para este cliente (para no entregar cifras incompletas). "
-            "La herramienta sigue disponible para el encargo de referencia. Contacte a "
-            "AuditConsulting para completar la calibración de este cliente.")
+        # Adapta el anexo (RQ-002) al layout/códigos de referencia que esperan los ~10 lectores
+        # del motor (remapea solo los códigos de pasivo; los de gasto ya empiezan por «5»). Se
+        # apunta rutas.anexo (== CTX.anexo) al archivo reescrito para que todas las cédulas lo lean.
+        if rutas.anexo and os.path.exists(rutas.anexo):
+            rutas.anexo = perfil_cuentas.reescribir_anexo(
+                rutas.anexo, os.path.join(rutas.home, "anexo_adaptado.xlsx"))
+        # Adapta el Consolidado IESS (RQ-003) al formato del motor (hoja detallePlanillaConsolidado,
+        # campos corridos a col B) cuando el cliente trae el export estándar del IESS en una sola hoja.
+        if rutas.consolidado and os.path.exists(rutas.consolidado):
+            try:
+                import openpyxl
+                if "detallePlanillaConsolidado" not in openpyxl.load_workbook(
+                        rutas.consolidado, read_only=True).sheetnames:
+                    rutas.consolidado = perfil_cuentas.reescribir_consolidado(
+                        rutas.consolidado, os.path.join(rutas.home, "consolidado_adaptado.xlsx"))
+            except Exception:
+                pass  # si no se puede inspeccionar, se deja como está (el motor avisará)
+        # Adapta el Rol (RQ-006) al layout de 67 columnas (hoja «normal») que lee el motor, cuando
+        # el rol del cliente viene en otra hoja/estructura (mapea por sección + nombre, genérico).
+        # Vacaciones gozadas y finiquitos quedan en 0 (pendientes del socio). Un rol combinado usa
+        # su columna de período; un rol de un solo mes necesita además el nº de mes (TODO resolver).
+        roles = list(getattr(rutas, "roles_mensuales", None) or [])
+        if len(roles) > 1:
+            # Varios roles mensuales → uno combinado (una fila por empleado y mes). El mes sale
+            # del nombre del archivo (p. ej. «Periodo_enero…» → 1).
+            items = [(ruta, perfil_cuentas.mes_de_nombre(nom)) for ruta, nom in roles]
+            rutas.rol = perfil_cuentas.reescribir_roles(
+                items, os.path.join(rutas.home, "rol_adaptado.xlsx"))
+        elif rutas.rol and os.path.exists(rutas.rol):
+            try:
+                import openpyxl
+                if "normal" not in openpyxl.load_workbook(rutas.rol, read_only=True).sheetnames:
+                    mes = perfil_cuentas.mes_de_nombre(os.path.basename(rutas.rol))
+                    rutas.rol = perfil_cuentas.reescribir_rol(
+                        rutas.rol, os.path.join(rutas.home, "rol_adaptado.xlsx"), mes=mes)
+            except Exception:
+                pass
+        # Cliente con plan de cuentas distinto: mayores + anexo + consolidado + rol ya se adaptan
+        # al formato del motor. Las cédulas se generan como PRELIMINARES, pendientes de validación
+        # del socio (M23); vacaciones gozadas y finiquitos quedan en 0 (el cliente no los separa).
     else:
         # --- Plan de referencia: tres mayores -----------------------------------------
         _faltan = [n for n, p in (("gastos", rutas.lm_gasto), ("IESS por pagar", rutas.lm_iess),

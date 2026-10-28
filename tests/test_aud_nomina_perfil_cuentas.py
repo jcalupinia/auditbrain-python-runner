@@ -94,3 +94,118 @@ def test_reporta_cuentas_no_reconocidas_sin_inventar():
     P, nr = PC.adaptar_pasivo(MY._load(_xlsx(pd.DataFrame(filas, columns=cols))))
     assert any(c == "2.9.9.9.9" for c, _ in nr)
     assert "2.9.9.9.9" in set(P["cta"])  # se deja tal cual, no se fuerza a un código del motor
+
+
+def test_reescribir_anexo_remapea_pasivo_y_distingue_del_gasto():
+    """El anexo reescrito lleva el pasivo a códigos 5BS.212xx (por nombre, SOLO cuentas que
+    empiezan por «2») y conserva los gastos (empiezan por «5»); el gasto «Aporte patronal IESS»
+    NO se confunde con el pasivo «Aportes por pagar» aunque ambos digan «aporte»."""
+    import datetime
+    from backend.app.aud.niif.procesadores.nomina.cedulas_nuevas import leer_anexo
+
+    # Layout del cliente: fila0 encabezados, fila1 fechas (col C/F), fila2+ cuentas (pasivo 2.x, gasto 5.x)
+    filas = [
+        ["Código", "Descripción", "Saldo", "Variación", "%", "Saldo"],
+        [None, None, datetime.datetime(2025, 12, 31), None, None, datetime.datetime(2026, 7, 31)],
+        ["2.1.7.1.1", "Aportes por Pagar", 100.0, None, None, 80.0],
+        ["2.1.7.6.1", "Décimo Tercer Sueldo por Pagar", 50.0, None, None, 70.0],
+        ["2.1.7.6.3", "Vacaciones por Pagar", 30.0, None, None, 40.0],
+        ["Total", None, 180.0, None, None, 190.0],
+        [None, None, None, None, None, None],
+        ["5.2.1.2.1.1", "Sueldos", 1000.0, None, None, 600.0],
+        ["5.2.1.2.1.2", "Aporte patronal IESS", 120.0, None, None, 70.0],
+    ]
+    cliente = os.path.join(tempfile.mkdtemp(), "anexo_cliente.xlsx")
+    pd.DataFrame(filas).to_excel(cliente, index=False, header=False)
+    destino = os.path.join(tempfile.mkdtemp(), "anexo_adaptado.xlsx")
+    PC.reescribir_anexo(cliente, destino)
+
+    pas, gas = leer_anexo(destino)
+    pas_cod = {c: (s24, s25) for c, _, s24, s25 in pas}
+    assert pas_cod["5BS.21203.001"] == (100.0, 80.0)   # Aportes por pagar (pasivo)
+    assert pas_cod["5BS.21204.001"] == (50.0, 70.0)    # Décimo tercero por pagar
+    assert pas_cod["5BS.21204.003"] == (30.0, 40.0)    # Vacaciones por pagar
+    # el gasto «Aporte patronal IESS» NO entró como pasivo (sigue siendo gasto, código 5.x)
+    assert "5BS.21203.001" in pas_cod and len(pas) == 3
+    gas_cod = {c for c, _, _, _ in gas}
+    assert "5.2.1.2.1.2" in gas_cod and "5.2.1.2.1.1" in gas_cod
+
+
+def test_reescribir_consolidado_al_formato_del_motor():
+    """El Consolidado del IESS del cliente (una hoja, campos sin correr) se reescribe a la hoja
+    `detallePlanillaConsolidado` con los campos corridos a col B, y el motor lo parsea bien
+    (mes, cédula, patronal, individual, CCC, total)."""
+    from backend.app.aud.niif.procesadores.nomina import motor
+
+    cols = ["Periodo", "Cédula", "Nombre", "Rel. Trabajo", "Sueldo", "Días",
+            "Patronal", "Individual", "Aporte Adic", "Cesantia", "% CCC", "Valor CCC", "Total Aporte"]
+    filas = [
+        ["2026-7", "1700000001", "EMPLEADO UNO", "06-CODIGO", 600, 30, 66.9, 56.7, 0, 0, 1, 6.0, 123.6],
+        ["2026-6", "1700000001", "EMPLEADO UNO", "06-CODIGO", 600, 30, 66.9, 56.7, 0, 0, 1, 6.0, 123.6],
+        ["Totales", None, None, None, None, None, None, None, None, None, None, None, None],
+    ]
+    cliente = _xlsx(pd.DataFrame(filas, columns=cols))
+    destino = os.path.join(tempfile.mkdtemp(), "cons_adaptado.xlsx")
+    PC.reescribir_consolidado(cliente, destino)
+
+    rows = motor.leer_consolidado(destino)
+    assert len(rows) == 2                      # la fila «Totales» se descarta
+    r0 = rows[0]
+    assert r0["mes"] == 7 and r0["ced"] == "1700000001"
+    assert r0["pat"] == 66.9 and r0["ind"] == 56.7
+    assert r0["ccc"] == 6.0 and r0["total"] == 123.6
+
+
+def test_reescribir_rol_mapea_por_seccion_y_nombre():
+    """El rol del cliente (otra hoja, secciones Datos Generales/Ingresos/Provisiones) se reescribe
+    al layout de 67 columnas de la hoja «normal»; se mapea por sección+nombre (genérico), vacaciones
+    gozadas y finiquitos quedan en 0 (pendientes del socio) y los campos clave se reconocen."""
+    from backend.app.aud.niif.procesadores.nomina import motor
+
+    # fila0 sección, fila1 campos, fila2+ datos. «Décimo Tercero»/«Fondos reserva» aparecen en
+    # Ingresos y en Provisiones: la sección desambigua.
+    sec = ["Datos Generales", None, None, "Ingresos", None, None, None, "Provisiones", None, None]
+    hdr = ["Cédula", "Empleado", "Cargo", "Sueldo", "Fondos Reserva", "Décimo Tercero", "Décimo Cuarto",
+           "Decimo Tercer Sueldo", "Vacaciones", "Fondos de reserva"]
+    datos = [
+        ["1700000001", "PEREZ JUAN", "Analista", 600, 50.0, 10.0, 0.0, 50.0, 25.0, 0.0],
+        ["1700000002", "GOMEZ ANA", "Jefe", 1400, 116.62, 20.0, 0.0, 116.0, 58.0, 0.0],
+    ]
+    rol = _xlsx(pd.DataFrame([sec, hdr, *datos]))
+    destino = os.path.join(tempfile.mkdtemp(), "rol_adaptado.xlsx")
+    PC.reescribir_rol(rol, destino, mes=7)
+    assert PC.ROL_CAMPOS_FALTANTES == []           # todos los campos clave reconocidos
+
+    rows = motor.leer_rol_normal(destino)
+    assert len(rows) == 2
+    r0 = rows[0]
+    assert r0["mes"] == 7 and r0["nombre"] == "PEREZ JUAN"
+    assert r0["sueldo"] == 600 and r0["fr_rol"] == 50.0 and r0["d13mens"] == 10.0
+    assert r0["prov_d13"] == 50.0 and r0["prov_vac"] == 25.0   # de la sección Provisiones
+    assert r0["vac_gozada"] == 0.0 and r0["finiquito"] == 0.0  # pendientes del socio, no inventados
+
+
+def test_mes_de_nombre_del_archivo():
+    assert PC.mes_de_nombre("Periodo_enero_S_2.xlsx") == 1
+    assert PC.mes_de_nombre("Periodo_julio_S_4.xlsx") == 7
+    assert PC.mes_de_nombre("rol diciembre.xlsx") == 12
+    assert PC.mes_de_nombre("sin_mes.xlsx") is None   # «S_2» no se confunde con mes 2
+
+
+def test_reescribir_roles_combina_varios_meses():
+    """Varios roles mensuales (cada uno un período) se combinan en una hoja «normal» con una fila
+    por empleado y mes; el motor los lee con su mes correcto."""
+    from backend.app.aud.niif.procesadores.nomina import motor
+
+    sec = ["Datos Generales", None, None, "Ingresos", "Provisiones", "Provisiones"]
+    hdr = ["Cédula", "Empleado", "Cargo", "Sueldo", "Decimo Tercer Sueldo", "Vacaciones"]
+
+    def _rol(sueldo):
+        return _xlsx(pd.DataFrame([sec, hdr, ["1700000001", "PEREZ JUAN", "Analista", sueldo, 50.0, 25.0]]))
+
+    enero, julio = _rol(600), _rol(650)
+    destino = os.path.join(tempfile.mkdtemp(), "rol_combinado.xlsx")
+    PC.reescribir_roles([(enero, 1), (julio, 7)], destino)
+    rows = motor.leer_rol_normal(destino)
+    meses = {r["mes"]: r["sueldo"] for r in rows}
+    assert meses == {1: 600, 7: 650}

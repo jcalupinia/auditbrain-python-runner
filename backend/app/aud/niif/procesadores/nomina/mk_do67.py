@@ -139,6 +139,10 @@ for k, titulo, *_ in GROUPS:
         cell(w6, f'B{r}', cod, AR, box=True); cell(w6, f'C{r}', cta, AR, box=True); cell(w6, f'D{r}', ANEXO[cod] if enA else val, BLUE, N2, box=True)
         for col in 'EFGH': w6[f'{col}{r}'].border = BOX
         r += 1
+    if r == first:  # grupo sin cuentas (este cliente no tiene ese concepto) → fila en 0 para no romper el merge
+        cell(w6, f'B{r}', '—', AR, box=True); cell(w6, f'C{r}', '(sin cuentas en el mayor)', AR, box=True); cell(w6, f'D{r}', 0, BLUE, N2, box=True)
+        for col in 'EFGH': w6[f'{col}{r}'].border = BOX
+        r += 1
     last = r - 1; group_rows[k] = (first, last)
     cell(w6, f'E{first}', f'={IA}!{ICOL[k][0]}17', GREEN, N2, box=True)
     cell(w6, f'F{first}', f'=ROUND(SUM(D{first}:D{last})-E{first},2)', ARB, N2, box=True)
