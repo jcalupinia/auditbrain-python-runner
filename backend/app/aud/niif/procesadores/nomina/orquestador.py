@@ -14,6 +14,10 @@ _DIR = os.path.dirname(__file__)
 # generadores de referencia (archivo del paquete -> nombre de cédula de salida)
 LEGACY = ['mk_do2', 'mk_do3', 'mk_do31', 'mk_do4', 'mk_do45', 'mk_do67', 'mk_do8', 'mk_do9', 'mk_do10', 'mk_do12', 'mk_pa', 'mk_rq007', 'mk_vac', 'mk_rq004']
 
+# Generadores que fallaron en la última corrida (nombre, error) — p. ej. faltan los comprobantes
+# RQ-005 para DO-9/DO-10. La herramienta sigue y entrega las demás cédulas.
+GENERADORES_FALLIDOS: list = []
+
 
 def correr(rutas, ficha: dict | None = None) -> dict[str, bytes]:
     ficha = ficha or {}
@@ -54,9 +58,18 @@ def correr(rutas, ficha: dict | None = None) -> dict[str, bytes]:
     # exclusiones y el anexo. ``cedulas_nuevas.build_do4`` queda disponible pero ya no
     # se invoca.
 
-    # 5) generadores de referencia (in-process, aislados por carpeta de la prueba)
+    # 5) generadores de referencia (in-process, aislados por carpeta de la prueba).
+    # Cada generador en su try/except: si uno falla (p. ej. faltan los comprobantes RQ-005 para
+    # DO-9/DO-10, o el cliente no tiene cierto concepto), se registra y se sigue con los demás, en
+    # vez de abortar todo. Así la herramienta entrega las cédulas que SÍ puede. En el encargo de
+    # referencia ningún generador falla (la prueba e2e exige 15 cédulas), así que no cambia nada.
+    global GENERADORES_FALLIDOS
+    GENERADORES_FALLIDOS = []
     for g in LEGACY:
-        runpy.run_path(os.path.join(_DIR, g + '.py'), run_name='_nomina_gen')
+        try:
+            runpy.run_path(os.path.join(_DIR, g + '.py'), run_name='_nomina_gen')
+        except Exception as e:  # noqa: BLE001
+            GENERADORES_FALLIDOS.append((g, f"{type(e).__name__}: {e}"))
 
     # 6) recolectar las cédulas .xlsx de la carpeta de salida
     salidas = {}

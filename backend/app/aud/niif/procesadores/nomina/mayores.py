@@ -260,27 +260,25 @@ def cargar(rutas):
         # el rol del cliente viene en otra hoja/estructura (mapea por sección + nombre, genérico).
         # Vacaciones gozadas y finiquitos quedan en 0 (pendientes del socio). Un rol combinado usa
         # su columna de período; un rol de un solo mes necesita además el nº de mes (TODO resolver).
-        if rutas.rol and os.path.exists(rutas.rol):
+        roles = list(getattr(rutas, "roles_mensuales", None) or [])
+        if len(roles) > 1:
+            # Varios roles mensuales → uno combinado (una fila por empleado y mes). El mes sale
+            # del nombre del archivo (p. ej. «Periodo_enero…» → 1).
+            items = [(ruta, perfil_cuentas.mes_de_nombre(nom)) for ruta, nom in roles]
+            rutas.rol = perfil_cuentas.reescribir_roles(
+                items, os.path.join(rutas.home, "rol_adaptado.xlsx"))
+        elif rutas.rol and os.path.exists(rutas.rol):
             try:
                 import openpyxl
                 if "normal" not in openpyxl.load_workbook(rutas.rol, read_only=True).sheetnames:
+                    mes = perfil_cuentas.mes_de_nombre(os.path.basename(rutas.rol))
                     rutas.rol = perfil_cuentas.reescribir_rol(
-                        rutas.rol, os.path.join(rutas.home, "rol_adaptado.xlsx"))
+                        rutas.rol, os.path.join(rutas.home, "rol_adaptado.xlsx"), mes=mes)
             except Exception:
                 pass
-        # CALIBRACIÓN EN VALIDACIÓN: los mayores y el anexo de este cliente ya se adaptan al plan
-        # del motor y CONCILIAN (verificado contra su propio anexo). Falta correr y VERIFICAR las
-        # 15 cédulas con los documentos reales del cliente (Consolidado IESS RQ-003, Rol RQ-006 y
-        # comprobantes RQ-005 — el motor no arranca sin el Consolidado) y la validación del socio
-        # (NIA/M23), incluido el desglose que la contabilidad del cliente no separa (p. ej. GOCES
-        # de vacaciones). Hasta ese visto bueno se DETIENE con un aviso claro, para no emitir
-        # cédulas sin verificar. El encargo de referencia sigue funcionando normalmente.
-        raise ValueError(
-            "Cliente con plan de cuentas distinto: sus MAYORES y ANEXO ya se adaptan y CONCILIAN "
-            "con el motor (parte técnica lista). Falta la validación final del socio con los "
-            "documentos reales del cliente (Consolidado IESS, Rol y comprobantes) antes de emitir "
-            "las cédulas, por lo que la herramienta todavía no las genera para este cliente. "
-            "Contacte a AuditConsulting para cerrar la validación.")
+        # Cliente con plan de cuentas distinto: mayores + anexo + consolidado + rol ya se adaptan
+        # al formato del motor. Las cédulas se generan como PRELIMINARES, pendientes de validación
+        # del socio (M23); vacaciones gozadas y finiquitos quedan en 0 (el cliente no los separa).
     else:
         # --- Plan de referencia: tres mayores -----------------------------------------
         _faltan = [n for n, p in (("gastos", rutas.lm_gasto), ("IESS por pagar", rutas.lm_iess),

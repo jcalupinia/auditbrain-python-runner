@@ -181,6 +181,7 @@ def resolver(archivos: list[dict], ficha: dict, home: str, out: str) -> Rutas:
                 shutil.copy(ruta, os.path.join(comp_dir, os.path.basename(ruta)))
         elif rq == "RQ-006":
             r.rol = ruta
+            r.roles_mensuales.append((ruta, a.get("nombre") or os.path.basename(ruta)))
     if os.path.isdir(comp_dir) and glob.glob(os.path.join(comp_dir, "**", "*.pdf"), recursive=True):
         r.comprobantes_dir = comp_dir
     # ficha del encargo

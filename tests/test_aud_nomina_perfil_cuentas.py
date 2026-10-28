@@ -183,3 +183,29 @@ def test_reescribir_rol_mapea_por_seccion_y_nombre():
     assert r0["sueldo"] == 600 and r0["fr_rol"] == 50.0 and r0["d13mens"] == 10.0
     assert r0["prov_d13"] == 50.0 and r0["prov_vac"] == 25.0   # de la sección Provisiones
     assert r0["vac_gozada"] == 0.0 and r0["finiquito"] == 0.0  # pendientes del socio, no inventados
+
+
+def test_mes_de_nombre_del_archivo():
+    assert PC.mes_de_nombre("Periodo_enero_S_2.xlsx") == 1
+    assert PC.mes_de_nombre("Periodo_julio_S_4.xlsx") == 7
+    assert PC.mes_de_nombre("rol diciembre.xlsx") == 12
+    assert PC.mes_de_nombre("sin_mes.xlsx") is None   # «S_2» no se confunde con mes 2
+
+
+def test_reescribir_roles_combina_varios_meses():
+    """Varios roles mensuales (cada uno un período) se combinan en una hoja «normal» con una fila
+    por empleado y mes; el motor los lee con su mes correcto."""
+    from backend.app.aud.niif.procesadores.nomina import motor
+
+    sec = ["Datos Generales", None, None, "Ingresos", "Provisiones", "Provisiones"]
+    hdr = ["Cédula", "Empleado", "Cargo", "Sueldo", "Decimo Tercer Sueldo", "Vacaciones"]
+
+    def _rol(sueldo):
+        return _xlsx(pd.DataFrame([sec, hdr, ["1700000001", "PEREZ JUAN", "Analista", sueldo, 50.0, 25.0]]))
+
+    enero, julio = _rol(600), _rol(650)
+    destino = os.path.join(tempfile.mkdtemp(), "rol_combinado.xlsx")
+    PC.reescribir_roles([(enero, 1), (julio, 7)], destino)
+    rows = motor.leer_rol_normal(destino)
+    meses = {r["mes"]: r["sueldo"] for r in rows}
+    assert meses == {1: 600, 7: 650}

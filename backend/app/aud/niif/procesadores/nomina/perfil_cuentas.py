@@ -349,41 +349,46 @@ def _mapa_rol(filas):
 ROL_CAMPOS_FALTANTES: list = []
 
 
-def reescribir_rol(rol_path, destino, mes=None) -> str:
-    """Reescribe el rol del cliente a la hoja «normal» con el layout de 67 columnas del motor.
-    `mes`: número de mes cuando el rol es de un solo período (si el rol trae columna de período,
-    se usa esa por fila). Vacaciones gozadas y finiquitos quedan en 0 (pendientes del socio).
-    Crea también una hoja «pasantes» vacía (este cliente no la separa)."""
+_MESES_NOMBRE = {"enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+                 "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
+                 "noviembre": 11, "diciembre": 12}
+
+
+def mes_de_nombre(nombre) -> int | None:
+    """Número de mes a partir del NOMBRE del archivo del rol (p. ej. «Periodo_enero_S_2» → 1).
+    Busca el nombre del mes en español (no un número suelto como «S_2», que sería ambiguo)."""
+    t = _n(nombre)
+    for nom, num in _MESES_NOMBRE.items():
+        if nom in t:
+            return num
+    return None
+
+
+def _filas_rol(rol_path, mes=None):
+    """Filas de un rol del cliente en el layout de 67 columnas del motor (una por empleado).
+    Devuelve (filas, faltantes). `mes` = nº de mes cuando el rol es de un período; si el rol trae
+    columna de período, se usa esa por fila. Vacaciones gozadas y finiquitos quedan en 0."""
     import openpyxl
 
-    global ROL_CAMPOS_FALTANTES
     ws_in = openpyxl.load_workbook(rol_path, read_only=True, data_only=True).active
     filas = list(ws_in.iter_rows(values_only=True))
-    hi, campos, ROL_CAMPOS_FALTANTES = _mapa_rol(filas)
+    hi, campos, faltantes = _mapa_rol(filas)
     if campos["nombre"] is None or campos["sueldo"] is None:
         raise ValueError("No reconozco el rol: no encuentro las columnas de empleado y de sueldo. "
                          "El adaptador mapea por nombre de campo (y sección si existe); revise que "
                          "el rol traiga al menos columnas de empleado y sueldo.")
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "normal"
-    for c in range(1, 68):
-        ws.cell(5, c, f"c{c}")  # fila de encabezados (el motor lee desde la fila 6)
+    from backend.app.aud.niif.procesadores.nomina.motor import mnum
 
     def val(fila, campo):
         j = campos.get(campo)
         return fila[j] if (j is not None and j < len(fila)) else None
 
-    r = 6
+    out = []
     for fila in filas[hi + 1:]:
         nombre = val(fila, "nombre")
         if nombre is None or str(nombre).strip() == "" or str(nombre).strip().lower().startswith("total"):
             continue
-        m = mes
-        if campos["mes"] is not None:
-            from backend.app.aud.niif.procesadores.nomina.motor import mnum
-            m = mnum(val(fila, "mes"))
+        m = mnum(val(fila, "mes")) if campos["mes"] is not None else mes
         fila_out = [None] * 67
         fila_out[_ROL_POS["mes"]] = m if m is not None else 1
         fila_out[_ROL_POS["nombre"]] = str(nombre).strip()
@@ -392,12 +397,48 @@ def reescribir_rol(rol_path, destino, mes=None) -> str:
             v = val(fila, campo)
             if v is not None:
                 fila_out[_ROL_POS[campo]] = v
-        # vac_gozada / vac_finiquito: PENDIENTES DEL SOCIO → se dejan en 0 (no se inventan)
+        # vac_gozada / vac_finiquito: PENDIENTES DEL SOCIO → 0 (no se inventan)
+        out.append(fila_out)
+    return out, faltantes
+
+
+def _escribir_rol(filas_rol, destino) -> str:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "normal"
+    for c in range(1, 68):
+        ws.cell(5, c, f"c{c}")  # encabezados (el motor lee desde la fila 6)
+    r = 6
+    for fila_out in filas_rol:
         for c, v in enumerate(fila_out, start=1):
             if v is not None:
                 ws.cell(r, c, v)
         r += 1
-
-    wb.create_sheet("pasantes")  # este cliente no separa pasantes; hoja vacía para el motor
+    # Hoja «pasantes» (este cliente no la separa): con fila de encabezado para que los lectores
+    # que leen la fila 2 (series.rol_mes_df) no fallen; sin empleados.
+    wp = wb.create_sheet("pasantes")
+    wp.cell(1, 1, "pasantes")
+    wp.cell(2, 1, "Mes Nº")
     wb.save(destino)
     return destino
+
+
+def reescribir_rol(rol_path, destino, mes=None) -> str:
+    """Reescribe UN rol del cliente a la hoja «normal» del layout del motor."""
+    global ROL_CAMPOS_FALTANTES
+    filas, ROL_CAMPOS_FALTANTES = _filas_rol(rol_path, mes)
+    return _escribir_rol(filas, destino)
+
+
+def reescribir_roles(items, destino) -> str:
+    """Combina VARIOS roles mensuales del cliente en una sola hoja «normal» (una fila por empleado
+    y mes). `items` = lista de (ruta, mes). El mes de cada archivo lo decide el llamador (p. ej.
+    del nombre del archivo con `mes_de_nombre`)."""
+    global ROL_CAMPOS_FALTANTES
+    todas, faltan = [], []
+    for ruta, mes in items:
+        filas, f = _filas_rol(ruta, mes)
+        todas.extend(filas)
+        faltan = f  # misma estructura mes a mes; basta el último reporte
+    ROL_CAMPOS_FALTANTES = faltan
+    return _escribir_rol(todas, destino)
