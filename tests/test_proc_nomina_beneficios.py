@@ -19,10 +19,14 @@ def test_definicion_2_0():
     assert d["name"] and d["summary"] and d["legal"]
     ids = [r["id"] for r in d["requests"]]
     assert ids == [f"RQ-00{i}" for i in range(1, 9)]
-    # RQ-002/003/004/006 son obligatorios; RQ-001/007/008 opcionales
+    # RQ-002/003/004/006 son obligatorios; RQ-001/005/007/008 opcionales.
+    # RQ-005 (comprobantes) es opcional a propósito: el motor corre sin ellos (datos_minimos
+    # no los exige) y DO-9/DO-10 quedan pendientes hasta cargarlos. Si fuera obligatorio
+    # bloquearía «Procesar» pese a que la herramienta entrega 13/15 cédulas sin comprobantes.
     req = {r["id"]: r for r in d["requests"]}
     assert all(req[x]["required"] for x in ("RQ-002", "RQ-003", "RQ-004", "RQ-006"))
-    assert all(not req[x]["required"] for x in ("RQ-001", "RQ-007", "RQ-008"))
+    assert all(not req[x]["required"] for x in ("RQ-001", "RQ-005", "RQ-007", "RQ-008"))
+    assert "RQ-005" not in {"RQ-002", "RQ-003", "RQ-004", "RQ-006"}  # no está entre los mínimos del motor
     assert len(d["program"]) >= 10               # DO-1..DO-12
     assert len(m.CEDULAS) == 15
 
