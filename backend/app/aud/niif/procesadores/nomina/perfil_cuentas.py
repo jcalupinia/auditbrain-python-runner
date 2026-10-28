@@ -231,3 +231,38 @@ def reescribir_anexo(anexo_path, destino) -> str:
         fila += 1
     wb.save(destino)
     return destino
+
+
+def reescribir_consolidado(cons_path, destino) -> str:
+    """Reescribe el Consolidado del IESS (RQ-003) del cliente al formato que lee el motor:
+    hoja ``detallePlanillaConsolidado``, datos desde la fila 3, con los campos CORRIDOS a col B
+    (el motor lee ``mes`` en col B, …, ``valor CCC`` en la col 13 y ``total aporte`` en la 14).
+    Vale para el export estándar del IESS en una sola hoja con encabezados arriba. Devuelve la
+    ruta escrita. NB: el export del IESS ya trae patronal/individual/CCC/total por cédula y mes;
+    solo se reubican las columnas (no se recalcula nada)."""
+    import openpyxl
+
+    ws_in = openpyxl.load_workbook(cons_path, read_only=True, data_only=True).active
+    filas = list(ws_in.iter_rows(values_only=True))
+    # fila de encabezados: la primera (de las 5 primeras) con «cédula»/«periodo»
+    hi = 0
+    for i, r in enumerate(filas[:5]):
+        celdas = [_n(c) for c in (r or []) if c is not None]
+        if any("cedula" in c for c in celdas) or any("periodo" in c for c in celdas):
+            hi = i
+            break
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "detallePlanillaConsolidado"
+    ws.cell(1, 1, "Planilla consolidada IESS (adaptada al motor)")
+    for j, h in enumerate(filas[hi] or []):          # encabezados en la fila 2, corridos a col B
+        ws.cell(2, j + 2, h)
+    r = 3
+    for fila in filas[hi + 1:]:
+        if not fila or len(fila) < 2 or fila[1] is None or str(fila[1]).strip() == "":
+            continue  # fila sin cédula (total/vacía)
+        for j, v in enumerate(fila):
+            ws.cell(r, j + 2, v)
+        r += 1
+    wb.save(destino)
+    return destino

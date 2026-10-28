@@ -129,3 +129,28 @@ def test_reescribir_anexo_remapea_pasivo_y_distingue_del_gasto():
     assert "5BS.21203.001" in pas_cod and len(pas) == 3
     gas_cod = {c for c, _, _, _ in gas}
     assert "5.2.1.2.1.2" in gas_cod and "5.2.1.2.1.1" in gas_cod
+
+
+def test_reescribir_consolidado_al_formato_del_motor():
+    """El Consolidado del IESS del cliente (una hoja, campos sin correr) se reescribe a la hoja
+    `detallePlanillaConsolidado` con los campos corridos a col B, y el motor lo parsea bien
+    (mes, cédula, patronal, individual, CCC, total)."""
+    from backend.app.aud.niif.procesadores.nomina import motor
+
+    cols = ["Periodo", "Cédula", "Nombre", "Rel. Trabajo", "Sueldo", "Días",
+            "Patronal", "Individual", "Aporte Adic", "Cesantia", "% CCC", "Valor CCC", "Total Aporte"]
+    filas = [
+        ["2026-7", "1700000001", "EMPLEADO UNO", "06-CODIGO", 600, 30, 66.9, 56.7, 0, 0, 1, 6.0, 123.6],
+        ["2026-6", "1700000001", "EMPLEADO UNO", "06-CODIGO", 600, 30, 66.9, 56.7, 0, 0, 1, 6.0, 123.6],
+        ["Totales", None, None, None, None, None, None, None, None, None, None, None, None],
+    ]
+    cliente = _xlsx(pd.DataFrame(filas, columns=cols))
+    destino = os.path.join(tempfile.mkdtemp(), "cons_adaptado.xlsx")
+    PC.reescribir_consolidado(cliente, destino)
+
+    rows = motor.leer_consolidado(destino)
+    assert len(rows) == 2                      # la fila «Totales» se descarta
+    r0 = rows[0]
+    assert r0["mes"] == 7 and r0["ced"] == "1700000001"
+    assert r0["pat"] == 66.9 and r0["ind"] == 56.7
+    assert r0["ccc"] == 6.0 and r0["total"] == 123.6

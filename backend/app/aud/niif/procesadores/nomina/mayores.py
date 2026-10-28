@@ -245,6 +245,17 @@ def cargar(rutas):
         if rutas.anexo and os.path.exists(rutas.anexo):
             rutas.anexo = perfil_cuentas.reescribir_anexo(
                 rutas.anexo, os.path.join(rutas.home, "anexo_adaptado.xlsx"))
+        # Adapta el Consolidado IESS (RQ-003) al formato del motor (hoja detallePlanillaConsolidado,
+        # campos corridos a col B) cuando el cliente trae el export estándar del IESS en una sola hoja.
+        if rutas.consolidado and os.path.exists(rutas.consolidado):
+            try:
+                import openpyxl
+                if "detallePlanillaConsolidado" not in openpyxl.load_workbook(
+                        rutas.consolidado, read_only=True).sheetnames:
+                    rutas.consolidado = perfil_cuentas.reescribir_consolidado(
+                        rutas.consolidado, os.path.join(rutas.home, "consolidado_adaptado.xlsx"))
+            except Exception:
+                pass  # si no se puede inspeccionar, se deja como está (el motor avisará)
         # CALIBRACIÓN EN VALIDACIÓN: los mayores y el anexo de este cliente ya se adaptan al plan
         # del motor y CONCILIAN (verificado contra su propio anexo). Falta correr y VERIFICAR las
         # 15 cédulas con los documentos reales del cliente (Consolidado IESS RQ-003, Rol RQ-006 y
