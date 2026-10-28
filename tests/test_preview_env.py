@@ -597,6 +597,46 @@ def test_command_backend_exporta_las_variables_reales(tmp_path):
     assert host == "384.api.preview.audit-ia.ec"
 
 
+@pytest.mark.skipif(_SIN_SH, reason="requiere un sh POSIX")
+def test_command_backend_exporta_source_commit_desde_el_portador(tmp_path):
+    """El command recupera SOURCE_COMMIT del portador PREVIEW_SOURCE_COMMIT=commit-<sha> que entrega Coolify.
+    Es la corrección del preview #405 (backend en bucle por «SOURCE_COMMIT ausente»). Cada PR trae el suyo."""
+    sha = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+    d = tmp_path / "secrets"
+    _secretos_completos(d)
+    script = _script_backend_para_prueba(d)
+    g = script.read_text(encoding="utf-8").replace('printf "%s" ARRANQUE_OK', 'printf "%s" "$SOURCE_COMMIT"')
+    script.write_text(g, encoding="utf-8")
+    r = _correr_backend_command(script, {"PREVIEW_SOURCE_COMMIT": f"commit-{sha}"})
+    assert r.returncode == 0, r.stderr
+    assert r.stdout == sha, f"SOURCE_COMMIT exportado = {r.stdout!r}, se esperaba {sha!r}"
+
+
+@pytest.mark.skipif(_SIN_SH, reason="requiere un sh POSIX")
+def test_command_backend_source_commit_vacio_si_falta_el_portador_sin_abortar(tmp_path):
+    """Sin PREVIEW_SOURCE_COMMIT (p. ej. fuera de Coolify) el command no aborta bajo `set -u`: SOURCE_COMMIT
+    queda vacío y el rechazo lo hace después preview_bootstrap (cubierto en test_coolify_exige_source_commit…)."""
+    d = tmp_path / "secrets"
+    _secretos_completos(d)
+    script = _script_backend_para_prueba(d)
+    g = script.read_text(encoding="utf-8").replace('printf "%s" ARRANQUE_OK', 'printf "[%s]" "$SOURCE_COMMIT"')
+    script.write_text(g, encoding="utf-8")
+    r = _correr_backend_command(script)  # sin PREVIEW_SOURCE_COMMIT en el entorno
+    assert r.returncode == 0, r.stderr
+    assert r.stdout == "[]", f"se esperaba SOURCE_COMMIT vacío, salió {r.stdout!r}"
+
+
+def test_portador_source_commit_encadenado_con_el_validador(monkeypatch, secretos):
+    """Integración: el SHA que el command extrae del portador es el que preview_bootstrap valida contra
+    BUILD_COMMIT. Un valor correcto arranca; uno ausente o distinto sigue siendo rechazado (sin debilitar F1)."""
+    _preview_valido(monkeypatch)  # SOURCE_COMMIT = BUILD_COMMIT = SHA
+    assert preview.preview_bootstrap(exit_on_error=False)["commit"] == SHA
+    # Lo que el portador vacío produciría (SOURCE_COMMIT="") debe seguir rechazándose.
+    monkeypatch.setenv("SOURCE_COMMIT", "")
+    with pytest.raises(preview.PreviewConfigError, match="SOURCE_COMMIT"):
+        preview.preview_bootstrap(exit_on_error=False)
+
+
 def test_command_backend_sin_variables_de_shell_sin_escapar():
     """Compose vaciaría en silencio cualquier `$var`/`${…}` no escapado como `$$` en el command."""
     crudo = _yaml.safe_load(_COMPOSE.read_text(encoding="utf-8"))["services"]["backend"]["command"]

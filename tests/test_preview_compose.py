@@ -69,13 +69,38 @@ def test_imagenes_por_commit_exacto_y_sin_build_en_el_servidor(compose):
     assert s["db"]["image"] == "postgres:18-alpine"
     assert s["init"]["image"].startswith("alpine:")
     env = _env(s["backend"])
-    # Identidad por commit (F1): la etiqueta esperada llega del mismo valor que interpoló las imágenes. SOURCE_COMMIT
-    # NO se declara: lo adjunta Coolify a todos los servicios por `env_file: .env` (ver test_regresion_analizador_coolify…).
+    # Identidad por commit (F1): la etiqueta esperada y el commit llegan del mismo valor que interpoló las
+    # imágenes. SOURCE_COMMIT no se declara con su propio nombre (el analizador de Coolify crearía la variable
+    # obsoleta, ver test_regresion_analizador_coolify…): se transporta con prefijo `commit-` y el command lo
+    # recupera como SOURCE_COMMIT en el runtime (ver test_source_commit_llega_al_runtime_del_backend).
     assert env["PREVIEW_EXPECTED_IMAGE_TAG"] == "sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}"
+    assert env["PREVIEW_SOURCE_COMMIT"] == "commit-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}"
     assert "SOURCE_COMMIT" not in env, "declararla con ${SOURCE_COMMIT:?…} hace que el analizador de Coolify cree la variable obsoleta"
     assert _env(s["init"])["PREVIEW_EXPECTED_IMAGE_TAG"] == "sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}"
     assert "PREVIEW_IMAGE_TAG" not in COMPOSE.read_text(encoding="utf-8"), "la variable compartida de Coolify ya no se usa"
     assert "latest" not in " ".join(s[n]["image"] for n in ("backend", "consola", "clientes"))
+
+
+def test_source_commit_llega_al_runtime_del_backend(compose):
+    """El backend debe recibir SOURCE_COMMIT en su ENTORNO (lo exige preview_bootstrap). Coolify no lo inyecta
+    por env_file (incidente del preview #405: backend en bucle de reinicio por «SOURCE_COMMIT ausente»), así que
+    se transporta con el portador PREVIEW_SOURCE_COMMIT=commit-${SOURCE_COMMIT} (valor que NO empieza por `$`,
+    a salvo del analizador de Coolify) y el command lo recupera. Dinámico por PR: ningún valor fijo en el archivo."""
+    s = compose["services"]
+    env = _env(s["backend"])
+    # Portador analizador-safe (no empieza por `$`) y con el mismo ${SOURCE_COMMIT} obligatorio que las imágenes.
+    assert env["PREVIEW_SOURCE_COMMIT"] == "commit-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}"
+    assert not env["PREVIEW_SOURCE_COMMIT"].startswith("$"), "el analizador de Coolify crearía una variable obsoleta"
+    # Nunca declarar la variable con su propio nombre (recrearía el incidente del 2026-10-20).
+    assert "SOURCE_COMMIT" not in env
+    # El command recupera SOURCE_COMMIT del portador, de forma segura bajo `set -u` (`:-` antes de recortar).
+    cmd = s["backend"]["command"]
+    assert 'export SOURCE_COMMIT="$${PREVIEW_SOURCE_COMMIT:-}"' in cmd
+    assert 'export SOURCE_COMMIT="$${SOURCE_COMMIT#commit-}"' in cmd
+    assert cmd.index("PREVIEW_SOURCE_COMMIT") < cmd.index("exec uvicorn"), "SOURCE_COMMIT se exporta antes de arrancar"
+    # El analizador de Coolify no debe crear ninguna variable a partir de este portador.
+    assert _simular_analizador_coolify({"services": {"backend": {"environment": [
+        f"PREVIEW_SOURCE_COMMIT={env['PREVIEW_SOURCE_COMMIT']}"]}}}) == []
 
 
 def test_identidad_del_pr_desde_la_variable_magica_correcta(compose):
