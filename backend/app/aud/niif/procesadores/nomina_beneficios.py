@@ -85,8 +85,10 @@ def definicion() -> dict:
                 "Fuente base del reproceso y de la base imponible", formats=("xls", "xlsx"), use="soporte"),
             req("RQ-004", "Mayores de nómina: mayor de gastos y mayores de pasivos (IESS por pagar y beneficios por pagar)", None, "DO-2",
                 "Clasificación por concepto y cuadre de saldos", formats=("xlsx",), use="soporte"),
-            req("RQ-005", "Comprobantes de pago del IESS (PDF): aportes, fondos de reserva y préstamos", None, "DO-9",
-                "Pago oportuno y sustento de saldos", formats=("pdf", "zip"), use="soporte"),
+            req("RQ-005", "Comprobantes de pago del IESS (PDF o ZIP): aportes, fondos de reserva y préstamos", None, "DO-9",
+                "Pago oportuno y sustento de saldos. Opcional: sin ellos el motor igual procesa y DO-9 y DO-10 "
+                "quedan pendientes hasta cargarlos (no bloquea el resto de las cédulas).",
+                required=False, formats=("pdf", "zip"), use="soporte"),
             req("RQ-006", "Rol de pagos (pestañas «normal» y «pasantes»)", None, "DO-3.1",
                 "Fuente de mensualización, fechas, goces, finiquitos y provisiones del cliente", formats=("xlsx",), use="soporte"),
             req("RQ-007", "Solicitudes escritas de acumulación de décimos (muestra DO-4 V08)", None, "DO-4 V08",

@@ -103,7 +103,15 @@ services:
       - pgdata:/var/lib/postgresql
       - secrets:/run/secrets:ro
     networks:
-      - preview_internal
+      # Alias de red ESTABLE `db`: el backend arma DATABASE_URL=…@db:5432 (y preview_bootstrap EXIGE
+      # que el host sea exactamente `db`). En los previews de Coolify el servicio/contenedor se publica
+      # con sufijo de PR (p. ej. `db-pr-405`) y su alias DNS por defecto pasa a ser ese nombre sufijado,
+      # así que `db` deja de resolver («could not translate host name "db"») y fallan login y el loop de
+      # retención. Declarar el alias explícito lo mantiene resoluble como `db` en TODOS los PR, sin fijar
+      # ningún número, y solo dentro de `preview_internal` (internal: true), nunca hacia producción.
+      preview_internal:
+        aliases:
+          - db
     depends_on:
       init:
         condition: service_healthy

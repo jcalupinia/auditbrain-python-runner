@@ -185,6 +185,43 @@ def test_reescribir_rol_mapea_por_seccion_y_nombre():
     assert r0["vac_gozada"] == 0.0 and r0["finiquito"] == 0.0  # pendientes del socio, no inventados
 
 
+def test_rol_sin_normal_se_adapta_tambien_con_mayores_del_plan_de_referencia():
+    """Regresión: la normalización del rol (crear la hoja «normal») es un paso COMÚN a las dos
+    ramas de ``cargar``. Antes solo corría en la rama del cliente nuevo (pasivo combinado); con
+    mayores del plan de referencia (rama else) el rol NO se adaptaba y, si venía sin «normal», el
+    motor reventaba con «Worksheet normal does not exist». Aquí: mayores del plan de referencia
+    (ejemplos del repo) + un rol en formato cliente (sin «normal») → tras ``cargar`` el rol ya
+    tiene «normal»."""
+    import openpyxl
+    from backend.app.aud.niif.procesadores.nomina import rutas as RT
+
+    EJ = "frontend/public/ejemplos/nomina_beneficios"
+    if not os.path.exists(f"{EJ}/RQ-004_mayor_de_iess_por_pagar.xlsx"):
+        import pytest
+        pytest.skip("faltan los ejemplos del repo")
+    # Rol en formato cliente (otra hoja, secciones), SIN hoja «normal».
+    sec = ["Datos Generales", None, None, "Ingresos", None, None, "Provisiones", None]
+    hdr = ["Cédula", "Empleado", "Cargo", "Sueldo", "Fondos Reserva", "Décimo Tercero",
+           "Decimo Tercer Sueldo", "Vacaciones"]
+    datos = [["1700000001", "PEREZ JUAN", "Analista", 600, 50.0, 10.0, 50.0, 25.0]]
+    rol = _xlsx(pd.DataFrame([sec, hdr, *datos]))
+    assert "normal" not in openpyxl.load_workbook(rol, read_only=True).sheetnames
+
+    home = tempfile.mkdtemp()
+    rutas = RT.Rutas(
+        home=home, out=os.path.join(home, "out"),
+        anexo=f"{EJ}/RQ-002_anexo_de_nomina_saldos_por_cuenta.xlsx",
+        rol=rol, consolidado=f"{EJ}/RQ-003_consolidado_iess_por_region.xlsx",
+        lm_gasto=f"{EJ}/RQ-004_mayor_de_gasto_de_nomina.xlsx",
+        lm_iess=f"{EJ}/RQ-004_mayor_de_iess_por_pagar.xlsx",
+        lm_bs=f"{EJ}/RQ-004_mayor_de_beneficios_sociales_por_pagar.xlsx",
+        roles_mensuales=[(rol, "Rol julio 2025.xlsx")],
+    )
+    MY.cargar(rutas)
+    # El rol quedó normalizado a la hoja «normal» (pese a ir por la rama del plan de referencia).
+    assert "normal" in openpyxl.load_workbook(rutas.rol, read_only=True).sheetnames
+
+
 def test_mayor_se_clasifica_por_contenido_si_el_nombre_no_identifica():
     """El resolver clasifica un mayor RQ-004 por sus códigos de cuenta cuando el nombre no dice
     GASTO/PASIVO (robustez: funciona aunque el archivo se llame «MayorA.xlsx»)."""
