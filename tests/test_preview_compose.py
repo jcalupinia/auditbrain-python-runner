@@ -153,11 +153,40 @@ def test_ninguna_variable_apunta_a_produccion(compose):
         assert clave not in env
 
 
+def _redes(svc: dict) -> set:
+    """Nombres de red de un servicio, admitiendo forma corta (lista) y larga (dict con aliases)."""
+    nets = svc.get("networks") or []
+    return set(nets.keys()) if isinstance(nets, dict) else set(nets)
+
+
 def test_red_interna_para_init_y_db(compose):
     assert compose["networks"]["preview_internal"]["internal"] is True
-    for n in ("init", "db"):
-        assert compose["services"][n]["networks"] == ["preview_internal"]
+    # init y db SOLO en la red interna aislada (db además con alias explícito, ver test siguiente).
+    assert _redes(compose["services"]["init"]) == {"preview_internal"}
+    assert _redes(compose["services"]["db"]) == {"preview_internal"}
     assert set(compose["volumes"]) == {"secrets", "pgdata", "appdata"}
+
+
+def test_db_expone_alias_estable_db_para_resolver_en_coolify(compose):
+    """El backend arma DATABASE_URL=…@db:5432 y preview_bootstrap EXIGE que el host sea `db`.
+    En los previews de Coolify el servicio se publica con sufijo de PR (db-pr-<n>) y su alias DNS por
+    defecto deja de ser `db` → «could not translate host name db». El alias explícito `db` en la red
+    interna lo mantiene resoluble para CUALQUIER PR, sin fijar números y sin salir de preview_internal."""
+    s = compose["services"]
+    db_nets = s["db"].get("networks")
+    assert isinstance(db_nets, dict) and "preview_internal" in db_nets, "db debe declarar la red en forma larga"
+    aliases = (db_nets["preview_internal"] or {}).get("aliases") or []
+    assert "db" in aliases, "el servicio db debe exponer el alias de red estable `db`"
+    # El alias vive SOLO en la red interna aislada (internal: true), nunca en una red hacia producción.
+    assert _redes(s["db"]) == {"preview_internal"}
+    assert compose["networks"]["preview_internal"]["internal"] is True
+    # El host de conexión sigue siendo exactamente `db` (lo exige _check_database_url del backend).
+    assert "postgresql://auditbrain:$$pg@db:5432/auditbrain" in s["backend"]["command"]
+    # El backend comparte esa red interna, así que resuelve el alias `db`.
+    assert "preview_internal" in _redes(s["backend"])
+    # Ningún número de PR fijo (la corrección es dinámica para todos los previews).
+    for alias in aliases:
+        assert "-pr-" not in alias and alias == "db"
 
 
 def test_sin_claves_propias_de_coolify(compose):
