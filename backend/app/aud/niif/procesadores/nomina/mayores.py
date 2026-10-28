@@ -214,6 +214,34 @@ def _plan_de_cuentas_coincide(iess, bs) -> bool:
 CUENTAS_NO_RECONOCIDAS: dict = {}
 
 
+def _normalizar_rol(rutas, perfil_cuentas):
+    """Asegura que ``rutas.rol`` tenga la hoja «normal» que lee el motor, en cualquiera de las dos
+    ramas de ``cargar`` (el formato del rol no depende del plan de cuentas de los mayores).
+
+    - Varios roles mensuales (``rutas.roles_mensuales`` con >1 archivo) → se combinan en uno (una
+      fila por empleado y mes); el mes sale del nombre del archivo.
+    - Un solo rol que YA trae «normal» (p. ej. el del encargo de referencia) → se deja intacto.
+    - Un solo rol SIN «normal» (otra estructura del cliente) → se reescribe (mapea por sección +
+      nombre, genérico). Vacaciones gozadas y finiquitos quedan en 0 (pendientes del socio, M23).
+    Nunca lanza: si no se puede inspeccionar/reescribir, deja el rol como estaba y el motor avisará.
+    """
+    roles = list(getattr(rutas, "roles_mensuales", None) or [])
+    if len(roles) > 1:
+        items = [(ruta, perfil_cuentas.mes_de_nombre(nom)) for ruta, nom in roles]
+        rutas.rol = perfil_cuentas.reescribir_roles(
+            items, os.path.join(rutas.home, "rol_adaptado.xlsx"))
+        return
+    if rutas.rol and os.path.exists(rutas.rol):
+        try:
+            import openpyxl
+            if "normal" not in openpyxl.load_workbook(rutas.rol, read_only=True).sheetnames:
+                mes = perfil_cuentas.mes_de_nombre(os.path.basename(rutas.rol))
+                rutas.rol = perfil_cuentas.reescribir_rol(
+                    rutas.rol, os.path.join(rutas.home, "rol_adaptado.xlsx"), mes=mes)
+        except Exception:
+            pass
+
+
 def cargar(rutas):
     """Carga los tres mayores y el anexo desde las rutas de la prueba y puebla los globales.
 
@@ -256,29 +284,10 @@ def cargar(rutas):
                         rutas.consolidado, os.path.join(rutas.home, "consolidado_adaptado.xlsx"))
             except Exception:
                 pass  # si no se puede inspeccionar, se deja como está (el motor avisará)
-        # Adapta el Rol (RQ-006) al layout de 67 columnas (hoja «normal») que lee el motor, cuando
-        # el rol del cliente viene en otra hoja/estructura (mapea por sección + nombre, genérico).
-        # Vacaciones gozadas y finiquitos quedan en 0 (pendientes del socio). Un rol combinado usa
-        # su columna de período; un rol de un solo mes necesita además el nº de mes (TODO resolver).
-        roles = list(getattr(rutas, "roles_mensuales", None) or [])
-        if len(roles) > 1:
-            # Varios roles mensuales → uno combinado (una fila por empleado y mes). El mes sale
-            # del nombre del archivo (p. ej. «Periodo_enero…» → 1).
-            items = [(ruta, perfil_cuentas.mes_de_nombre(nom)) for ruta, nom in roles]
-            rutas.rol = perfil_cuentas.reescribir_roles(
-                items, os.path.join(rutas.home, "rol_adaptado.xlsx"))
-        elif rutas.rol and os.path.exists(rutas.rol):
-            try:
-                import openpyxl
-                if "normal" not in openpyxl.load_workbook(rutas.rol, read_only=True).sheetnames:
-                    mes = perfil_cuentas.mes_de_nombre(os.path.basename(rutas.rol))
-                    rutas.rol = perfil_cuentas.reescribir_rol(
-                        rutas.rol, os.path.join(rutas.home, "rol_adaptado.xlsx"), mes=mes)
-            except Exception:
-                pass
-        # Cliente con plan de cuentas distinto: mayores + anexo + consolidado + rol ya se adaptan
-        # al formato del motor. Las cédulas se generan como PRELIMINARES, pendientes de validación
-        # del socio (M23); vacaciones gozadas y finiquitos quedan en 0 (el cliente no los separa).
+        # Cliente con plan de cuentas distinto: mayores + anexo + consolidado ya se adaptan al
+        # formato del motor (el rol se normaliza más abajo, como paso común a las dos ramas). Las
+        # cédulas se generan como PRELIMINARES, pendientes de validación del socio (M23);
+        # vacaciones gozadas y finiquitos quedan en 0 (el cliente no los separa).
     else:
         # --- Plan de referencia: tres mayores -----------------------------------------
         _faltan = [n for n, p in (("gastos", rutas.lm_gasto), ("IESS por pagar", rutas.lm_iess),
@@ -304,6 +313,14 @@ def cargar(rutas):
         B['concepto'] = B['Explicación -observación-'].astype(str).str.split('/').str[0].str.strip()
         B['clase'] = B.concepto.map(_cat_bs)
         I['clase'] = I['REF'].astype(str).str.strip().str.upper()
+    # Normaliza el Rol (RQ-006) a la hoja «normal» de 67 columnas que leen el motor y los
+    # generadores (motor.py, series.py, mk_do4/31/9, cedulas_nuevas). Es un paso COMÚN a las dos
+    # ramas: el formato del rol es independiente del plan de cuentas de los mayores (un cliente con
+    # mayores del plan de referencia puede traer el rol en otra estructura). Si el rol ya trae la
+    # hoja «normal», no se toca; si no, se reescribe (mapea por sección + nombre, genérico), y varios
+    # roles mensuales se combinan en uno. Sin este paso, un rol sin «normal» reventaba el motor con
+    # «Worksheet normal does not exist» en la rama del plan de referencia.
+    _normalizar_rol(rutas, perfil_cuentas)
     ANEXO = {}
     for r in pd.read_excel(rutas.anexo, header=None).iloc[3:].itertuples(index=False):
         if isinstance(r[0], str) and r[0][:1] == '5':
