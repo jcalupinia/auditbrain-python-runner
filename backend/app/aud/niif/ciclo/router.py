@@ -234,6 +234,15 @@ def accion(prueba_id: int, body: AccionIn, db: Session = Depends(get_db), user: 
     return _salida(_regla(lambda: servicio.aplicar_accion(db, p, body.accion, body.revision, body.datos, user.email)))
 
 
+@router.get("/pruebas/{prueba_id}/verificar-formato")
+def verificar_formato(prueba_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)) -> dict:
+    """Valida el formato de los documentos de la prueba de nómina SIN procesar, para que el
+    auditor confirme que están en el formato requerido antes de subir/procesar. Devuelve, por
+    documento, si está OK y qué cabecera/columna corregir."""
+    p = _prueba(db, user, prueba_id)
+    return servicio.verificar_formato_nomina(db, p)
+
+
 @router.post("/pruebas/{prueba_id}/papel")
 async def guardar_papel(
     prueba_id: int,

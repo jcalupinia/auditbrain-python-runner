@@ -570,6 +570,11 @@ export async function cicloAccion(id, accion, revision, datos = {}) {
   return parse(await apiFetch(`${CICLO}/pruebas/${id}/acciones`,
     jsonPost("POST", { accion, revision, datos }), opcionesAccion(accion)));
 }
+// Verifica el FORMATO de los documentos de la prueba de nómina SIN procesar: dice, por
+// documento, si está OK y qué cabecera/columna corregir antes de subir/procesar.
+export async function cicloVerificarFormato(pruebaId) {
+  return parse(await apiFetch(`${CICLO}/pruebas/${pruebaId}/verificar-formato`, { headers: authHeaders() }));
+}
 // E7: evidencia. El archivo va por formulario multiparte; el servidor lo guarda
 // en su disco y devuelve su huella.
 export async function cicloSubirArchivo(pruebaId, revision, requerimiento, componente, archivo) {
