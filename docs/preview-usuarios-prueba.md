@@ -50,10 +50,28 @@ alias, p. ej. `pr-op-01`.)
 
 ## Idempotencia y recuperación
 
-- Si el alias ya existe, no se recrea.
-- Si la cuenta existe pero su archivo de clave se perdió (p. ej. se recreó el volumen),
-  el seeder **re-emite** la clave para que la cuenta de QA siga siendo usable — solo
-  para las cuentas de esta matriz, nunca para el admin ni otras cuentas.
+- Si el alias ya existe, **no se recrea ni se resetea** su contraseña.
+- Si la cuenta existe pero su archivo de clave se perdió, el arranque **solo registra
+  una advertencia** (no cambia la contraseña ni el hash). La recuperación es un acto
+  administrativo **explícito**, nunca automático en cada boot.
+- Si al crear una cuenta **no se pudo guardar** su archivo de clave, el error se
+  registra, la cuenta queda **inactiva** y se reporta en `failed` — nunca como una
+  cuenta bien provisionada.
+
+### Recuperar una contraseña perdida (operación administrativa controlada)
+
+Dentro del contenedor backend del preview (requiere acceso al servidor; solo funciona
+en previews, afecta solo a la cuenta indicada y genera una clave aleatoria nueva e
+independiente):
+
+```bash
+docker exec <contenedor-backend-del-PR> \
+  python scripts/recuperar_clave_preview.py pr-op-01@preview.audit-ia.ec
+```
+
+Imprime la clave nueva **una sola vez** (compártela por canal seguro) y la deja
+guardada con permisos 600. No usa ninguna variable persistente, así que no provoca
+restablecimientos repetidos en cada arranque.
 
 ## Verificación automatizada
 

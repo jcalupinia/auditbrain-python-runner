@@ -190,6 +190,10 @@ services:
       - PREVIEW_EXPECTED_IMAGE_TAG=sha-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}
       - PREVIEW_SOURCE_COMMIT=commit-${SOURCE_COMMIT:?SOURCE_COMMIT requerido}
       - PREVIEW_SECRETS_DIR=/run/secrets
+      # Claves de las cuentas de prueba (seeder de operadores): directorio FIJO en
+      # el volumen read-write `appdata` (/var/data), persistente y aislado por PR.
+      # Fijarlo evita que un cambio de ruta entre despliegues "pierda" los archivos.
+      - PREVIEW_USER_SECRETS_DIR=/var/data/preview-users
       - CLIENT_PORTAL_SESSION_CHECK_ENABLED=false
       - CLIENT_PORTAL_DEVICE_CHECK_ENABLED=false
       # Administrador de prueba del preview (base de datos propia del PR; no es una identidad productiva).
