@@ -693,6 +693,11 @@ try:
                 ensure_bootstrap_admin(db)
                 get_or_create_default_organization(db)
                 assign_legacy_users_to_default_org(db)
+                # Solo en previews (APP_ENV=preview): siembra idempotente de una
+                # cuenta de prueba por cada rol real (user/client) además del admin
+                # del bootstrap. No-op en producción. Ver core/preview_seed.py.
+                from backend.app.core.preview_seed import seed_preview_users
+                seed_preview_users(db)
             finally:
                 db.close()
         except Exception as _db_exc:  # pragma: no cover
