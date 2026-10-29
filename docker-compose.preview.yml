@@ -192,11 +192,13 @@ services:
       - PREVIEW_SECRETS_DIR=/run/secrets
       - CLIENT_PORTAL_SESSION_CHECK_ENABLED=false
       - CLIENT_PORTAL_DEVICE_CHECK_ENABLED=false
-      # Administrador de prueba del preview (base de datos propia del PR; no es una identidad productiva).
-      # El dominio debe pasar el validador EmailStr del bootstrap: los de uso especial (.invalid, .test)
-      # se rechazan y el admin no se crearía. La contraseña y la API key NO van por variables: las
-      # exporta el `command` desde /run/secrets (exclusivas por PR).
-      - AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL=preview-admin@audit-ia.ec
+      # Administrador de prueba del preview: NO se hardcodea ningún correo aquí (el
+      # repositorio es público). El correo del admin se configura en tiempo de
+      # ejecución desde el archivo de identidades del volumen aislado del PR
+      # (backend/app/core/preview_seed.py); si no hay configuración válida, el
+      # código usa un fallback genérico NO-PII (`preview-admin@audit-ia.ec`). La
+      # contraseña y la API key NO van por variables: las exporta el `command`
+      # desde /run/secrets (exclusivas por PR).
       - AUD_CICLO_DIR=/var/data/aud_pruebas
       - AUD_OF_TMP_DIR=/var/data/of_tmp
       - AUD_PROCESO_PESADO_MAX=1
