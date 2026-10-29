@@ -1,9 +1,12 @@
-"""Siembra de cuentas de prueba del preview (``core/preview_seed``).
+"""Siembra de cuentas de operador del preview (``core/preview_seed``).
 
-Verifica: (1) fuera de preview es un no-op total; (2) sin la clave del preview
-no siembra; (3) en preview crea una cuenta por rol (user/client) con sus datos;
-(4) es idempotente (no duplica); (5) no toca usuarios existentes. No depende de
-Postgres: corre sobre la base hermética de la suite (ver conftest).
+Verifica: (1) fuera de preview es un no-op total; (2) en preview crea las 8
+cuentas de la matriz con rol ``user`` y clave propia recuperable; (3) cada cuenta
+tiene una contraseña aleatoria DISTINTA (no compartida) que autentica por el flujo
+real; (4) es idempotente (no duplica); (5) re-emite la clave si su archivo se
+perdió; (6) no toca usuarios existentes ajenos a la matriz. No depende de Postgres:
+corre sobre la base hermética de la suite (ver conftest) y un directorio temporal
+para las claves.
 """
 import uuid
 
@@ -11,41 +14,30 @@ import pytest
 from sqlalchemy import select
 
 from backend.app.auth import service as auth_service
-from backend.app.auth.models import Role, User, UserToolEntitlement
-from backend.app.client_portal.entitlements import list_user_tool_codes
-from backend.app.client_portal.tool_registry import TOOLS
-from backend.app.context.models import Client
+from backend.app.auth.models import Role, User
 from backend.app.core import preview_seed
+from backend.app.core.preview_users import PREVIEW_ACCOUNTS
 from backend.app.db.session import SessionLocal
 
-EMAILS = [preview_seed.PREVIEW_OPERADOR_EMAIL, preview_seed.PREVIEW_CLIENTE_EMAIL]
-TEST_PW = "preview-pw-12345678"
+ALIASES = [a["alias"] for a in PREVIEW_ACCOUNTS]
 
 
 def _borrar_sembrados() -> None:
     s = SessionLocal()
     try:
-        for email in EMAILS:
-            u = auth_service.get_user_by_email(s, email)
+        for alias in ALIASES:
+            u = auth_service.get_user_by_email(s, alias)
             if u:
-                for e in s.execute(
-                    select(UserToolEntitlement).where(UserToolEntitlement.user_id == u.id)
-                ).scalars():
-                    s.delete(e)
                 s.delete(u)
-        cli = s.execute(
-            select(Client).where(Client.name == preview_seed.PREVIEW_CLIENTE_NOMBRE)
-        ).scalar_one_or_none()
-        if cli:
-            s.delete(cli)
         s.commit()
     finally:
         s.close()
 
 
 @pytest.fixture(autouse=True)
-def _aislar():
-    """Deja la base sin las cuentas de prueba antes y después de cada test."""
+def _aislar(tmp_path, monkeypatch):
+    """Base sin las cuentas de la matriz y claves en un directorio temporal."""
+    monkeypatch.setenv("PREVIEW_USER_SECRETS_DIR", str(tmp_path / "preview-users"))
     _borrar_sembrados()
     yield
     _borrar_sembrados()
@@ -61,72 +53,76 @@ def db():
 @pytest.fixture()
 def preview_env(monkeypatch):
     monkeypatch.setenv("APP_ENV", "preview")
-    monkeypatch.setenv("AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD", TEST_PW)
 
 
 def test_fuera_de_preview_es_no_op(db, monkeypatch):
     """APP_ENV=production: no crea NADA (garantía de aislamiento con producción)."""
     monkeypatch.setenv("APP_ENV", "production")
-    monkeypatch.setenv("AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD", TEST_PW)
     r = preview_seed.seed_preview_users(db)
     assert r["skipped"] is True and r["seeded"] == []
-    assert auth_service.get_user_by_email(db, preview_seed.PREVIEW_OPERADOR_EMAIL) is None
-    assert auth_service.get_user_by_email(db, preview_seed.PREVIEW_CLIENTE_EMAIL) is None
+    for alias in ALIASES:
+        assert auth_service.get_user_by_email(db, alias) is None
 
 
-def test_sin_clave_del_preview_no_siembra(db, monkeypatch):
-    monkeypatch.setenv("APP_ENV", "preview")
-    monkeypatch.delenv("AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD", raising=False)
+def test_siembra_los_operadores_con_rol_y_clave_recuperable(db, preview_env):
     r = preview_seed.seed_preview_users(db)
-    assert r["seeded"] == []
-    assert auth_service.get_user_by_email(db, preview_seed.PREVIEW_OPERADOR_EMAIL) is None
+    assert r["skipped"] is False
+    assert len(r["seeded"]) == len(PREVIEW_ACCOUNTS) == 8
 
+    claves = {}
+    import pathlib, os
+    secrets_dir = pathlib.Path(os.environ["PREVIEW_USER_SECRETS_DIR"])
+    for acc in PREVIEW_ACCOUNTS:
+        alias = acc["alias"]
+        u = auth_service.get_user_by_email(db, alias)
+        assert u is not None and u.role == Role.user and u.is_active
+        assert u.organization_id is not None
+        # La clave quedó guardada con nombre = parte local del alias.
+        f = secrets_dir / preview_seed._alias_slug(alias)
+        assert f.is_file(), f"falta la clave de {alias}"
+        pw = f.read_text(encoding="utf-8").strip()
+        assert pw  # no vacía
+        claves[alias] = pw
+        # Autentica por el flujo real con su propia clave; una mala NO autentica.
+        assert auth_service.authenticate_user(db, alias, pw)
+        assert auth_service.authenticate_user(db, alias, "mala") is None
 
-def test_siembra_una_cuenta_por_rol_con_sus_datos(db, preview_env):
-    r = preview_seed.seed_preview_users(db)
-    assert r["skipped"] is False and len(r["seeded"]) == 2
-
-    op = auth_service.get_user_by_email(db, preview_seed.PREVIEW_OPERADOR_EMAIL)
-    assert op is not None and op.role == Role.user and op.is_active
-    assert op.organization_id is not None
-
-    cl = auth_service.get_user_by_email(db, preview_seed.PREVIEW_CLIENTE_EMAIL)
-    assert cl is not None and cl.role == Role.client and cl.is_active
-    assert cl.organization_id is not None and cl.client_id is not None
-
-    # Entitlements = subconjunto válido del catálogo real (nunca códigos inventados).
-    esperado = {c for c in preview_seed.PREVIEW_CLIENTE_TOOL_CODES if c in TOOLS}
-    assert list_user_tool_codes(db, cl.id) == esperado
-
-    # Las credenciales exclusivas del preview autentican por el flujo real.
-    assert auth_service.authenticate_user(db, preview_seed.PREVIEW_OPERADOR_EMAIL, TEST_PW)
-    assert auth_service.authenticate_user(db, preview_seed.PREVIEW_CLIENTE_EMAIL, TEST_PW)
-    # Y una clave incorrecta NO autentica (no se debilitó la autenticación).
-    assert auth_service.authenticate_user(db, preview_seed.PREVIEW_OPERADOR_EMAIL, "mala") is None
+    # Claves ALEATORIAS e INDEPENDIENTES: todas distintas entre sí.
+    assert len(set(claves.values())) == len(claves)
 
 
 def test_idempotente_no_duplica(db, preview_env):
     preview_seed.seed_preview_users(db)
     ids1 = {
         u.email: u.id
-        for u in db.execute(select(User).where(User.email.in_(EMAILS))).scalars()
+        for u in db.execute(select(User).where(User.email.in_(ALIASES))).scalars()
     }
     r2 = preview_seed.seed_preview_users(db)
     assert r2["seeded"] == []  # segunda pasada no crea nada
     ids2 = {
         u.email: u.id
-        for u in db.execute(select(User).where(User.email.in_(EMAILS))).scalars()
+        for u in db.execute(select(User).where(User.email.in_(ALIASES))).scalars()
     }
-    assert ids1 == ids2 and len(ids1) == 2  # mismos ids, sin duplicar
-    # Un único Client de prueba (no se duplica entre despliegues).
-    clientes = db.execute(
-        select(Client).where(Client.name == preview_seed.PREVIEW_CLIENTE_NOMBRE)
-    ).scalars().all()
-    assert len(clientes) == 1
+    assert ids1 == ids2 and len(ids1) == len(PREVIEW_ACCOUNTS)
+
+
+def test_reemite_clave_si_se_perdio_el_archivo(db, preview_env):
+    """Si la cuenta existe pero su clave no es recuperable, se re-emite."""
+    import pathlib, os
+    preview_seed.seed_preview_users(db)
+    secrets_dir = pathlib.Path(os.environ["PREVIEW_USER_SECRETS_DIR"])
+    alias = ALIASES[0]
+    (secrets_dir / preview_seed._alias_slug(alias)).unlink()
+
+    r = preview_seed.seed_preview_users(db)
+    assert r["seeded"] == []  # no recrea
+    assert alias in r["reissued"]
+    nueva = (secrets_dir / preview_seed._alias_slug(alias)).read_text().strip()
+    assert auth_service.authenticate_user(db, alias, nueva)
 
 
 def test_no_modifica_usuarios_existentes(db, preview_env):
-    """Una cuenta preexistente (p. ej. un admin) no se toca al sembrar."""
+    """Una cuenta ajena a la matriz (p. ej. un admin) no se toca al sembrar."""
     email = f"existente-{uuid.uuid4().hex[:8]}@example.com"
     pre = auth_service.create_user(db, email=email, password="original-pw", role=Role.admin)
     hash_antes, rol_antes = pre.hashed_password, pre.role
