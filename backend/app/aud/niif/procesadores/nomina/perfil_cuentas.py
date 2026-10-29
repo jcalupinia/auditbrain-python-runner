@@ -323,7 +323,10 @@ def _mapa_rol(filas):
         return None
 
     campos = {}
-    campos["nombre"] = buscar(nombre=lambda h: h in ("empleado", "nombre"))
+    campos["nombre"] = buscar(nombre=lambda h: h in ("empleado", "nombre", "nombres", "trabajador",
+                              "apellidos y nombres", "nombres y apellidos")
+                              or "apellidos y nombres" in h or "nombres y apellidos" in h
+                              or (("apellido" in h or "nombre" in h) and "fecha" not in h))
     campos["cargo"] = buscar(nombre=lambda h: h == "cargo")
     campos["ingreso"] = buscar(nombre=lambda h: "fecha de registro" in h or "fecha de ingreso" in h or h == "ingreso")
     # Ingresos (lo pagado en el mes): preferir la sección «ingreso», evitando egresos/provisiones.
