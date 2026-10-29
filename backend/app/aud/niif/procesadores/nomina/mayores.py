@@ -232,14 +232,20 @@ def _normalizar_rol(rutas, perfil_cuentas):
             items, os.path.join(rutas.home, "rol_adaptado.xlsx"))
         return
     if rutas.rol and os.path.exists(rutas.rol):
+        import openpyxl
         try:
-            import openpyxl
-            if "normal" not in openpyxl.load_workbook(rutas.rol, read_only=True).sheetnames:
-                mes = perfil_cuentas.mes_de_nombre(os.path.basename(rutas.rol))
-                rutas.rol = perfil_cuentas.reescribir_rol(
-                    rutas.rol, os.path.join(rutas.home, "rol_adaptado.xlsx"), mes=mes)
+            tiene_normal = "normal" in openpyxl.load_workbook(rutas.rol, read_only=True).sheetnames
         except Exception:
-            pass
+            # Si no se puede ni inspeccionar el archivo, se deja como estaba y el motor avisará.
+            return
+        if not tiene_normal:
+            # Rol en otra estructura (sin hoja «normal»): se reescribe al layout del motor. Si NO se
+            # puede reconocer (p. ej. faltan columnas de empleado/sueldo), se PROPAGA el motivo claro
+            # ("No reconozco el rol…") en vez de tragarlo con un «except: pass» y dejar que el motor
+            # reviente después con el críptico «Worksheet normal does not exist».
+            mes = perfil_cuentas.mes_de_nombre(os.path.basename(rutas.rol))
+            rutas.rol = perfil_cuentas.reescribir_rol(
+                rutas.rol, os.path.join(rutas.home, "rol_adaptado.xlsx"), mes=mes)
 
 
 def cargar(rutas):
