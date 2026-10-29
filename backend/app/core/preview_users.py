@@ -1,43 +1,35 @@
-"""Matriz de cuentas de prueba del Preview Environment (datos versionados).
+"""Configuración de las cuentas de prueba del Preview Environment.
 
-Reproduce en el preview los **permisos efectivos** de las cuentas de OPERADOR
-reales del entorno de producción, obtenidos con una exportación de solo lectura
-(SQL `SELECT` + control cruzado por los endpoints admin). Aquí vive **solo** la
-autorización seudonimizada: un alias exclusivo del preview por persona y su rol.
-El mapa alias → persona real lo conserva el dueño **fuera del repositorio**.
+**Sin PII.** Este módulo versionado NO contiene ningún correo real. Las identidades
+(correo del admin y correos de los operadores) se suministran **en tiempo de
+ejecución** mediante un archivo de identidades que vive **solo en el volumen
+aislado del preview autorizado** (ver ``preview_seed``), nunca en Git, nunca en
+variables globales de Coolify (que se heredarían en todos los previews).
 
-Garantías de privacidad:
-- **Sin PII real.** No hay correos reales, nombres, RUC ni datos de clientes.
-  Cada entrada es un alias ``pr-*@preview.audit-ia.ec`` + su rol.
-- **Sin secretos.** No hay contraseñas, hashes ni tokens. Las claves del preview
-  se generan aleatorias por cuenta en runtime (ver ``preview_seed``).
-- **Sin inventar permisos.** El rol de cada cuenta es el verificado en la BD de
-  producción; no se deduce del correo.
-
-Decisión del dueño (2026-10-29): se reproducen **solo los operadores** (rol
-``user``). El admin del preview ya existe (es el admin del bootstrap,
-``preview-admin@audit-ia.ec``) y **no** se recrea aquí. Las cuentas de rol
-``client`` **no** se reproducen.
-
-Correspondencia (privada, fuera del repo) con los ids de producción:
-    pr-op-01 → 59   pr-op-02 → 60   pr-op-03 → 61   pr-op-04 → 62
-    pr-op-05 → 63   pr-op-06 → 64   pr-op-07 → 70   pr-op-08 → 72
+Aquí solo viven constantes de configuración no sensibles:
+- el correo **genérico NO-PII** del admin de reserva (fallback),
+- los roles reproducidos (``admin`` para el jefe, ``user`` para los operadores),
+- las rutas/nombres de env por defecto.
 """
 
 from __future__ import annotations
 
-# Organización por defecto del preview (en producción era organization_id=1).
-PREVIEW_ORG_PSEUDO = "ORG1"
+from backend.app.auth.models import Role
 
-# Cuentas que SIEMBRA el seeder. El admin NO está aquí a propósito (lo crea el
-# bootstrap). Cada dict es autorización pura: alias de login + rol real.
-PREVIEW_ACCOUNTS: list[dict[str, str]] = [
-    {"alias": "pr-op-01@preview.audit-ia.ec", "role": "user"},
-    {"alias": "pr-op-02@preview.audit-ia.ec", "role": "user"},
-    {"alias": "pr-op-03@preview.audit-ia.ec", "role": "user"},
-    {"alias": "pr-op-04@preview.audit-ia.ec", "role": "user"},
-    {"alias": "pr-op-05@preview.audit-ia.ec", "role": "user"},
-    {"alias": "pr-op-06@preview.audit-ia.ec", "role": "user"},
-    {"alias": "pr-op-07@preview.audit-ia.ec", "role": "user"},
-    {"alias": "pr-op-08@preview.audit-ia.ec", "role": "user"},
-]
+# Admin genérico de RESERVA (no es una persona real; puede ir en el repo).
+# Se usa solo cuando NO hay un archivo de identidades válido en el preview.
+GENERIC_ADMIN_EMAIL = "preview-admin@audit-ia.ec"
+
+# Roles reproducidos (verificados en la BD de producción). No se inventan.
+ADMIN_ROLE = Role.admin
+OPERATOR_ROLE = Role.user
+
+# Archivo de identidades por-PR (JSON {"admin": <correo>, "operators": [<correo>, …]}).
+# Vive en el volumen `appdata` (/var/data), aislado por preview; lo coloca un
+# operador de confianza por terminal, solo en el preview autorizado. Configurable.
+ENV_IDENTITIES_FILE = "PREVIEW_IDENTITIES_FILE"
+DEFAULT_IDENTITIES_FILE = "/var/data/preview-seed/identidades.json"
+
+# Directorio donde se guardan las claves aleatorias por cuenta (volumen RW del PR).
+ENV_SECRETS_DIR = "PREVIEW_USER_SECRETS_DIR"
+DEFAULT_SECRETS_DIR = "/var/data/preview-users"

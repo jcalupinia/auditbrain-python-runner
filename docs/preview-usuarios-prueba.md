@@ -1,95 +1,91 @@
-# Cuentas de prueba del Preview (operadores reales reproducidos)
+# Cuentas de prueba del Preview (admin real + operadores, sin PII en Git)
 
-Cada Preview Environment (PR) nace con **una** cuenta: el admin del bootstrap
-(`preview-admin@audit-ia.ec`). Para probar AUDIT-IA como la aplicación real,
-`backend/app/core/preview_seed.py` siembra —**solo en previews** (`APP_ENV=preview`),
-de forma **idempotente**— las cuentas de **operador** reproducidas del entorno real,
-declaradas en `backend/app/core/preview_users.py`. En producción no crea, no modifica
-ni borra nada.
+Para probar AUDIT-IA como la aplicación real, el preview reproduce **1 admin** (el
+jefe) y los **operadores** del equipo, cada uno con su correo real y su rol
+verificado. Se siembra **solo en previews** (`APP_ENV=preview`), de forma
+**idempotente**, sobre la base **aislada del PR**. En producción es un no-op.
 
-## Alcance (decisión del dueño, 2026-10-29)
+## Los correos reales NUNCA están en Git ni en variables globales
 
-- Se reproducen **solo los operadores** (rol `user`). Las cuentas de rol `client`
-  **no** se reproducen.
-- El acceso de cada cuenta se tomó de la **configuración real verificada** en la BD
-  de producción (exportación de solo lectura: SQL `SELECT` + control cruzado por los
-  endpoints admin). No se asignan permisos por inferencia ni por el correo.
+El repositorio es **público**, así que ningún correo real se versiona. Tampoco se
+usan variables de entorno del app en Coolify: **se heredarían en todos los previews**
+(cada preview es un despliegue del mismo app con las mismas variables), lo que
+expondría la PII a cualquier preview autorizado. En su lugar, los correos se leen de
+un **archivo de identidades** que vive **solo en el volumen aislado del preview
+autorizado**.
 
-## Cuentas sembradas
+### Archivo de identidades (por PR, aislado)
 
-| Rol | Alias (login) | Entra por | Cuántas |
-|---|---|---|---|
-| `admin` | `preview-admin@audit-ia.ec` | Command Center (`/api/v1/auth/login`) | 1 (es el admin del bootstrap; **no** lo crea el seeder) |
-| `user` | `pr-op-01@preview.audit-ia.ec` … `pr-op-08@preview.audit-ia.ec` | Command Center (`/api/v1/auth/login`) | 8 operadores |
+- Ruta (configurable con `PREVIEW_IDENTITIES_FILE`): por defecto
+  `/var/data/preview-seed/identidades.json`, en el volumen `appdata` del PR.
+- Formato:
+  ```json
+  { "admin": "correo-del-jefe@dominio", "operators": ["op1@dominio", "…", "op8@dominio"] }
+  ```
+- Lo coloca un operador de confianza, **solo en el preview autorizado**, por la
+  terminal del contenedor:
+  ```bash
+  docker exec <backend-pr-N> sh -c 'umask 077; mkdir -p /var/data/preview-seed; cat > /var/data/preview-seed/identidades.json'
+  ```
+  (pega el JSON y Ctrl-D). Persiste entre redeploys del PR; se hace una sola vez.
+- Tras colocarlo, siembra sin reiniciar:
+  ```bash
+  docker exec <backend-pr-N> python -c "from backend.app.db.session import SessionLocal; from backend.app.core import preview_seed; print(preview_seed.seed_preview_users(SessionLocal()))"
+  ```
 
-Los alias son **exclusivos del preview**: no son identidades productivas y viven solo
-en la base aislada del PR. El mapa alias → persona real lo conserva el dueño **fuera
-del repositorio** (no se versiona).
+> ⚠️ **Aislamiento del volumen:** esto depende de que `appdata` esté aislado por
+> preview (Coolify lo sufija `appdata-pr-N`). **Verifícalo en el servidor** antes de
+> colocar correos reales: `docker volume ls | grep appdata` debe mostrar un volumen
+> por PR. Si no puedes demostrarlo, **no coloques correos reales**.
 
-## Contraseñas (aleatorias e independientes por cuenta)
+## Administrador
 
-Cada cuenta recibe una **clave aleatoria propia** (`secrets.token_urlsafe`), distinta
-de la del admin y de las demás. **No** se deriva de ninguna clave compartida, **no**
-está en el repositorio, **no** va a variables de Coolify ni a los logs.
+- Con un `admin` válido en el archivo, esa cuenta se crea/asegura como **`admin`**
+  con clave aleatoria propia, y el **admin genérico de reserva**
+  `preview-admin@audit-ia.ec` se **desactiva** (no se borra), para no tener dos admins
+  activos ni claves compartidas.
+- Sin archivo válido, queda el **admin genérico de reserva** (`preview-admin@audit-ia.ec`),
+  que crea `ensure_bootstrap_admin` solo en previews. Es un correo genérico NO-PII.
 
-Se guardan, con permisos 600, en el volumen de datos del preview (read-write y
-persistente por PR). Directorio configurable con `PREVIEW_USER_SECRETS_DIR`
-(por defecto `/var/data/preview-users`). Para obtener la clave de una cuenta:
+## Operadores
 
-```bash
-docker exec <contenedor-backend-del-PR> sh -c 'cat /var/data/preview-users/pr-op-01; echo'
-```
+Rol `user`, activos, organización por defecto (configuración verificada). Cada uno con
+clave **aleatoria e independiente** (`secrets.token_urlsafe`). No se copian credenciales
+de producción. El correo del admin se excluye de la lista de operadores.
 
-(`<contenedor-backend-del-PR>` es el backend del preview, p. ej. `backend-pr-412-…`;
-`docker ps | grep backend-pr` lo lista. El nombre del archivo es la parte local del
-alias, p. ej. `pr-op-01`.)
+## Contraseñas
 
-> Nota: el volumen `secrets` del compose (`/run/secrets`) está montado **read-only**
-> en el backend; por eso las claves por cuenta van en `/var/data` (volumen `appdata`),
-> no en `/run/secrets`.
+Se guardan con permisos 600 en el volumen RW del PR (`PREVIEW_USER_SECRETS_DIR`, por
+defecto `/var/data/preview-users`), con **nombre de archivo hash** del correo (no se
+expone la identidad en el volumen). Nunca van al repo, a variables de Coolify ni a los
+logs (el seeder registra solo conteos).
 
-## Idempotencia y recuperación
-
-- Si el alias ya existe, **no se recrea ni se resetea** su contraseña.
-- Si la cuenta existe pero su archivo de clave se perdió, el arranque **solo registra
-  una advertencia** (no cambia la contraseña ni el hash). La recuperación es un acto
-  administrativo **explícito**, nunca automático en cada boot.
-- Si al crear una cuenta **no se pudo guardar** su archivo de clave, el error se
-  registra, la cuenta queda **inactiva** y se reporta en `failed` — nunca como una
-  cuenta bien provisionada.
-
-### Recuperar una contraseña perdida (operación administrativa controlada)
-
-Dentro del contenedor backend del preview (requiere acceso al servidor; solo funciona
-en previews, afecta solo a la cuenta indicada y genera una clave aleatoria nueva e
-independiente):
+### Recuperar / listar claves (solo preview, controlado)
 
 ```bash
-docker exec <contenedor-backend-del-PR> \
-  python scripts/recuperar_clave_preview.py pr-op-01@preview.audit-ia.ec
+# Re-emitir (clave nueva) una cuenta por su correo:
+docker exec <backend-pr-N> python scripts/recuperar_clave_preview.py correo@dominio
+
+# Listar correo→clave de todas las cuentas configuradas (para repartir en privado):
+docker exec <backend-pr-N> python scripts/recuperar_clave_preview.py --listar
 ```
 
-Imprime la clave nueva **una sola vez** (compártela por canal seguro) y la deja
-guardada con permisos 600. No usa ninguna variable persistente, así que no provoca
-restablecimientos repetidos en cada arranque.
+## Idempotencia y seguridad
 
-## Verificación automatizada
+- Idempotente por correo; **no resetea** contraseñas en el arranque (si falta el
+  archivo de clave, solo avisa; la recuperación es explícita).
+- Fallo de escritura de una clave → la cuenta queda **inactiva** y se reporta como
+  fallida (nunca como provisionada).
+- Solo corre con `APP_ENV=preview`; base del PR aislada (`DATABASE_URL` host `db`);
+  **no toca producción**; no copia PII/credenciales de producción; no debilita la
+  autenticación ni los roles.
+
+## Verificación
 
 ```bash
-python scripts/verificar_usuarios_preview.py
+python scripts/verificar_usuarios_preview.py     # DIFERENCIAS: 0
 ```
+Control cruzado por API (JWT admin): `GET /api/v1/auth/users` lista admin + operadores.
 
-Read-only: compara la BD del preview contra la matriz (rol, estado, organización) y
-termina con «DIFERENCIAS: 0» si todo coincide. Control cruzado por API (con JWT de
-admin): `GET /api/v1/auth/users` debe listar los 8 operadores con rol `user`.
-
-## Garantías
-
-- Solo corre con `APP_ENV=preview`; es un no-op en producción.
-- Base del PR aislada; estas cuentas y sus datos no tocan la de producción.
-- Idempotente: no duplica cuentas.
-- No importa contraseñas, hashes, tokens ni PII de producción; no borra ni modifica
-  usuarios ajenos a la matriz; no desactiva la autenticación ni relaja los controles
-  de autorización (los roles reales se respetan).
-
-Pruebas: `tests/test_preview_seed.py`.
+Pruebas: `tests/test_preview_seed.py` (incluye una guarda anti-PII que falla si un
+correo real aparece en archivos versionados).

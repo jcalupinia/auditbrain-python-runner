@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Verificador read-only de las cuentas de prueba del preview.
 
-Compara la BD del preview contra la matriz ``preview_users.PREVIEW_ACCOUNTS`` y
-reporta cualquier diferencia. SOLO lee (SELECT); no crea, no modifica, no borra.
+Compara la BD del preview contra el archivo de identidades del PR y reporta
+diferencias. SOLO lee (SELECT); no crea, no modifica, no borra. No imprime
+contraseñas.
 
-Uso (dentro del contenedor backend del preview, que ya tiene DATABASE_URL al
-Postgres aislado del PR):
+Uso (dentro del contenedor backend del preview):
 
     python scripts/verificar_usuarios_preview.py
 
-Sale con código 0 si «DIFERENCIAS: 0», 1 si hay diferencias, 2 si no es preview.
+Sale 0 si «DIFERENCIAS: 0», 1 si hay diferencias, 2 si no es preview.
 """
 from __future__ import annotations
 
@@ -17,8 +17,8 @@ import sys
 
 from backend.app.auth import service as auth_service
 from backend.app.auth.models import Role
-from backend.app.core import preview
-from backend.app.core.preview_users import PREVIEW_ACCOUNTS
+from backend.app.core import preview, preview_seed
+from backend.app.core import preview_users as cfg
 from backend.app.db.session import SessionLocal
 
 
@@ -27,28 +27,35 @@ def main() -> int:
         print("No es un preview (APP_ENV!=preview); nada que verificar.")
         return 2
 
+    ident = preview_seed._load_identities()
     db = SessionLocal()
     diffs: list[str] = []
     try:
-        for acc in PREVIEW_ACCOUNTS:
-            alias = acc["alias"]
-            esperado_rol = Role(acc["role"])
-            u = auth_service.get_user_by_email(db, alias)
-            if u is None:
-                diffs.append(f"FALTA   {alias}: no existe en la BD del preview")
+        # Admin: si hay admin en el archivo, debe existir como admin activo y el
+        # genérico de reserva debe estar inactivo.
+        if ident["admin"]:
+            u = auth_service.get_user_by_email(db, ident["admin"])
+            if u is None or u.role != Role.admin or not u.is_active:
+                diffs.append("ADMIN: el correo de admin del archivo no está como admin activo")
+            else:
+                print("OK? admin real activo")
+            g = auth_service.get_user_by_email(db, cfg.GENERIC_ADMIN_EMAIL)
+            if g is not None and g.is_active and g.email != ident["admin"]:
+                diffs.append("ADMIN: el admin genérico de reserva sigue ACTIVO (debería estar inactivo)")
+        else:
+            print("Sin admin en el archivo: se espera el admin genérico de reserva.")
+
+        # Operadores: rol user, activos, con organización.
+        for email in ident["operators"]:
+            if ident["admin"] and email == ident["admin"]:
                 continue
-            if u.role != esperado_rol:
-                diffs.append(
-                    f"ROL     {alias}: esperado {esperado_rol.value}, hay {u.role.value}"
-                )
-            if not u.is_active:
-                diffs.append(f"ESTADO  {alias}: is_active=False (se esperaba activo)")
-            if u.organization_id is None:
-                diffs.append(f"ORG     {alias}: sin organización asignada")
-            print(
-                f"OK?     {alias}: role={u.role.value} "
-                f"activo={u.is_active} org={u.organization_id}"
-            )
+            u = auth_service.get_user_by_email(db, email)
+            if u is None:
+                diffs.append("FALTA un operador configurado en el archivo")
+            elif u.role != Role.user or not u.is_active or u.organization_id is None:
+                diffs.append("OPERADOR con rol/estado/organización incorrectos")
+            else:
+                print("OK? operador user activo")
     finally:
         db.close()
 

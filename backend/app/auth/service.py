@@ -226,6 +226,16 @@ def ensure_bootstrap_admin(db: Session) -> None:
     """
     email = os.getenv("AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
     password = os.getenv("AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD", "").strip()
+    # En PREVIEWS el correo del admin ya no se hardcodea en el compose (el repo es
+    # público); si no viene por entorno, se usa un fallback genérico NO-PII para que
+    # el preview siga teniendo un admin usable. El correo real del jefe lo configura
+    # el seeder desde el archivo de identidades aislado del PR. En producción esto
+    # NO aplica (is_preview() es False) y el comportamiento no cambia.
+    if not email and password:
+        from backend.app.core import preview
+        if preview.is_preview():
+            from backend.app.core.preview_users import GENERIC_ADMIN_EMAIL
+            email = GENERIC_ADMIN_EMAIL
     if not email or not password:
         return
     if not _email_valido(email):

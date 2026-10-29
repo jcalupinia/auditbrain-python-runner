@@ -1,48 +1,37 @@
 """Cuentas de prueba de un Preview Environment (solo ``APP_ENV=preview``).
 
-Un preview nace con UNA sola cuenta: el admin del bootstrap
-(``ensure_bootstrap_admin``, ``preview-admin@audit-ia.ec``). Para poder probar
-AUDIT-IA como la aplicación real —entrar como cada operador del equipo y ver sus
-permisos— aquí se siembran, **de forma idempotente y solo en previews**, las
-cuentas de OPERADOR de la matriz ``preview_users.PREVIEW_ACCOUNTS`` (reproducción
-seudonimizada de los operadores reales de producción; ver ese módulo). No se
-inventan roles ni se reproducen cuentas de rol ``client``.
+Reproduce en la base **aislada del PR** la configuración real verificada: 1 admin
+(el jefe) y los operadores del equipo, cada uno con su correo real y rol ``user``.
+Los correos **nunca** están en el repositorio ni en variables globales: se leen de
+un **archivo de identidades** que vive solo en el volumen ``appdata`` (aislado por
+preview) del preview autorizado, colocado por un operador de confianza.
 
-Garantías de aislamiento y seguridad (requisitos del dueño):
-- **Solo preview.** ``seed_preview_users`` es un no-op fuera de ``APP_ENV=preview``
-  (``preview.is_preview()``). En producción no crea, no modifica y no borra nada.
-  En preview ``preview_bootstrap`` ya exige que ``DATABASE_URL`` apunte al servicio
-  interno ``db`` del propio PR, así que esto nunca toca la base productiva.
-- **Base aislada por PR.** Usa la ``SessionLocal`` del backend, que en preview es la
-  Postgres exclusiva del PR.
-- **Contraseñas aleatorias e independientes por cuenta.** Cada cuenta recibe una
-  clave aleatoria propia (``secrets.token_urlsafe``), NO derivada de la del admin
-  ni compartida entre cuentas. Se guarda, con permisos 600, en el volumen de datos
-  del preview (``PREVIEW_USER_SECRETS_DIR``, por defecto ``/var/data/preview-users``,
-  que es read-write y persistente por PR). NUNCA va al repositorio, a variables de
-  Coolify ni a los logs. Recuperación: ``docker exec <backend-pr-N> sh -c 'cat
-  /var/data/preview-users/<alias-localpart>'``.
-- **Sin PII ni secretos de producción.** La matriz solo tiene alias + rol; no hay
-  correos reales, hashes, tokens ni datos de clientes.
-- **Idempotente y NO destructivo en el arranque.** Cada cuenta se crea solo si su
-  alias no existe. Si la cuenta YA existe pero su archivo de clave se perdió, el
-  arranque **solo registra una advertencia** y NO cambia la contraseña ni el hash;
-  la recuperación es un acto administrativo explícito (``reissue_password`` /
-  ``scripts/recuperar_clave_preview.py``), nunca automática en cada boot.
-- **Los fallos de escritura no se ocultan.** Si no se puede guardar el archivo de
-  una clave recién creada, se registra el error (sin revelar el secreto), la cuenta
-  se deja **inactiva** y se reporta en ``failed`` — nunca como una cuenta bien
-  provisionada.
-- **No debilita la autorización.** Crea usuarios con sus roles reales; los guards
-  (``require_admin``/``require_staff``/``require_client_with_device``) siguen intactos.
+Garantías (requisitos del dueño):
+- **Solo preview.** ``seed_preview_users`` es un no-op fuera de ``APP_ENV=preview``.
+  En producción no crea, no modifica, no borra. En preview, ``preview_bootstrap``
+  exige que ``DATABASE_URL`` apunte al servicio interno ``db`` del propio PR.
+- **Sin PII en Git ni en logs.** El repo no contiene correos reales; el seeder
+  registra solo CONTEOS, nunca correos. Las claves por cuenta se guardan con nombre
+  de archivo **hash** (no el correo) para no exponer PII en el volumen.
+- **Admin:** si el archivo trae un correo de admin válido, se crea/asegura como
+  ``admin`` con clave aleatoria propia y se **desactiva** (no se borra) el admin
+  genérico de reserva, evitando dos admins activos o claves compartidas. Sin archivo
+  válido, queda el admin genérico de reserva (lo crea ``ensure_bootstrap_admin``).
+- **Operadores:** rol ``user``, activos, organización por defecto; clave aleatoria e
+  independiente por cuenta (``secrets.token_urlsafe``), guardada 600 en el volumen RW
+  del PR. Idempotente por correo; **no resetea** en el arranque; fallo de escritura →
+  cuenta inactiva (nunca "provisionada"); recuperación explícita (``reissue_password``).
+- **Sin credenciales de producción.** No copia contraseñas, hashes ni sesiones.
+- **No debilita la autorización.** Roles reales; los guards siguen intactos.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import pathlib
-import re
 import secrets
 
 from sqlalchemy.orm import Session
@@ -50,34 +39,32 @@ from sqlalchemy.orm import Session
 from backend.app.auth import service as auth_service
 from backend.app.auth.models import Role
 from backend.app.core import preview
-from backend.app.core.preview_users import PREVIEW_ACCOUNTS
+from backend.app.core import preview_users as cfg
 
 log = logging.getLogger("auditbrain")
 
-# Longitud (en bytes de entropía) de cada clave aleatoria. token_urlsafe(24) da
-# ~32 caracteres url-safe; supera el mínimo de 8 que valida reset_user_password.
+# token_urlsafe(24) ≈ 32 chars url-safe; supera el mínimo de 8 de reset_user_password.
 _PASSWORD_ENTROPY_BYTES = 24
 
-# Directorio (read-write, persistente por PR) donde se guardan las claves por
-# cuenta. El volumen `secrets` del compose está montado read-only en el backend,
-# por eso NO se usa /run/secrets aquí; `appdata` (/var/data) sí es escribible.
-_DEFAULT_SECRETS_DIR = "/var/data/preview-users"
 
-
-def _matrix_aliases() -> set[str]:
-    return {a["alias"] for a in PREVIEW_ACCOUNTS}
+# --------------------------------------------------------------------------- #
+# Rutas y utilidades (sin exponer PII)
+# --------------------------------------------------------------------------- #
+def _identities_file() -> pathlib.Path:
+    return pathlib.Path(os.getenv(cfg.ENV_IDENTITIES_FILE, cfg.DEFAULT_IDENTITIES_FILE))
 
 
 def _secrets_dir() -> pathlib.Path:
-    return pathlib.Path(
-        os.getenv("PREVIEW_USER_SECRETS_DIR", _DEFAULT_SECRETS_DIR)
-    )
+    return pathlib.Path(os.getenv(cfg.ENV_SECRETS_DIR, cfg.DEFAULT_SECRETS_DIR))
 
 
-def _alias_slug(alias: str) -> str:
-    """Nombre de archivo seguro a partir del alias (parte local del correo)."""
-    local = alias.split("@", 1)[0]
-    return re.sub(r"[^A-Za-z0-9._-]", "_", local)
+def _email_slug(email: str) -> str:
+    """Nombre de archivo NO-PII: hash del correo (no revela la identidad en el volumen)."""
+    return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()[:16]
+
+
+def _valid_email(email: str) -> bool:
+    return bool(email) and auth_service._email_valido(email)
 
 
 def _new_password() -> str:
@@ -85,24 +72,19 @@ def _new_password() -> str:
 
 
 def _ensure_dir() -> pathlib.Path:
-    """Crea el directorio de claves con permisos 700. Propaga OSError si falla."""
     d = _secrets_dir()
     d.mkdir(parents=True, exist_ok=True)
     try:
         os.chmod(d, 0o700)
     except OSError:
-        # El chmod puede no ser soportado por el FS; no es fatal si el dir existe.
         pass
     return d
 
 
-def _store_password(alias: str, password: str) -> None:
-    """Escribe la clave en un archivo propio (atómico, permisos 600).
-
-    Propaga ``OSError`` si no puede escribir: el fallo NO se oculta; el llamador
-    decide cómo reportarlo. Nunca registra ni devuelve el secreto."""
+def _store_password(email: str, password: str) -> None:
+    """Escribe la clave (atómico, 600), con nombre = hash del correo. Propaga OSError."""
     d = _ensure_dir()
-    slug = _alias_slug(alias)
+    slug = _email_slug(email)
     tmp = d / f".{slug}.tmp"
     final = d / slug
     tmp.write_text(password + "\n", encoding="utf-8")
@@ -110,28 +92,70 @@ def _store_password(alias: str, password: str) -> None:
     os.replace(tmp, final)
 
 
-def _password_file_exists(alias: str) -> bool:
+def _password_file_exists(email: str) -> bool:
     try:
-        return (_secrets_dir() / _alias_slug(alias)).is_file()
+        return (_secrets_dir() / _email_slug(email)).is_file()
     except OSError:
         return False
 
 
+def _load_identities() -> dict:
+    """Lee el archivo de identidades del volumen del PR. Devuelve
+    ``{"admin": <correo|None>, "operators": [<correo>, …]}`` ya validado y normalizado.
+
+    Nunca lanza ni registra el CONTENIDO (solo conteos): un archivo ausente,
+    ilegible o inválido produce una configuración vacía (comportamiento seguro)."""
+    vacio = {"admin": None, "operators": []}
+    try:
+        raw = _identities_file().read_text(encoding="utf-8")
+    except OSError:
+        return vacio  # ausente: sin configuración (se usa el admin genérico de reserva)
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        log.warning("PREVIEW seed: archivo de identidades ilegible (JSON inválido); se ignora")
+        return vacio
+    if not isinstance(data, dict):
+        log.warning("PREVIEW seed: archivo de identidades con formato inesperado; se ignora")
+        return vacio
+
+    admin_raw = data.get("admin")
+    admin = admin_raw.strip().lower() if isinstance(admin_raw, str) else None
+    if admin is not None and not _valid_email(admin):
+        log.warning("PREVIEW seed: correo de admin inválido en el archivo; se ignora el admin")
+        admin = None
+
+    operadores: list[str] = []
+    descartados = 0
+    for e in data.get("operators") or []:
+        cand = e.strip().lower() if isinstance(e, str) else ""
+        if _valid_email(cand) and cand not in operadores:
+            operadores.append(cand)
+        else:
+            descartados += 1
+    if descartados:
+        log.warning("PREVIEW seed: %d entrada(s) de operador inválidas descartadas", descartados)
+    return {"admin": admin, "operators": operadores}
+
+
+# --------------------------------------------------------------------------- #
+# Siembra
+# --------------------------------------------------------------------------- #
 def seed_preview_users(db: Session) -> dict:
-    """Siembra las cuentas de operador del preview. Idempotente y solo en preview.
+    """Siembra admin + operadores en el preview. Idempotente y solo en preview.
 
-    Devuelve ``{"seeded": [...], "warnings": [...], "failed": [...],
-    "skipped": bool, "reason": str}``. Nunca lanza: cualquier problema se registra
-    y el arranque continúa.
+    Devuelve un resumen con **conteos** (sin correos), p. ej.::
 
-    - ``seeded``:   cuentas creadas Y con su clave guardada correctamente.
-    - ``warnings``: cuentas que ya existían pero cuyo archivo de clave falta
-                    (NO se tocó la contraseña; requieren recuperación explícita).
-    - ``failed``:   cuentas creadas pero cuya clave NO pudo guardarse (quedan
-                    INACTIVAS; no son usables hasta recuperarlas).
+        {"skipped": False, "admin": "seeded"|"exists"|"failed"|"generic"|"none",
+         "generic_desactivado": bool, "operadores_creados": int,
+         "operadores_avisos": int, "operadores_fallidos": int, "reason": ""}
+
+    Nunca lanza: cualquier problema se registra (sin PII) y el arranque continúa.
     """
     resumen: dict = {
-        "seeded": [], "warnings": [], "failed": [], "skipped": True, "reason": ""
+        "skipped": True, "admin": "none", "generic_desactivado": False,
+        "operadores_creados": 0, "operadores_avisos": 0, "operadores_fallidos": 0,
+        "reason": "",
     }
     if not preview.is_preview():
         resumen["reason"] = "no es preview (APP_ENV!=preview)"
@@ -139,85 +163,111 @@ def seed_preview_users(db: Session) -> dict:
 
     resumen["skipped"] = False
     try:
-        _seed_operadores(db, resumen)
+        ident = _load_identities()
+        _seed_admin(db, ident["admin"], resumen)
+        _seed_operadores(db, ident["operators"], ident["admin"], resumen)
     except Exception:  # pragma: no cover - defensivo: el arranque no debe caer
-        log.exception("PREVIEW seed: falló la siembra de cuentas de prueba")
-        resumen["reason"] = "excepción durante la siembra (ver log)"
-    if resumen["seeded"]:
-        log.info("PREVIEW seed: cuentas creadas: %s", ", ".join(resumen["seeded"]))
-    if resumen["warnings"]:
-        log.warning(
-            "PREVIEW seed: cuentas existentes SIN archivo de clave (no se cambió la "
-            "contraseña; recupérala con scripts/recuperar_clave_preview.py): %s",
-            ", ".join(resumen["warnings"]),
-        )
-    if resumen["failed"]:
-        log.error(
-            "PREVIEW seed: cuentas creadas pero SIN poder guardar su clave "
-            "(quedaron inactivas): %s", ", ".join(resumen["failed"]),
-        )
+        log.exception("PREVIEW seed: falló la siembra (ver log)")
+        resumen["reason"] = "excepción durante la siembra"
+    log.info(
+        "PREVIEW seed: admin=%s genérico_desactivado=%s operadores creados=%d avisos=%d fallidos=%d",
+        resumen["admin"], resumen["generic_desactivado"],
+        resumen["operadores_creados"], resumen["operadores_avisos"], resumen["operadores_fallidos"],
+    )
     return resumen
 
 
-def _seed_operadores(db: Session, resumen: dict) -> None:
-    """Crea cada operador de la matriz (rol de la matriz), en la organización por
-    defecto, con una clave aleatoria propia. Idempotente por alias. NO resetea
-    contraseñas de cuentas ya existentes."""
+def _seed_admin(db: Session, admin_email: str | None, resumen: dict) -> None:
+    """Crea/asegura el admin real del archivo y desactiva el admin genérico de reserva.
+
+    Sin correo de admin válido → no hace nada (queda el genérico de reserva activo)."""
+    if not admin_email:
+        resumen["admin"] = "generic"
+        return
     from backend.app.context.service import get_or_create_default_organization
 
     org = get_or_create_default_organization(db)
-    for acc in PREVIEW_ACCOUNTS:
-        alias = acc["alias"]
-        role = Role(acc["role"])  # valida contra el enum real; no inventa roles
-        existing = auth_service.get_user_by_email(db, alias)
-
-        if existing is not None:
-            # Idempotente: no se recrea NI se resetea. Si falta la clave, solo se
-            # avisa; la recuperación es un acto administrativo explícito.
-            if not _password_file_exists(alias):
-                resumen["warnings"].append(alias)
-            continue
-
+    existing = auth_service.get_user_by_email(db, admin_email)
+    if existing is None:
         password = _new_password()
-        user = auth_service.create_user(
-            db, email=alias, password=password, role=role
-        )
+        user = auth_service.create_user(db, email=admin_email, password=password, role=Role.admin)
         user.organization_id = org.id
         db.add(user)
         db.commit()
         try:
-            _store_password(alias, password)
+            _store_password(admin_email, password)
         except OSError:
-            # No ocultar el fallo: la cuenta NO queda usable (se desactiva) y se
-            # reporta como failed, nunca como provisionada. Sin exponer el secreto.
             auth_service.set_user_active(db, user=user, active=False)
-            resumen["failed"].append(alias)
+            resumen["admin"] = "failed"
+            log.error("PREVIEW seed: no se pudo guardar la clave del admin; cuenta inactiva")
+            return
+        resumen["admin"] = "seeded"
+    else:
+        resumen["admin"] = "exists"
+        if not _password_file_exists(admin_email):
+            log.warning("PREVIEW seed: el admin ya existe sin archivo de clave; recupérala explícitamente")
+
+    # Desactivar (no borrar) el admin genérico de reserva si es OTRA cuenta activa:
+    # evita dos admins activos y que compartan contraseña. Reversible.
+    generico = auth_service.get_user_by_email(db, cfg.GENERIC_ADMIN_EMAIL)
+    if (generico is not None and generico.email != admin_email.strip().lower()
+            and generico.is_active):
+        auth_service.set_user_active(db, user=generico, active=False)
+        resumen["generic_desactivado"] = True
+
+
+def _seed_operadores(db: Session, operadores: list[str], admin_email: str | None, resumen: dict) -> None:
+    """Crea cada operador (rol user) con clave aleatoria propia. Idempotente por correo;
+    NO resetea cuentas existentes. Excluye el correo del admin."""
+    if not operadores:
+        return
+    from backend.app.context.service import get_or_create_default_organization
+
+    org = get_or_create_default_organization(db)
+    admin_norm = admin_email.strip().lower() if admin_email else None
+    for email in operadores:
+        if admin_norm and email == admin_norm:
+            continue  # nunca como operador si es el admin
+        existing = auth_service.get_user_by_email(db, email)
+        if existing is not None:
+            if not _password_file_exists(email):
+                resumen["operadores_avisos"] += 1  # existe sin clave; recuperación explícita
+            continue
+        password = _new_password()
+        user = auth_service.create_user(db, email=email, password=password, role=cfg.OPERATOR_ROLE)
+        user.organization_id = org.id
+        db.add(user)
+        db.commit()
+        try:
+            _store_password(email, password)
+        except OSError:
+            auth_service.set_user_active(db, user=user, active=False)
+            resumen["operadores_fallidos"] += 1
         else:
-            resumen["seeded"].append(f"{alias} ({role.value})")
+            resumen["operadores_creados"] += 1
 
 
-def reissue_password(db: Session, alias: str) -> str:
-    """Recuperación administrativa EXPLÍCITA de la clave de una cuenta de prueba.
+def reissue_password(db: Session, email: str) -> str:
+    """Recuperación administrativa EXPLÍCITA de la clave de una cuenta del preview.
 
-    - Solo en preview (``is_preview``); fuera de preview lanza ``RuntimeError``.
-    - Solo para un alias de la matriz; otro alias lanza ``KeyError``.
-    - La cuenta debe existir; si no, lanza ``LookupError``.
-    - Genera una contraseña ALEATORIA e INDEPENDIENTE nueva, la aplica y la guarda.
-      Reactiva la cuenta si estaba inactiva (``reset_user_password`` pone
-      ``is_active=True``). Devuelve la clave en claro UNA sola vez (para mostrarla
-      por canal seguro); el llamador no debe registrarla.
-
-    No usa ninguna variable persistente: no se dispara sola en cada arranque.
-    """
+    - Solo en preview (si no, ``RuntimeError``).
+    - El correo debe estar en el archivo de identidades vigente (admin u operador);
+      si no, ``KeyError``.
+    - La cuenta debe existir; si no, ``LookupError``.
+    - Genera una clave aleatoria nueva e independiente, la aplica y la guarda; reactiva
+      la cuenta si estaba inactiva. Devuelve la clave UNA vez (no se registra)."""
     if not preview.is_preview():
         raise RuntimeError("reissue_password solo está permitido en previews.")
-    if alias not in _matrix_aliases():
-        raise KeyError(f"{alias} no es una cuenta de prueba de la matriz.")
-    user = auth_service.get_user_by_email(db, alias)
+    email = email.strip().lower()
+    ident = _load_identities()
+    validos = set(ident["operators"]) | ({ident["admin"]} if ident["admin"] else set())
+    if email not in validos:
+        raise KeyError("el correo no está en el archivo de identidades del preview.")
+    user = auth_service.get_user_by_email(db, email)
     if user is None:
-        raise LookupError(f"{alias} no existe en la base del preview.")
+        raise LookupError("la cuenta no existe en la base del preview.")
     password = _new_password()
     auth_service.reset_user_password(db, user=user, new_password=password)
-    _store_password(alias, password)  # propaga OSError si no puede guardar
-    log.info("PREVIEW seed: clave re-emitida (recuperación explícita) para %s", alias)
+    _store_password(email, password)
+    log.info("PREVIEW seed: clave re-emitida (recuperación explícita) para una cuenta del preview")
     return password
