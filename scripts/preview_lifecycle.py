@@ -51,6 +51,24 @@ ARCHIVOS_PLANTILLA = ("docker-compose.preview.yml",)
 ARCHIVOS_DOCKERFILES = ("Dockerfile.render", "frontend/Dockerfile.preview", "frontend-client/Dockerfile.preview")
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 ESTADOS_EN_VUELO = ("queued", "in_progress")
+# Estados de Coolify de un preview que está DETENIDO: sus contenedores no corren,
+# así que NO reserva RAM del host. «Stop» en Coolify deja el preview en «exited».
+ESTADOS_DETENIDOS = ("exited", "stopped")
+
+
+def _preview_consume_recursos(status) -> bool:
+    """¿Un preview con este estado reserva recursos del host (cuenta para el headroom)?
+
+    - Detenido (``exited``/``stopped``): NO reserva — sus contenedores no corren.
+    - ``running``/``starting``/``degraded``/``restarting``: SÍ reserva.
+    - Estado en transición, desconocido o ausente: SÍ reserva, de forma CONSERVADORA,
+      para no admitir despliegues de manera insegura ante una respuesta incompleta
+      de Coolify. Solo un estado reconocido como detenido libera la reserva.
+    """
+    s = str(status if status is not None else "").strip().lower()
+    if not s:
+        return True
+    return not s.startswith(ESTADOS_DETENIDOS)
 
 
 def log(msg: str) -> None:
@@ -338,7 +356,11 @@ def decidir_capacidad(m: dict | None, previews: list[dict], en_vuelo: list[dict]
         edad = (ahora() - leido).total_seconds()
     except (TypeError, ValueError):
         edad = None
-    activos = [p for p in previews if str(p.get("status", "")).lower().startswith(("running", "starting", "exited", "degraded", "restarting"))]
+    # Solo los previews que realmente consumen recursos reservan headroom. Un preview
+    # DETENIDO (exited/stopped) no corre y no debe reservar RAM; los estados en
+    # transición o desconocidos se cuentan de forma conservadora (ver helper).
+    activos = [p for p in previews if _preview_consume_recursos(p.get("status"))]
+    detenidos = len(previews) - len(activos)
     otros_activos = [p for p in activos if int(p.get("pull_request_id", -1)) != pr]
     vuelo_otros = [d for d in en_vuelo if int(d.get("pull_request_id", 0) or 0) != pr]
     headroom = int(len(otros_activos) * politica.limite_nuevo_mib * politica.factor_headroom)
@@ -351,7 +373,8 @@ def decidir_capacidad(m: dict | None, previews: list[dict], en_vuelo: list[dict]
         "superposicion_mib": politica.superposicion_despliegue_mib, "margen_mib": int(margen),
         "psi_mem_some_60s": m.get("psi_mem_some_avg60"), "swap_usada_pct": m.get("swap_used_pct"),
         "carga_1m": m.get("load1"), "cpus": m.get("cpus"), "disco_libre_gib": m.get("disk_free_gib"),
-        "oom_recientes": m.get("oom_recent"), "previews_activos": len(activos), "despliegues_en_vuelo": len(en_vuelo),
+        "oom_recientes": m.get("oom_recent"), "previews_activos": len(activos),
+        "previews_detenidos": detenidos, "despliegues_en_vuelo": len(en_vuelo),
         "frescura_s": None if edad is None else int(edad), "fuente": m.get("fuente"), "produccion_sana": prod_sana,
     }
 

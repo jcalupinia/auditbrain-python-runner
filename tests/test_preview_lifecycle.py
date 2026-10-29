@@ -503,3 +503,77 @@ def test_cli_rechaza_coolify_http(monkeypatch):
         monkeypatch.setenv(k, v)
     with pytest.raises(SystemExit, match="https"):
         pl.main(["reintentar", "--dry-run"])
+
+
+# ------------------------------------------------------------------ capacidad: previews detenidos no reservan RAM
+def test_preview_detenido_exited_no_reserva_headroom():
+    """Reproduce el incidente #405/#411: un preview de OTRO PR detenido («exited»)
+    no debe reservar headroom. Con 2505 MiB y el otro preview detenido -> ADMIT."""
+    pol = pl.Politica()
+    d = pl.decidir_capacidad(metricas(mem_available_mib=2505),
+                             [{"pull_request_id": 405, "status": "exited"}], [], True, pol, 411, SHA_A)
+    assert d.decision == "ADMIT", d.metrics
+    assert d.metrics["headroom_existentes_mib"] == 0
+    assert d.metrics["previews_activos"] == 0 and d.metrics["previews_detenidos"] == 1
+
+
+def test_preview_en_ejecucion_si_reserva_headroom():
+    """El mismo escenario pero con el otro preview EN EJECUCIÓN sí reserva -> RAM_HEADROOM."""
+    pol = pl.Politica()
+    d = pl.decidir_capacidad(metricas(mem_available_mib=2505),
+                             [{"pull_request_id": 405, "status": "running"}], [], True, pol, 411, SHA_A)
+    assert (d.decision, d.reason_code) == ("DEFER", "RAM_HEADROOM")
+    assert d.metrics["headroom_existentes_mib"] == 1296 and d.metrics["previews_activos"] == 1
+
+
+@pytest.mark.parametrize("status, reserva", [
+    ("running", True), ("starting", True), ("degraded", True), ("restarting", True),
+    ("exited", False), ("exited:unhealthy", False), ("stopped", False),
+    ("deploying", True),      # transición desconocida -> conservador: cuenta
+    ("unknown", True), ("", True), (None, True),  # ausente/desconocido -> cuenta
+])
+def test_estados_cuentan_segun_consumo_de_recursos(status, reserva):
+    pol = pl.Politica()
+    # mem 2505: si el otro preview reserva (headroom 1296) -> RAM_HEADROOM; si no -> ADMIT.
+    d = pl.decidir_capacidad(metricas(mem_available_mib=2505),
+                             [{"pull_request_id": 405, "status": status}], [], True, pol, 411, SHA_A)
+    if reserva:
+        assert d.reason_code == "RAM_HEADROOM", (status, d.metrics)
+        assert d.metrics["headroom_existentes_mib"] == 1296
+    else:
+        assert d.decision == "ADMIT", (status, d.metrics)
+        assert d.metrics["headroom_existentes_mib"] == 0
+
+
+def test_estado_desconocido_no_admite_de_forma_insegura():
+    """Una entrada incompleta (sin estado) de OTRO PR debe reservar, no colar un deploy."""
+    pol = pl.Politica()
+    d = pl.decidir_capacidad(metricas(mem_available_mib=2505),
+                             [{"pull_request_id": 405}], [], True, pol, 411, SHA_A)
+    assert (d.decision, d.reason_code) == ("DEFER", "RAM_HEADROOM")
+    assert d.metrics["previews_activos"] == 1 and d.metrics["previews_detenidos"] == 0
+
+
+def test_helper_preview_consume_recursos():
+    for s in ("running", "starting", "degraded", "restarting", "deploying", "unknown", "", None, "   "):
+        assert pl._preview_consume_recursos(s) is True, s
+    for s in ("exited", "EXITED", "exited:unhealthy", "stopped", "Stopped"):
+        assert pl._preview_consume_recursos(s) is False, s
+
+
+def test_margen_respeta_reserva_seguridad_512_sin_debilitarla():
+    pol = pl.Politica()
+    assert pol.reserva_seguridad_mib == 512  # no se reduce
+    # Sin otros previews: margen = mem - limite_nuevo(1296) - superposicion(576) = mem - 1872.
+    # ADMIT requiere margen >= 512 -> mem >= 2384.
+    d = pl.decidir_capacidad(metricas(mem_available_mib=2384), [], [], True, pol, 1, SHA_A)
+    assert d.decision == "ADMIT" and d.metrics["margen_mib"] == 512
+    d = pl.decidir_capacidad(metricas(mem_available_mib=2383), [], [], True, pol, 1, SHA_A)
+    assert (d.decision, d.reason_code) == ("DEFER", "RAM_HEADROOM") and d.metrics["margen_mib"] == 511
+
+
+def test_preview_detenido_del_propio_pr_no_afecta():
+    """Un preview detenido del MISMO PR tampoco reserva (nunca contó como «otro»)."""
+    d = pl.decidir_capacidad(metricas(mem_available_mib=2505),
+                             [{"pull_request_id": 411, "status": "exited"}], [], True, pl.Politica(), 411, SHA_A)
+    assert d.decision == "ADMIT" and d.metrics["previews_detenidos"] == 1
