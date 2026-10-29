@@ -70,6 +70,11 @@ def _leer_anexo_layout(path):
     del gasto preservando las filas en blanco que separan los grupos. Cada ítem es
     ``('acct', cod, desc, s24, s25)`` o ``('blank',)``. Las filas de rótulo
     («Pasivo acumulado», «Gasto de nómina») se descartan."""
+    # Mapa de presentación: código canónico → cola de (código REAL, nombre REAL) del cliente.
+    # Para el plan de referencia (PROPHAR) está vacío y se muestra el código tal cual.
+    from backend.app.aud.niif.procesadores.nomina import perfil_cuentas as _pc
+    _cola = {k: list(v) for k, v in _pc.MAPA_PRESENTACION.items()}
+
     ws = openpyxl.load_workbook(path, read_only=True, data_only=True).active
     rows = list(ws.iter_rows(values_only=True))
     d24 = d25 = None
@@ -85,6 +90,10 @@ def _leer_anexo_layout(path):
             s24 = r[2] if isinstance(r[2], (int, float)) else 0
             s25 = r[5] if isinstance(r[5], (int, float)) else 0
             if cod.startswith('5BS.212'):
+                # Muestra la cuenta REAL del cliente (si el anexo se adaptó); si no, el código tal cual.
+                real = _cola.get(cod)
+                if real:
+                    cod, desc = real.pop(0)
                 pas.append(('acct', cod, desc, s24, s25))
             else:
                 seen_gasto = True

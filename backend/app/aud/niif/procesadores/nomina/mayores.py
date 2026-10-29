@@ -258,6 +258,7 @@ def cargar(rutas):
     global G, I, B, ANEXO, CUENTAS_NO_RECONOCIDAS
     from backend.app.aud.niif.procesadores.nomina import perfil_cuentas
     CUENTAS_NO_RECONOCIDAS = {}
+    perfil_cuentas.MAPA_PRESENTACION.clear()  # se repuebla al adaptar el anexo del cliente
 
     if rutas.lm_pasivo and os.path.exists(rutas.lm_pasivo):
         # --- Cliente con pasivo combinado: adaptar al plan del motor -------------------

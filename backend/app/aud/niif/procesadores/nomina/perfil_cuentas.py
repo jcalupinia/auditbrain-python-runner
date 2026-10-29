@@ -54,6 +54,13 @@ _GASTO = [
     (("sueldo",), "Sueldos"),
 ]
 
+# Mapa de PRESENTACIÓN: código canónico del motor (5BS.*) → [(código REAL del cliente, nombre
+# REAL), …] en el orden del anexo. Lo puebla ``reescribir_anexo`` al adaptar el anexo de un
+# cliente; para el plan de referencia (PROPHAR) queda vacío y la presentación usa el código tal
+# cual (que ya es el real). Permite que las cédulas muestren las cuentas REALES del cliente sin
+# tocar el cálculo (que sigue usando los códigos canónicos). Lo limpia ``mayores.cargar``.
+MAPA_PRESENTACION: dict = {}
+
 # Nombre de cuenta de PASIVO → código de referencia que usa el motor.
 _PASIVO = [
     (("decimo", "tercer"), "5BS.21204.001"),
@@ -208,6 +215,8 @@ def reescribir_anexo(anexo_path, destino) -> str:
             ref = _match(nombre, _PASIVO)
             if ref is not None:
                 pas.append((ref, nombre, s_ant, s_cor))     # pasivo de nómina → código de referencia
+                # Recuerda el código y nombre REALES del cliente para la presentación (cédulas).
+                MAPA_PRESENTACION.setdefault(ref, []).append((cod, nombre))
             # un pasivo cuyo nombre no es de nómina se omite (no se inventa)
         elif cod.startswith(("5", "6", "7")):
             gas.append((cod, nombre, s_ant, s_cor))          # gasto/resultado: ya empieza por 5, se deja igual
