@@ -64,6 +64,10 @@ run_py() {
   printf '%s' "$prog" | docker exec -i "$CONTAINER" sh -c '
     set -eu
     export PYTHONPATH="$(pwd)${PYTHONPATH:+:$PYTHONPATH}"
+    # Identidad del preview: el compose la deriva en el arranque; aqui se replica
+    # porque docker exec no hereda ese export (PREVIEW_PUBLIC_HOST del contenedor
+    # puede venir vacio y el valor real estar en COOLIFY_FQDN).
+    export PREVIEW_PUBLIC_HOST="${PREVIEW_PUBLIC_HOST:-${COOLIFY_FQDN:-}}"
     [ -s /run/secrets/pg_password ] || { echo "ABORTA: falta /run/secrets/pg_password en el contenedor" >&2; exit 9; }
     export DATABASE_URL="postgresql://auditbrain:$(cat /run/secrets/pg_password)@db:5432/auditbrain"
     exec python - "$@"
@@ -77,6 +81,7 @@ run_py_nodb() {
   printf '%s' "$prog" | docker exec -i "$CONTAINER" sh -c '
     set -eu
     export PYTHONPATH="$(pwd)${PYTHONPATH:+:$PYTHONPATH}"
+    export PREVIEW_PUBLIC_HOST="${PREVIEW_PUBLIC_HOST:-${COOLIFY_FQDN:-}}"
     exec python - "$@"
   ' sh "$@"
 }
@@ -217,6 +222,7 @@ case "$ACCION" in
     docker exec -i "$CONTAINER" sh -c '
       set -eu
       export PYTHONPATH="$(pwd)${PYTHONPATH:+:$PYTHONPATH}"
+      export PREVIEW_PUBLIC_HOST="${PREVIEW_PUBLIC_HOST:-${COOLIFY_FQDN:-}}"
       [ -s /run/secrets/pg_password ] || { echo "ABORTA: falta pg_password" >&2; exit 9; }
       export DATABASE_URL="postgresql://auditbrain:$(cat /run/secrets/pg_password)@db:5432/auditbrain"
       exec python scripts/verificar_usuarios_preview.py'
@@ -238,6 +244,7 @@ case "$ACCION" in
     docker exec -i "$CONTAINER" sh -c '
       set -eu
       export PYTHONPATH="$(pwd)${PYTHONPATH:+:$PYTHONPATH}"
+      export PREVIEW_PUBLIC_HOST="${PREVIEW_PUBLIC_HOST:-${COOLIFY_FQDN:-}}"
       exec python scripts/recuperar_clave_preview.py --listar'
     echo "---- Fin. Confirma visualmente que las 9 claves son DISTINTAS. ----"
     ;;
