@@ -18,6 +18,7 @@ from sqlalchemy import (
 )
 
 from backend.app.ingesta.mapeo.esquemas import resolver_esquema
+from backend.app.ingesta.mapeo.mayores_auto import separar_importe_firmado
 from backend.app.ingesta.normalizer import normalizar_valor
 from backend.app.ingesta.streaming_lotes import DEFAULT_BATCH_ROWS, iterar_lotes
 
@@ -68,7 +69,7 @@ def _jsonable(valor):
     return valor
 
 
-def normalizar_bloque(bloque, mapeo, esquema, *, primera_fila=1):
+def normalizar_bloque(bloque, mapeo, esquema, *, primera_fila=1, positivo_es=None):
     """Generador: nunca construye una lista de la poblacion completa."""
     for offset, origen in enumerate(bloque):
         registro, errores = {}, []
@@ -91,13 +92,23 @@ def normalizar_bloque(bloque, mapeo, esquema, *, primera_fila=1):
             registro[campo.nombre] = _jsonable(valor)
             if valor is None:
                 errores.append(f"{campo.nombre}: normalizacion fallida")
+        if "importe" in mapeo:
+            indice_importe = mapeo["importe"]
+            crudo_importe = origen[indice_importe] if indice_importe < len(origen) else None
+            registro["importe_original"] = str(crudo_importe) if crudo_importe is not None else None
+            try:
+                debe, haber = separar_importe_firmado(crudo_importe, positivo_es=positivo_es)
+                registro["debe"], registro["haber"] = str(debe), str(haber)
+                errores = [e for e in errores if not e.startswith(("debe:", "haber:"))]
+            except ValueError:
+                errores.append("importe: normalizacion fallida")
         yield {"numero_fila": primera_fila + offset, "datos": registro, "errores": errores}
 
 
 def ingerir_archivo(
     engine, archivo, *, cliente_id, encargo_id, periodo,
     tipo_documento, mapeo_confirmado, lote=DEFAULT_BATCH_ROWS,
-    saltar_filas=1, hoja=None,
+    saltar_filas=1, hoja=None, positivo_es=None,
 ):
     """Persiste por lote; retorna metadatos, nunca filas completas.
 
@@ -111,14 +122,21 @@ def ingerir_archivo(
     if type(lote) is not int or not 1 <= lote <= 10_000:
         raise ValueError("lote debe ser un entero entre 1 y 10000")
     esquema = resolver_esquema(tipo_documento)
-    permitidos = {c.nombre for c in esquema.campos}
+    firmado = esquema.tipo_documento.value == 'mayor' and 'importe' in mapeo_confirmado
+    permitidos = {c.nombre for c in esquema.campos} | ({'importe'} if esquema.tipo_documento.value == 'mayor' else set())
     if not mapeo_confirmado or set(mapeo_confirmado) - permitidos:
         raise ValueError("mapeo_confirmado vacio o contiene campos desconocidos")
     if any(type(indice) is not int or indice < 0 for indice in mapeo_confirmado.values()):
         raise ValueError("los indices del mapeo deben ser enteros no negativos")
     if len(set(mapeo_confirmado.values())) != len(mapeo_confirmado):
         raise ValueError("una columna no puede asignarse a varios campos")
+    if firmado and positivo_es not in ('debe', 'haber'):
+        raise ValueError('importe firmado requiere positivo_es confirmado: debe o haber')
+    if firmado and ('debe' in mapeo_confirmado or 'haber' in mapeo_confirmado):
+        raise ValueError('no mezclar importe firmado con debe/haber')
     for campo in esquema.obligatorios:
+        if firmado and campo.nombre in ('debe', 'haber'):
+            continue
         if campo.nombre not in mapeo_confirmado:
             raise ValueError(f"falta confirmar campo obligatorio: {campo.nombre}")
     ruta = Path(archivo)
@@ -144,7 +162,7 @@ def ingerir_archivo(
             if not bloque:
                 continue
             registros = list(normalizar_bloque(
-                bloque, mapeo_confirmado, esquema, primera_fila=numero_fila
+                bloque, mapeo_confirmado, esquema, primera_fila=numero_fila, positivo_es=positivo_es
             ))
             n_revision = sum(bool(r["errores"]) for r in registros)
             with engine.begin() as conn:
@@ -159,14 +177,14 @@ def ingerir_archivo(
             revision += n_revision
             numero_fila += len(registros)
         with engine.begin() as conn:
-            conn.execute(datasets.update().where(datasets.c.id == dataset_id).values(estado="completado"))
+            conn.execute(datasets.update().where(datasets.c.id == dataset_id).values(estado="completado" if revision == 0 else "requiere_revision"))
     except Exception as exc:
         with engine.begin() as conn:
             conn.execute(datasets.update().where(datasets.c.id == dataset_id).values(
                 estado="error", error=f"{type(exc).__name__}: {str(exc)[:1800]}"
             ))
         raise
-    return {"dataset_id": dataset_id, "estado": "completado",
+    return {"dataset_id": dataset_id, "estado": "completado" if revision == 0 else "requiere_revision",
             "total_filas": total, "filas_revision": revision}
 
 
