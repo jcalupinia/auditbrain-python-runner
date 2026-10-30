@@ -482,6 +482,24 @@ def _t(p: Prueba) -> dict:
     return {**reg, "state": p.estado, "definition": definicion}
 
 
+def _correr_con_timeout(fn, *args, **kwargs):
+    """Corre el motor con un tope de tiempo. Si lo supera, lanza ``TimeoutError`` para que el
+    caller devuelva un mensaje claro en vez de dejar la prueba «procesando» indefinidamente.
+    Tope en segundos: env ``AUD_NOMINA_TIMEOUT_S`` (por defecto 240)."""
+    import concurrent.futures
+    import os as _os
+
+    seg = int(_os.environ.get("AUD_NOMINA_TIMEOUT_S", "240"))
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    fut = ex.submit(fn, *args, **kwargs)
+    try:
+        return fut.result(timeout=seg)
+    except concurrent.futures.TimeoutError:
+        raise TimeoutError()
+    finally:
+        ex.shutdown(wait=False)
+
+
 def correr_nomina(db: Session, p: Prueba, con_extras: bool = False):
     """Materializa los archivos fuente de la prueba en un directorio temporal y corre el
     motor de nómina 2.0 (``nomina_beneficios.correr_prueba``). Devuelve
@@ -522,8 +540,29 @@ def correr_nomina(db: Session, p: Prueba, con_extras: bool = False):
             raise ReglaIncumplida(
                 "Cargue el anexo (RQ-002), el Consolidado del IESS (RQ-003), los mayores (RQ-004) "
                 "y el rol de pagos (RQ-006) antes de generar las cédulas de nómina.")
+        # Validación de formato ANTES de correr el motor: si un documento no está en el formato
+        # requerido, se avisa con el detalle (qué documento y qué cabecera) en vez de reventar
+        # luego con un error críptico o quedarse «procesando» (decisión del dueño, 2026-10-29).
+        from backend.app.aud.niif.procesadores.nomina import validacion as val
+        diag = val.validar_prueba(arch)
+        if diag["bloqueante"]:
+            raise ReglaIncumplida(diag["resumen"])
         ficha = (p.registro or {}).get("engagement") or {}
-        cedulas = nb.correr_prueba(arch, ficha, home, out)
+        try:
+            cedulas = _correr_con_timeout(nb.correr_prueba, arch, ficha, home, out)
+        except TimeoutError:
+            raise ReglaIncumplida(
+                "El procesamiento de la nómina superó el tiempo máximo. Suele deberse a un "
+                "documento muy grande o con un formato inesperado; use «Verificar formato» y "
+                "reintente.")
+        except ReglaIncumplida:
+            raise
+        except Exception as e:  # noqa: BLE001 - error no previsto de lectura/cálculo del motor
+            # Se traduce a un mensaje claro para el auditor (en vez de un 500 genérico/cuelgue).
+            raise ReglaIncumplida(
+                "No pude procesar la nómina por el formato de los documentos. "
+                f"Detalle técnico: {type(e).__name__}: {e}. "
+                "Use «Verificar formato» para ver qué documento corregir.")
         if con_extras:
             # El motor escribe prog.json / do12.json en ``home``; se leen antes del finally.
             return cedulas, orq.leer_extras(home)
@@ -536,6 +575,41 @@ def _firma_nomina(db: Session, p: Prueba) -> str:
     """Firma de caché de la prueba de nómina (insumos + ficha)."""
     eng = (p.registro or {}).get("engagement") or {}
     return nomina_cache.firma(archivos(db, p.id), eng)
+
+
+def verificar_formato_nomina(db: Session, p: Prueba) -> dict:
+    """Valida el FORMATO de los documentos de la prueba de nómina SIN procesar.
+
+    Para el botón «Verificar formato» del auditor: dice qué documento y qué cabecera corregir
+    antes de procesar o subir. Solo lee cabeceras (no calcula). No valida los comprobantes
+    (RQ-005, PDF/ZIP). Si la prueba no es la de nómina, devuelve ``no_aplica``."""
+    import os
+    import shutil
+    import tempfile
+
+    from backend.app.aud.niif.procesadores.nomina import validacion as val
+
+    if (p.definicion or {}).get("processor") != "nomina_beneficios":
+        return {"ok": True, "no_aplica": True,
+                "resumen": "La verificación de formato aplica a la prueba de nómina."}
+    home = tempfile.mkdtemp(prefix="nomina_val_")
+    try:
+        arch = []
+        for a in archivos(db, p.id):
+            if a.clase != "source" or a.estado == "rechazado":
+                continue
+            if (a.requerimiento or "").upper() == "RQ-005":
+                continue  # comprobantes (PDF/ZIP): no se validan por formato de cabeceras
+            dd = os.path.join(home, a.requerimiento)
+            os.makedirs(dd, exist_ok=True)
+            dest = os.path.join(dd, a.nombre)
+            with open(dest, "wb") as fh:
+                fh.write(almacen.leer(a.ruta))
+            arch.append({"requerimiento": a.requerimiento, "componente": a.componente or "",
+                         "nombre": a.nombre, "ruta": dest})
+        return val.validar_prueba(arch)
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
 
 
 def cedulas_nomina(db: Session, p: Prueba, con_extras: bool = False):
