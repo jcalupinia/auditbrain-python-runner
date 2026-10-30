@@ -70,6 +70,11 @@ def _leer_anexo_layout(path):
     del gasto preservando las filas en blanco que separan los grupos. Cada ítem es
     ``('acct', cod, desc, s24, s25)`` o ``('blank',)``. Las filas de rótulo
     («Pasivo acumulado», «Gasto de nómina») se descartan."""
+    # Mapa de presentación: código canónico → cola de (código REAL, nombre REAL) del cliente.
+    # Para el plan de referencia (PROPHAR) está vacío y se muestra el código tal cual.
+    from backend.app.aud.niif.procesadores.nomina import perfil_cuentas as _pc
+    _cola = {k: list(v) for k, v in _pc.MAPA_PRESENTACION.items()}
+
     ws = openpyxl.load_workbook(path, read_only=True, data_only=True).active
     rows = list(ws.iter_rows(values_only=True))
     d24 = d25 = None
@@ -85,6 +90,10 @@ def _leer_anexo_layout(path):
             s24 = r[2] if isinstance(r[2], (int, float)) else 0
             s25 = r[5] if isinstance(r[5], (int, float)) else 0
             if cod.startswith('5BS.212'):
+                # Muestra la cuenta REAL del cliente (si el anexo se adaptó); si no, el código tal cual.
+                real = _cola.get(cod)
+                if real:
+                    cod, desc = real.pop(0)
                 pas.append(('acct', cod, desc, s24, s25))
             else:
                 seen_gasto = True
@@ -337,6 +346,26 @@ ws[f'B{rno}'] = (f'El anexo de nómina (RQ-002) omite {n_mayor_only} cuentas de 
                  f'a tiempo parcial ({_es(medicas)}) está en el anexo pero no en el mayor de '
                  f'gastos entregado.')
 ws[f'B{rno}'].font = NOTE; ws[f'B{rno}'].alignment = Alignment(vertical='top', wrap_text=True)
+
+# Aviso: cuentas de pasivo del anexo que el motor NO reconoció (el auditor confirma a qué
+# concepto corresponden; no se inventan ni se incluyen en el cálculo hasta su confirmación).
+from backend.app.aud.niif.procesadores.nomina import perfil_cuentas as _pc2
+_no_rec = list(getattr(_pc2, 'ANEXO_PASIVO_NO_RECONOCIDO', []) or [])
+if _no_rec:
+    ra = rno + 3
+    ws.merge_cells(f'B{ra}:L{ra}')
+    ws[f'B{ra}'] = ('Cuentas de pasivo del anexo NO reconocidas automáticamente — confirme a qué '
+                    'concepto corresponden (no se incluyeron en el cálculo):')
+    ws[f'B{ra}'].font = Font(name='Arial', size=10, bold=True, color='FFB00000')
+    ws[f'C{ra + 1}'] = 'Descripción'; ws[f'B{ra + 1}'] = 'Código'
+    ws[f'B{ra + 1}'].font = ws[f'C{ra + 1}'].font = HWHITE if False else Font(name='Arial', size=9, bold=True)
+    for _k, (_cod, _nom, _sa, _sc) in enumerate(_no_rec, start=2):
+        _rr = ra + _k
+        ws[f'B{_rr}'] = str(_cod); ws[f'C{_rr}'] = str(_nom)
+        ws[f'D{_rr}'] = _sa if isinstance(_sa, (int, float)) else None
+        ws[f'G{_rr}'] = _sc if isinstance(_sc, (int, float)) else None
+        ws[f'D{_rr}'].number_format = ws[f'G{_rr}'].number_format = N2
+        ws[f'B{_rr}'].font = ws[f'C{_rr}'].font = NOTE
 
 ws.column_dimensions['P'].hidden = True
 for col, w in dict(A=4.0, B=22.26, C=28.0, D=16.84, E=11.85, F=11.39, G=18.87, H=5.0,
