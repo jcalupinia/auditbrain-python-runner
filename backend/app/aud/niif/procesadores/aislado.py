@@ -18,7 +18,8 @@ viaja el estado + las rutas (pequeños).
 
 Capacidades (encargo O2):
   * Límite de memoria POR TRABAJO: watchdog de RSS real desde el padre (lee
-    ``/proc/<pid>/statm``). No se usa ``RLIMIT_AS``: ``render.yaml`` lo deja ilimitado
+    ``/proc/<pid>/statm``). No se usa ``RLIMIT_AS``: el contenedor de producción
+    (Coolify/Hetzner, imagen ``Dockerfile.render``) deja la memoria virtual ilimitada
     porque pandas/numpy reservan memoria virtual enorme al importar y los mataría.
   * Tiempo máximo por trabajo (``timeout_s``): se termina el hijo y se informa.
   * Recuperación ante errores: la excepción del hijo se re-lanza como ``GeneracionAislada``.

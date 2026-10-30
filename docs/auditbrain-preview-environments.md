@@ -1,5 +1,11 @@
 # AuditBrain — Preview Environments en Render
 
+> ⚠️ **OBSOLETO (2026-10-29).** Render ya no se usa. La infraestructura de
+> previews y producción está en **Hetzner + Coolify**. El documento vigente es
+> **[`docs/previews-coolify.md`](previews-coolify.md)** y el controlador real es
+> `scripts/preview_lifecycle.py`. Este archivo se conserva solo como **contexto
+> histórico** del diseño original en Render; **no** describe la operación actual.
+
 > Documento de instrucciones para Claude Code. Versión: 2026-10-08.
 > Repo: `jcalupinia/auditbrain-python-runner` · Blueprint de Render: `auditbrain-python-runner-bp` (rama `main`).
 

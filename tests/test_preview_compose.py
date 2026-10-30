@@ -278,9 +278,6 @@ def test_t4_el_correo_del_admin_pasa_el_validador_real(compose):
 
     assert _email_valido(_env(compose["services"]["backend"])["AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL"])
     assert not _email_valido("admin@preview.invalid"), "regresión: .invalid lo rechaza EmailStr y el admin no se crearía"
-    # No es una identidad de la configuración productiva del repositorio.
-    render = (COMPOSE.parent / "render.yaml").read_text(encoding="utf-8")
-    assert ADMIN_EMAIL_PREVIEW not in render
 
 
 @pytest.mark.skipif(shutil.which("sh") is None, reason="requiere un sh POSIX")
