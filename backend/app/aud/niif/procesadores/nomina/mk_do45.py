@@ -15,6 +15,18 @@ g = pd.read_pickle((_R.CTX.home + '/g.pkl'))
 from backend.app.aud.niif.procesadores.nomina import mayores as MY
 rm = pd.read_pickle((_R.CTX.home + '/rol_mes.pkl'))
 MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+# Período auditado = enero … mes de corte (de la ficha). Diciembre (MC=12) = cierre calendario:
+# comportamiento histórico. Otro mes = visita preliminar: el cruce de décimos se hace sobre el
+# período transcurrido, no sobre diciembre/agosto-diciembre.
+MC = _R.CTX.mes_corte if _R.CTX else 12
+PRELIM = MC != 12
+LP = 4 + MC                 # fila de «Insumo Auditoría» del mes de corte (meses en filas 5..16)
+MES_CORTE_TXT = MESES[MC - 1]
+_ANIO = _R.CTX.anio_corte if _R.CTX else 2025
+_CC = _R.CTX.corte if (_R.CTX and _R.CTX.corte) else ''
+_DIA = int(_CC[8:10]) if len(_CC) >= 10 and _CC[8:10].isdigit() else 31
+FECHA_CORTE_TXT = f'{_DIA} de {MES_CORTE_TXT.lower()} de {_ANIO}'
+PERIODO_TXT = f'enero a {MES_CORTE_TXT.lower()} de {_ANIO}'
 
 NAVY = PatternFill('solid', fgColor='FF0F2341'); SUB = PatternFill('solid', fgColor='FFDDE6F3')
 YEL = PatternFill('solid', fgColor='FFFFF2CC')
@@ -96,8 +108,8 @@ for i, (a, b, s, si, f) in enumerate(esf):
 cell(wl, 'B10', 'Mayor de pasivos RQ-004 · provisiones del mes (crédito)', Font(name='Arial', size=9, bold=True, color='FF1F3864'))
 th(wl, 11, 2, ['Mes', 'Provisión D13 (libros)', 'Provisión D14 (libros)', 'Provisión vacaciones (libros)'])
 _p13 = [-v for v in MY.pasivo_mes(MY.B, '5BS.21204.001', 'PROVISION')]; _p14 = [-v for v in MY.pasivo_mes(MY.B, '5BS.21204.002', 'PROVISION')]
-lib13 = {12: _p13[11]}
-lib14 = {m: _p14[m - 1] for m in range(8, 13)}
+lib13 = {12: _p13[11]} if not PRELIM else {m: _p13[m - 1] for m in range(1, MC + 1)}
+lib14 = {m: _p14[m - 1] for m in range(8, 13)} if not PRELIM else {m: _p14[m - 1] for m in range(1, MC + 1)}
 libv = [-v for v in MY.pasivo_mes(MY.B, '5BS.21204.003', 'PROVISION')]
 for m in range(1, 13):
     r = 11 + m
@@ -107,7 +119,9 @@ for m in range(1, 13):
 cell(wl, 'B24', 'Σ', RED, box=True)
 for col in 'CDE':
     cell(wl, f'{col}24', f'=SUM({col}12:{col}23)', ARB, N2, box=True)
-cell(wl, 'B25', 'D13: se cruza diciembre (pasivo del período dic–nov). D14 Sierra: agosto a diciembre (período ago–jul). Vacaciones: enero a diciembre.', IT)
+cell(wl, 'B25', ('D13: se cruza diciembre (pasivo del período dic–nov). D14 Sierra: agosto a diciembre (período ago–jul). Vacaciones: enero a diciembre.'
+                 if not PRELIM else
+                 f'Visita preliminar — período auditado {PERIODO_TXT}: D13, D14 y vacaciones se cruzan por el devengado de ese período (no por el ciclo de cierre de diciembre).'), IT)
 # --- Movimiento anual según Mayor RQ-004
 cell(wl, 'B28', 'MOVIMIENTO DEL AÑO SEGÚN MAYOR DE PASIVOS RQ-004 (débito +, crédito −)', ARB)
 th(wl, 29, 2, ['Cuenta', 'Saldo inicial (RQ-002)', 'Provisión', 'Pagos', 'Finiquitos (liquidaciones)', 'Goces (vacaciones tomadas)', 'Ajustes y otros', 'Saldo final calculado', 'Saldo ESF', 'Diferencia'], 40)
@@ -165,13 +179,23 @@ wi.freeze_panes = 'C5'
 # ---------------------------------------------------------------- DO4 Cruce Global
 w4 = wb.create_sheet('DO4 Cruce Global Pasivo', 0)
 header(w4, 'Beneficios sociales Pasivos — Cruce global', 'DO-4C', 12)
-banner(w4, 12, 'Fuente de libros: Anexo de nómina RQ-002 (saldos) conciliado con el Mayor de pasivos RQ-004. Partidas conciliatorias: rol DO-3.1, cotejado con los débitos del mayor.')
+_aviso_prelim = (f'VISITA PRELIMINAR · período auditado {PERIODO_TXT}. El cruce de décimos y vacaciones se hace sobre el devengado de ese período (no sobre el cierre calendario de diciembre). '
+                 if PRELIM else '')
+banner(w4, 12, _aviso_prelim + 'Fuente de libros: Anexo de nómina RQ-002 (saldos) conciliado con el Mayor de pasivos RQ-004. Partidas conciliatorias: rol DO-3.1, cotejado con los débitos del mayor.')
 th(w4, 8, 2, ['Código', 'Cuenta', 'Según ESF', 'Según Auditoría', 'Diferencia', 'Liquidaciones', 'Ajuste',
               'Finiquito', 'Pago mensual', 'Total diferencia', '%'])
 IA = "'Insumo Auditoría'"
+# D13/D14 «según auditoría»: en cierre calendario se cruza diciembre (D13) y agosto–diciembre
+# (D14 Sierra); en visita preliminar, el devengado del período auditado (enero…mes de corte).
+if PRELIM:
+    _c13 = (f'=SUM({IA}!C5:C{LP})', f'=SUM({IA}!E5:E{LP})', f'=SUM({IA}!D5:D{LP})')
+    _c14 = (f'=SUM({IA}!F5:F{LP})', f'=SUM({IA}!H5:H{LP})', f'=SUM({IA}!G5:G{LP})')
+else:
+    _c13 = (f'={IA}!C16', f'={IA}!E16', f'={IA}!D16')
+    _c14 = (f'=SUM({IA}!F12:F16)', f'=SUM({IA}!H12:H16)', f'=SUM({IA}!G12:G16)')
 rows4 = [
-    ('5BS.21204.001', 'Décimo Tercer Sueldo', '=Libros!D6', f'={IA}!C16', 0, '0', f'={IA}!E16', f'={IA}!D16'),
-    ('5BS.21204.002', 'Décimo Cuarto Quito', '=Libros!D7', f'=SUM({IA}!F12:F16)', 0, '0', f'=SUM({IA}!H12:H16)', f'=SUM({IA}!G12:G16)'),
+    ('5BS.21204.001', 'Décimo Tercer Sueldo', '=Libros!D6', _c13[0], 0, '0', _c13[1], _c13[2]),
+    ('5BS.21204.002', 'Décimo Cuarto Quito', '=Libros!D7', _c14[0], 0, '0', _c14[1], _c14[2]),
     ('5BS.21204.003', 'Vacaciones', '=Libros!D8', f'=Libros!E8+{IA}!I17', f'={IA}!K17', '0', 0, f'={IA}!J17'),
 ]
 for i, (cod, cta, esf_f, aud, liq, aj, fin, pm) in enumerate(rows4):
@@ -210,11 +234,13 @@ for i, cta in enumerate(['Décimo tercero', 'Décimo cuarto', 'Vacaciones']):
 txt = [
     (22, 'Objetivo:', RU),
     (23, 'Verificar que el saldo de las obligaciones acumuladas por beneficios sociales (décimo tercero, décimo cuarto y vacaciones) '
-         'presentado en el estado de situación financiera al 31 de diciembre de 2025 esté adecuadamente sustentado y valorado.', AR),
+         f'presentado en el estado de situación financiera al {FECHA_CORTE_TXT} esté adecuadamente sustentado y valorado.', AR),
     (25, 'Procedimiento:', RU),
     (26, '1. Se tomó el saldo de cada cuenta según el ESF (cédula sumaria DO-2).', AR),
     (27, '2. Se determinó el pasivo bruto según auditoría con el reproceso DO-4 sobre el 100% del Consolidado IESS (RQ-003): '
-         'D13 devengado de diciembre; D14 Sierra devengado de agosto a diciembre; vacaciones = saldo inicial + provisión del año.', AR),
+         + ('D13 devengado de diciembre; D14 Sierra devengado de agosto a diciembre; vacaciones = saldo inicial + provisión del año.'
+            if not PRELIM else
+            f'devengado del período auditado ({PERIODO_TXT}) para D13, D14 y vacaciones (visita preliminar).'), AR),
     (28, '3. Se identificaron las partidas que reducen el pasivo según el rol de pagos (DO-3.1): vacaciones de finiquito (liquidaciones), '
          'devengado de trabajadores salidos (finiquito) y pagos mensuales (décimos mensualizados y vacaciones gozadas).', AR),
     (29, '4. Se aplicaron las exclusiones del auditor (RQ-003 Exclusiones) y se determinó la diferencia neta (Total diferencia).', AR),
@@ -238,9 +264,12 @@ w5 = wb.create_sheet('DO5 Cruce Mensual Pasivo', 1)
 header(w5, 'Conciliación mensual pasivo beneficios sociales', 'DO-5', 9)
 banner(w5, 9, 'Fuente de libros: Mayor de pasivos RQ-004 (provisiones mensuales) y Anexo RQ-002 (saldos). El mayor se concilia con el anexo en la pestaña «Libros».')
 D4 = "'DO4 Cruce Global Pasivo'"
-blocks = [('Décimo tercer sueldo', 9, 'C', lambda m: f"={IA}!C{4+m}-{IA}!D{4+m}" if m == 12 else None, 9,
-           'Libros (diciembre) − neto de auditoría; las salidas no generan pasivo en diciembre.'),
-          ('Décimo cuarto sueldo', 28, 'D', lambda m: f"={IA}!F{4+m}-{IA}!G{4+m}" if m >= 8 else None, 10,
+_d13_meses = (lambda m: m <= MC) if PRELIM else (lambda m: m == 12)
+_d14_meses = (lambda m: m <= MC) if PRELIM else (lambda m: m >= 8)
+_nota13 = (f'Libros (enero–{MES_CORTE_TXT.lower()}) − neto de auditoría del período auditado.' if PRELIM
+           else 'Libros (diciembre) − neto de auditoría; las salidas no generan pasivo en diciembre.')
+blocks = [('Décimo tercer sueldo', 9, 'C', lambda m: f"={IA}!C{4+m}-{IA}!D{4+m}" if _d13_meses(m) else None, 9, _nota13),
+          ('Décimo cuarto sueldo', 28, 'D', lambda m: f"={IA}!F{4+m}-{IA}!G{4+m}" if _d14_meses(m) else None, 10,
            'Libros registra la provisión bruta y descarga el finiquito al liquidar; la diferencia de cierre (col. G) es finiquito libros vs auditoría.'),
           ('Vacaciones', 47, 'E', lambda m: f"={IA}!I{4+m}", 11,
            'Se cruza la provisión mensual. La diferencia de cierre (col. G) son los débitos de la cuenta en libros vs goces y finiquitos del rol.')]
@@ -283,7 +312,9 @@ w5.merge_cells('B71:I71')
 txt5 = [(74, 'Objetivo:', RU),
         (75, 'Verificar mes a mes la provisión registrada en libros por beneficios sociales contra el recálculo de auditoría y conciliar el cierre con el cruce global (DO-4C).', AR),
         (77, 'Procedimiento:', RU),
-        (78, '1. Se tomaron las provisiones mensuales según libros (D13: diciembre; D14 Sierra: agosto a diciembre; vacaciones: enero a diciembre).', AR),
+        (78, ('1. Se tomaron las provisiones mensuales según libros (D13: diciembre; D14 Sierra: agosto a diciembre; vacaciones: enero a diciembre).'
+              if not PRELIM else
+              f'1. Se tomaron las provisiones mensuales según libros del período auditado ({PERIODO_TXT}).'), AR),
         (79, '2. Se compararon con el recálculo mensual de auditoría neto de pagos mensualizados (DO-4 Reproceso y rol DO-3.1).', AR),
         (80, '3. El total de cada beneficio se concilia con el «Total diferencia» del cruce global; lo no conciliado se explica en el bloque de partidas por conciliar.', AR),
         (82, 'Marcas:', RED), (83, '√  Verificado, comprobado, cotejado (con libros).', ARB),

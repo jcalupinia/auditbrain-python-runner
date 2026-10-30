@@ -69,11 +69,16 @@ def kardex_sheet(wb, title, demo=False):
 
 # ======================================================================= Calculadora
 wb = Workbook()
+# Fecha de corte real del ejercicio (de la ficha). En cierre calendario es 31-dic (histórico);
+# en visita preliminar, el mes/día del corte (p. ej. 31-jul).
+_mc = _R.CTX.mes_corte if _R.CTX else 12
+_cc = _R.CTX.corte if (_R.CTX and _R.CTX.corte) else ''
+_dia = int(_cc[8:10]) if len(_cc) >= 10 and _cc[8:10].isdigit() else 31
 wf = wb.active; wf.title = 'Ficha'
 cell(wf, 'B2', 'FICHA DEL ENCARGO Y PARÁMETROS DE LA CALCULADORA', ARB)
 pars = [('Cliente', _R.CTX.cliente, None, BLUE),
         ('Año auditado', _R.CTX.ejercicio, '0', BLUE),
-        ('Fecha de corte', '=DATE(C5,12,31)', DT, AR),
+        ('Fecha de corte', f'=DATE(C5,{_mc},{_dia})', DT, AR),
         ('Fecha de cierre anterior', '=DATE(C5-1,12,31)', DT, AR),
         ('Preparado por', _R.CTX.preparado, None, BLUE), ('Revisado por', _R.CTX.revisado, None, BLUE), ('Fecha', '=TODAY()', DT, AR),
         ('Días de vacaciones por año (art. 69 CT)', 15, '0', BLUE),
