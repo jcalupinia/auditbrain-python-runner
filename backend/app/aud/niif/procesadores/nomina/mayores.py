@@ -133,6 +133,19 @@ def _read_tabla(path) -> pd.DataFrame:
     i_haber = _buscar(cols_norm, _SINONIMOS["haber"])
     i_ref = _buscar(cols_norm, _SINONIMOS["ref"])
     i_expl = _buscar(cols_norm, _SINONIMOS["expl"])
+    # Nombre de la cuenta: columna propia («Cuenta», «Nombre») distinta del código. Algunos
+    # clientes (p. ej. CIDESCOL) traen Código + Cuenta (nombre) + Descripción (glosa del
+    # movimiento, «SALDO ANTERIOR»…). Otros (p. ej. PROPHAR) traen Nºcuenta + Descripción, donde
+    # la descripción ES el nombre. Se busca por IGUALDAD (no «contiene», para no pescar «Nºcuenta»)
+    # y distinta del código; si no hay, el nombre cae a la Descripción (comportamiento histórico).
+    i_nombre = None
+    for _k in ("cuenta", "nombre cuenta", "nombre de cuenta", "nombre de la cuenta", "nombre"):
+        for _idx, _c in enumerate(cols_norm):
+            if _c == _k and _idx != i_cta:
+                i_nombre = _idx
+                break
+        if i_nombre is not None:
+            break
 
     faltan = []
     if i_fecha is None:
@@ -171,6 +184,8 @@ def _read_tabla(path) -> pd.DataFrame:
     df["Importe"] = importe
     df["Explicación -observación-"] = expl
     df["REF"] = ref
+    # Nombre de la cuenta (columna propia si existe; si no, la Descripción = histórico).
+    df["NombreCuenta"] = df.iloc[:, i_nombre].values if i_nombre is not None else desc
     # Descarta filas sin cuenta (totales/pies de página).
     df = df[df["Nºcuenta"].notna() & (df["Nºcuenta"].astype(str).str.strip() != "")]
     return df.reset_index(drop=True)
@@ -181,6 +196,7 @@ def _load(path):
     d['m'] = pd.to_datetime(d['Fecha L/M'], errors='coerce', dayfirst=True).dt.month
     d['cta'] = d['Nºcuenta'].astype(str).str.strip()
     d['desc'] = d['Descripción'].astype(str).str.strip()
+    d['nombre_cta'] = d['NombreCuenta'].astype(str).str.strip() if 'NombreCuenta' in d.columns else d['desc']
     return d
 
 
@@ -363,6 +379,7 @@ def cuentas_por_concepto(key):
     sub = G[G.concepto.isin(c)]
     out = []
     for cta in sorted(sub.cta.unique()):
-        nombre = str(sub[sub.cta == cta].desc.iloc[0]).replace('MQLA ', '')
+        # Nombre de la cuenta (columna propia del mayor; en PROPHAR == Descripción = histórico).
+        nombre = str(sub[sub.cta == cta].nombre_cta.iloc[0]).replace('MQLA ', '')
         out.append((cta, nombre, gasto_cta(cta)))
     return out
