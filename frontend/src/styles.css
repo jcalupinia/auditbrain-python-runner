@@ -378,6 +378,9 @@ textarea {
   color: var(--text-soft); font: inherit; font-size: 13px; padding: 8px 12px; cursor: pointer;
 }
 .cw-tabs button.on { color: var(--text); border-color: var(--accent); }
+/* Acento violeta solo para la línea inferior de la pestaña «Análisis» activa.
+   No toca --accent (variable global), para no alterar el resto de la interfaz. */
+.cw-tabs button.on[data-tab="análisis"] { border-color: #8B5CF6; }
 .cw-prompt {
   border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: 14px; padding: 18px;
