@@ -56,21 +56,29 @@ fi
 
 # run_py <programa-python> [argv...] : ejecuta python DENTRO del contenedor con
 # DATABASE_URL reconstruida desde /run/secrets/pg_password (nunca impresa).
+# Usa `python -` (sys.path[0]="" = cwd) y PYTHONPATH="$(pwd)" (el WORKDIR /app)
+# para que `import backend` funcione; `python /dev/stdin` NO sirve (sys.path[0]
+# sería /proc/self/fd y backend no se importaría).
 run_py() {
   local prog="$1"; shift
   printf '%s' "$prog" | docker exec -i "$CONTAINER" sh -c '
     set -eu
+    export PYTHONPATH="$(pwd)${PYTHONPATH:+:$PYTHONPATH}"
     [ -s /run/secrets/pg_password ] || { echo "ABORTA: falta /run/secrets/pg_password en el contenedor" >&2; exit 9; }
     export DATABASE_URL="postgresql://auditbrain:$(cat /run/secrets/pg_password)@db:5432/auditbrain"
-    exec python /dev/stdin "$@"
+    exec python - "$@"
   ' sh "$@"
 }
 
 # run_py_nodb <programa-python> [argv...] : python sin DATABASE_URL (solo lee
-# archivos del volumen; no toca la base).
+# archivos del volumen; no toca la base). Mismo PYTHONPATH que run_py.
 run_py_nodb() {
   local prog="$1"; shift
-  printf '%s' "$prog" | docker exec -i "$CONTAINER" python /dev/stdin "$@"
+  printf '%s' "$prog" | docker exec -i "$CONTAINER" sh -c '
+    set -eu
+    export PYTHONPATH="$(pwd)${PYTHONPATH:+:$PYTHONPATH}"
+    exec python - "$@"
+  ' sh "$@"
 }
 
 # --- 2. Guarda de identidad + BD (solo lectura; no conecta, no crea tablas) --
@@ -208,6 +216,7 @@ case "$ACCION" in
     echo ">>> Verificador read-only (debe decir 'DIFERENCIAS: 0')…"
     docker exec -i "$CONTAINER" sh -c '
       set -eu
+      export PYTHONPATH="$(pwd)${PYTHONPATH:+:$PYTHONPATH}"
       [ -s /run/secrets/pg_password ] || { echo "ABORTA: falta pg_password" >&2; exit 9; }
       export DATABASE_URL="postgresql://auditbrain:$(cat /run/secrets/pg_password)@db:5432/auditbrain"
       exec python scripts/verificar_usuarios_preview.py'
@@ -226,7 +235,10 @@ case "$ACCION" in
     echo "#  No lo guardes en un archivo ni lo pegues en Git/GitHub/logs.         #"
     echo "#  Repartelas por canal privado y cierra la terminal al terminar.       #"
     echo "########################################################################"
-    docker exec -i "$CONTAINER" python scripts/recuperar_clave_preview.py --listar
+    docker exec -i "$CONTAINER" sh -c '
+      set -eu
+      export PYTHONPATH="$(pwd)${PYTHONPATH:+:$PYTHONPATH}"
+      exec python scripts/recuperar_clave_preview.py --listar'
     echo "---- Fin. Confirma visualmente que las 9 claves son DISTINTAS. ----"
     ;;
   *)
