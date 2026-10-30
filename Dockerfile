@@ -14,6 +14,9 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     git \
+    # curl: lo usa el healthcheck HTTP de Coolify (GET /healthz) dentro del contenedor;
+    # la imagen slim no lo trae y sin él el chequeo falla con «curl: not found» → Degraded.
+    curl \
     libffi-dev \
     libssl-dev \
     libxml2-dev \
