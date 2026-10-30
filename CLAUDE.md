@@ -887,10 +887,11 @@ pruebas de la auditoría de ese cliente). El servidor es un lugar de paso y limp
 ## Concurrencia: semáforo de proceso pesado + caché del motor de nómina (anti-OOM)
 
 **REGLA (decisión del dueño, 2026-10-12):** el backend corre en **una sola instancia**
-(`render.yaml`, plan `standard`, ~1 CPU / 2 GB, `uvicorn` **sin `--workers`**, sin autoescalado).
+(producción en **Coolify/Hetzner**, app `auditbrain-backend`, rama `main`, imagen
+`Dockerfile.render`, ~1 CPU / 2 GB, `uvicorn` **sin `--workers`**, sin autoescalado).
 Con 6-7 auditores en paralelo, varios «Procesar»/paneles disparaban varios **LibreOffice** a la
-vez y la instancia **superaba su memoria (OOM) → Render la reiniciaba → se caía para todos**
-(confirmado por el correo «exceeded its memory limit»). Dos defensas, ambas EN PROCESO (válidas
+vez y la instancia **superaba su memoria (OOM) → el contenedor se reiniciaba → se caía para todos**.
+Dos defensas, ambas EN PROCESO (válidas
 mientras haya una sola instancia/worker; si se escala horizontal habría que moverlas a algo
 compartido tipo Redis):
 

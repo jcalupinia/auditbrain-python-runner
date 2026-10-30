@@ -1,134 +1,84 @@
-# Despliegue en Render — AuditBrain (Fase Operativa)
+# Despliegue de AuditBrain (Hetzner + Coolify)
 
-> Alcance real: **solo backend FastAPI**. No hay frontend, PostgreSQL ni
-> JWT en el repositorio (ver `ROADMAP_FULLSTACK.md`). Excel/PPTX se
-> generan en el **servicio externo** `DOCUMENT_SERVICE`, no aquí.
+> **Arquitectura vigente (verificada 2026-10-29).** Producción corre en un
+> servidor **Hetzner** administrado con **Coolify** (proxy Traefik). **Render ya
+> no se usa**; el antiguo `render.yaml` se retiró del repositorio. La
+> configuración operativa (variables, dominios, planes, base de datos) vive **en
+> Coolify**, no versionada en el repo.
 
-## 0. Pre-requisitos
+## Aplicaciones en Coolify (proyecto, rama, dominio)
 
-- Cuenta en Render con acceso al repo `jcalupinia/auditbrain-python-runner`.
-- Decidir el valor de `AUDITBRAIN_API_KEY` (cadena larga aleatoria; p. ej.
-  `openssl rand -hex 32`). **Guárdala**: tus GPTs deberán enviarla.
-
-## 1. Crear el servicio
-
-1. Render Dashboard → **New** → **Blueprint**.
-2. Conecta el repo y selecciona la rama del PR (`claude/auditbrain-platform-v1-Xh3Ji`)
-   o `main` tras el merge.
-3. Render detecta `render.yaml`. Confirma el servicio `auditbrain-python-runner`.
-
-### Build / Start (definidos en render.yaml)
-
-- **Build command**:
-  ```
-  pip install --upgrade pip setuptools wheel
-  pip install -r requirements.txt
-  ```
-- **Start command**:
-  ```
-  uvicorn app:app --host 0.0.0.0 --port 10000
-  ```
-- **Python**: 3.12.3 · **Health check**: `/`
-
-> ⚠️ `requirements.txt` incluye dependencias muy pesadas (torch,
-> transformers, dask, great_expectations). En el plan **starter** el
-> build puede tardar mucho o agotar memoria. Si el build falla por OOM,
-> sube de plan temporalmente para el primer deploy. (Reducir
-> dependencias sería un cambio de alcance, fuera de esta fase.)
-
-## 2. Variables de entorno
-
-| Variable | Origen | Obligatoria | Notas |
+| App Coolify | Rama | Build | Dominio público |
 |---|---|---|---|
-| `AUDITBRAIN_API_KEY` | Dashboard (secreto, `sync:false`) | **SÍ** | Sin ella el endpoint de ejecución queda abierto a RCE |
-| `CORS_ALLOW_ORIGINS` | Dashboard (`sync:false`) | No | Dominios del frontend separados por coma; vacío = CORS inerte |
-| `DOCUMENT_SERVICE` | render.yaml | Sí | URL del servicio documental |
-| `EXECUTION_TIMEOUT_SECONDS` | render.yaml | Sí | 300 |
-| `EXECUTION_CONCURRENCY` | render.yaml | Sí | 1 |
-| `AUDITBRAIN_MAX_STREAM_CHARS` | render.yaml | Sí | 200000 |
-| `AUDITBRAIN_RESPONSE_MODE` | render.yaml | Sí | compact |
-| `AUDITBRAIN_MAX_RESPONSE_TEXT_CHARS` | render.yaml | Sí | 4000 |
+| `auditbrain-backend` | `main` | Docker (`Dockerfile.render`) | `https://api.audit-ia.ec` |
+| `auditbrain-frontend` (consola) | `main` | nixpacks | `https://consola.audit-ia.ec` |
+| `auditbrain-portal-clientes` | `coolify-hetzner` | Docker | `https://clientes.audit-ia.ec` |
+| `auditbrain-recursos` | `main` | static | `https://recursos.audit-ia.ec` |
+| `auditbrain-preview` | `main` | docker compose | Previews por PR (`<n>.api|consola|clientes.preview.audit-ia.ec`) |
 
-**Definir el secreto**: Dashboard → servicio → **Environment** →
-`AUDITBRAIN_API_KEY` = (tu valor) → Save → Deploy.
+> El backend se construye desde `Dockerfile.render` (el nombre es **legado**; la
+> imagen es la de producción en Coolify, no Render). Expone el puerto `10000`.
 
-### Sandbox Tier 0 (F1) — knobs opcionales
+## Despliegue de producción: automático en `main`
 
-El subproceso que ejecuta código de los GPTs ya **no recibe**
-`AUDITBRAIN_API_KEY` ni secretos (scrub automático, sin configurar nada).
-Los límites de recursos son **opt-in** (0 = sin límite) para no romper
-cargas pandas/numpy; actívalos según el tamaño de la instancia:
+- `auditbrain-backend` tiene **`is_auto_deploy_enabled: true`** en Coolify: un
+  **push/merge a `main`** dispara, vía webhook de GitHub, un **redespliegue
+  automático** de producción (build de la imagen + rolling update). **No es
+  manual.** Lo mismo aplica al frontend/consola (rama `main`).
+- El portal de clientes sigue la rama **`coolify-hetzner`** (no `main`).
+- Previews por PR: los gestiona el controlador del repo
+  (`scripts/preview_lifecycle.py` + workflows `preview-images`/`preview-deploy`),
+  con admisión por capacidad y aislamiento por PR. Ver `docs/previews-coolify.md`.
 
-| Variable | Default | Recomendado | Efecto |
-|---|---|---|---|
-| `AUDITBRAIN_RLIMIT_AS_MB` | 0 | ~70% de la RAM de la instancia | Memoria máx. del script (evita OOM del servicio) |
-| `AUDITBRAIN_RLIMIT_CPU_SECONDS` | 0 | ~`EXECUTION_TIMEOUT_SECONDS` | Segundos de CPU (corta bucles de cómputo) |
-| `AUDITBRAIN_RLIMIT_FSIZE_MB` | 0 | 100–200 | Tamaño máx. de archivo generado |
-| `AUDITBRAIN_RLIMIT_NPROC` | 0 | alto si se activa | Anti fork-bomb (ojo: cuenta procesos del uid) |
-| `AUDITBRAIN_RLIMIT_NOFILE` | 0 | 256 | Descriptores de archivo |
-| `AUDITBRAIN_JOB_TTL_SECONDS` | 3600 | 3600 | Antigüedad para purgar jobs viejos |
-| `AUDITBRAIN_SANDBOX_STRICT_ENV` | 0 | 1 (si los scripts no leen env) | Pasa allowlist mínima en vez de denylist |
+> Implicación al fusionar: cualquier merge a `main` **redespliega producción**.
+> Revisa el diff con cuidado y fusiona en ventana controlada.
 
-> Tier 0 es endurecimiento, **no** una frontera de aislamiento real
-> (eso es Tier 2: WASM/microVM, ver `docs/ROADMAP_FULLSTACK.md`).
+## Variables de entorno (se definen en Coolify, nunca en el repo)
 
-### Auth multiusuario (F2) — JWT + PostgreSQL
+Mínimas del backend (valores en Coolify → app `auditbrain-backend` → Environment,
+como secretos cuando corresponda):
 
-`render.yaml` provisiona un Postgres administrado (`auditbrain-db`) y
-`DATABASE_URL` se inyecta automáticamente. Variables a definir:
+| Variable | Obligatoria | Notas |
+|---|---|---|
+| `AUDITBRAIN_API_KEY` | Sí | Sin ella el runner server-a-servidor queda abierto. GPTs envían `X-API-Key`. |
+| `AUDITBRAIN_JWT_SECRET` | Sí | Firma de los JWT; sin él se usa uno de dev inseguro. |
+| `DATABASE_URL` | Sí | Postgres de producción (gestionado en Coolify). |
+| `CORS_ALLOW_ORIGINS` | No | Orígenes del frontend; vacío = CORS inerte. |
+| `DOCUMENT_SERVICE` | Sí | URL del servicio documental (`universal-creador-documentos`, en Coolify). |
+| `ANTHROPIC_API_KEY` / `ICT_LLM_MODEL` | Según IA | Ver la sección de IA en `CLAUDE.md`. |
+| `AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | Recom. | Admin inicial al primer arranque. |
 
-| Variable | Origen | Obligatoria | Notas |
-|---|---|---|---|
-| `DATABASE_URL` | `fromDatabase` (auto) | Sí | Postgres administrado; sin definir nada |
-| `AUDITBRAIN_JWT_SECRET` | Dashboard (`sync:false`) | **SÍ** | Secreto de firma JWT; sin él se usa uno de dev INSEGURO |
-| `AUDITBRAIN_JWT_EXPIRE_MINUTES` | render.yaml | No | TTL del access token (def. 60) |
-| `AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL` | Dashboard (`sync:false`) | Recom. | Crea el admin inicial al primer arranque |
-| `AUDITBRAIN_BOOTSTRAP_ADMIN_PASSWORD` | Dashboard (`sync:false`) | Recom. | Idem; vacíalo tras el primer deploy |
+> El esquema de BD se crea con `create_all` + migraciones aditivas al arrancar.
 
-Flujo: el frontend hace `POST /api/v1/auth/login` (form `username`=email,
-`password`) → recibe un JWT Bearer. El **runner queda restringido a rol
-`admin`**; los GPTs siguen usando `X-API-Key` server-a-servidor. La API
-Key **nunca** se expone al navegador.
-
-> Migraciones: el esquema inicial se crea con `create_all` al arrancar.
-> Alembic queda en el roadmap si el esquema evoluciona.
-
-## 3. Verificación post-deploy
-
-Sustituye `BASE` por la URL pública de Render y `KEY` por tu API key.
+## Verificación post-deploy
 
 ```bash
-# Health (sin auth) — debe devolver 200
-curl -s BASE/api/v1/health
+BASE=https://api.audit-ia.ec
 
-# Auth activa: SIN key -> 401
-curl -s -o /dev/null -w "%{http_code}\n" -X POST BASE/api/v1/python/run \
+# Health (sin auth) -> 200
+curl -s "$BASE/api/v1/health"
+
+# Runner SIN key -> 401 (auth activa)
+curl -s -o /dev/null -w "%{http_code}\n" -X POST "$BASE/api/v1/python/run" \
   -H "Content-Type: application/json" -d '{"script":"result=1"}'
 
-# CON key -> 200
-curl -s -X POST BASE/api/v1/python/run \
-  -H "Content-Type: application/json" -H "X-API-Key: KEY" \
+# Runner CON key -> 200
+curl -s -X POST "$BASE/api/v1/python/run" \
+  -H "Content-Type: application/json" -H "X-API-Key: $KEY" \
   -d '{"script":"result={\"ok\":True}"}'
-
-# Router inteligente -> 200
-curl -s -X POST BASE/api/v1/router/execute \
-  -H "Content-Type: application/json" -H "X-API-Key: KEY" \
-  -d '{"target":"python_runner","payload":{"script":"result=21*2"}}'
-
-# Documentos (Excel) -> reenvía al servicio externo
-curl -s -X POST BASE/api/v1/documents/generate \
-  -H "Content-Type: application/json" -H "X-API-Key: KEY" \
-  -d '{"result":{"Ingresos":1000},"output_expectations":{"format":"excel"}}'
-
-# Legacy (tus GPTs): ahora EXIGE la key
-curl -s -o /dev/null -w "%{http_code}\n" -X POST BASE/run_python \
-  -H "Content-Type: application/json" -d '{"script":"result=1"}'   # 401 esperado
 ```
 
-## 4. Actualizar los GPTs (acción obligatoria)
+## Sandbox Tier 0 — knobs opcionales
 
-Al activar `AUDITBRAIN_API_KEY`, **todos** los endpoints (incluido el
-legacy `/run_python`) exigen el header `X-API-Key`. Edita la
-configuración de cada GPT (AuditSmart, Audit Advisor, H&G Abogados, GPT
-Maestro) para enviar `X-API-Key: <tu key>`. Sin esto, dejarán de
-funcionar (esperado por diseño de seguridad).
+El subproceso que ejecuta código de los GPTs no recibe `AUDITBRAIN_API_KEY` ni
+secretos. Los límites de recursos son **opt-in** (0 = sin límite):
+`AUDITBRAIN_RLIMIT_AS_MB`, `AUDITBRAIN_RLIMIT_CPU_SECONDS`,
+`AUDITBRAIN_RLIMIT_FSIZE_MB`, `AUDITBRAIN_RLIMIT_NPROC`,
+`AUDITBRAIN_RLIMIT_NOFILE`, `AUDITBRAIN_JOB_TTL_SECONDS`,
+`AUDITBRAIN_SANDBOX_STRICT_ENV`. Es endurecimiento, no una frontera de
+aislamiento real.
+
+## GPTs
+
+Todos los endpoints exigen `X-API-Key`. Apunta cada GPT al backend de producción
+(`https://api.audit-ia.ec`) con su header `X-API-Key`.
