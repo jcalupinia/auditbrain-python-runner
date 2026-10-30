@@ -35,6 +35,31 @@ class Rutas:
     preparado: str = "[auditor]"
     revisado: str = "[socio]"
     marco: str = ""
+    visit: str = ""         # visita del encargo: "preliminar" | "final" (de la ficha)
+
+    # --- derivados del corte (período auditado = 1-ene … mes de corte del ejercicio) ---
+    @property
+    def anio_corte(self) -> int:
+        """Año del ejercicio auditado: el de la ficha o, si falta, el del corte."""
+        if self.ejercicio:
+            return self.ejercicio
+        if self.corte and len(self.corte) >= 4 and self.corte[:4].isdigit():
+            return int(self.corte[:4])
+        return 2025
+
+    @property
+    def mes_corte(self) -> int:
+        """Mes de corte (1-12). Diciembre (12) = cierre calendario; otro = visita preliminar."""
+        if self.corte and len(self.corte) >= 7 and self.corte[5:7].isdigit():
+            m = int(self.corte[5:7])
+            if 1 <= m <= 12:
+                return m
+        return 12
+
+    @property
+    def es_preliminar(self) -> bool:
+        """True cuando el corte no es diciembre (período parcial del ejercicio)."""
+        return self.mes_corte != 12
 
 
 # Contexto vigente (lo fija el orquestador en cada corrida).

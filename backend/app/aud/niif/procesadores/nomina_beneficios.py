@@ -235,6 +235,7 @@ def resolver(archivos: list[dict], ficha: dict, home: str, out: str) -> Rutas:
     r.preparado = ficha.get("preparer") or ficha.get("preparado") or "[auditor]"
     r.revisado = ficha.get("reviewer") or ficha.get("revisado") or "[socio]"
     r.marco = ficha.get("framework") or ficha.get("marco") or ""
+    r.visit = ficha.get("visit") or ficha.get("visita") or ""
     r.logo = _logo_firma(ficha)
     return r
 

@@ -14,7 +14,9 @@ MESES_TXT.update({m: i + 1 for i, m in enumerate(
 
 SBU_2025 = 470.0
 PCT_FR = 0.0833
-EJ = 2025
+EJ = 2025        # año del ejercicio auditado; lo fija motor.correr() desde la ficha
+MES_CORTE = 12   # mes de corte (1-12); 12 = cierre calendario, otro = visita preliminar
+VISITA = ""      # "preliminar" | "final" (de la ficha)
 
 
 def mnum(v):
@@ -103,6 +105,12 @@ def leer_exclusiones(path):
 
 # ---------------------------------------------------------------- motor
 def correr(rutas):
+    # Año y mes de corte del ejercicio auditado (de la ficha). El período auditado va de
+    # enero al mes de corte; en diciembre es el cierre calendario (comportamiento histórico).
+    global EJ, MES_CORTE, VISITA
+    EJ = rutas.anio_corte
+    MES_CORTE = rutas.mes_corte
+    VISITA = (rutas.visit or "").strip().lower()
     cons = leer_consolidado(rutas.consolidado)
     rol = leer_rol_normal(rutas.rol)
     exc_ced, exc_nom = leer_exclusiones(rutas.exclusiones) if rutas.exclusiones else ({}, {})
