@@ -61,6 +61,12 @@ _GASTO = [
 # tocar el cálculo (que sigue usando los códigos canónicos). Lo limpia ``mayores.cargar``.
 MAPA_PRESENTACION: dict = {}
 
+# Cuentas de PASIVO del anexo del cliente que el motor NO logró clasificar por su descripción.
+# No se inventan ni se descartan en silencio: se listan para que el AUDITOR confirme a qué concepto
+# corresponden (decisión del dueño, 2026-10-30). Cada entrada: (código, descripción, saldo_ant, saldo_corte).
+# Lo limpia ``reescribir_anexo`` al inicio y lo lee la sumaria (mk_do2) para avisar.
+ANEXO_PASIVO_NO_RECONOCIDO: list = []
+
 # Nombre de cuenta de PASIVO → código de referencia que usa el motor.
 _PASIVO = [
     (("decimo", "tercer"), "5BS.21204.001"),
@@ -188,7 +194,9 @@ def reescribir_anexo(anexo_path, destino) -> str:
       fila 1: título · fila 2: fechas (col C anterior, col F corte) · fila 3: encabezados ·
       fila 4+: cuentas de pasivo (código de referencia 5BS.212xx), una fila en blanco, gastos.
     Devuelve la ruta del archivo escrito. Las cuentas de pasivo cuyo nombre no se reconoce se
-    OMITEN (no se inventan); el motor avisará si falta algún saldo."""
+    OMITEN del cálculo (no se inventan) pero se REGISTRAN en ``ANEXO_PASIVO_NO_RECONOCIDO`` para
+    avisar al auditor (la sumaria las lista para que confirme a qué concepto corresponden)."""
+    ANEXO_PASIVO_NO_RECONOCIDO.clear()
     df = pd.read_excel(anexo_path, header=None)
     ncols = df.shape[1]
     # fila de fechas: la primera (entre las 5 primeras) con una fecha en col C o F
@@ -217,7 +225,10 @@ def reescribir_anexo(anexo_path, destino) -> str:
                 pas.append((ref, nombre, s_ant, s_cor))     # pasivo de nómina → código de referencia
                 # Recuerda el código y nombre REALES del cliente para la presentación (cédulas).
                 MAPA_PRESENTACION.setdefault(ref, []).append((cod, nombre))
-            # un pasivo cuyo nombre no es de nómina se omite (no se inventa)
+            else:
+                # Pasivo cuyo nombre no se reconoce: NO se inventa ni se descarta en silencio.
+                # Se registra para que el auditor confirme a qué concepto corresponde.
+                ANEXO_PASIVO_NO_RECONOCIDO.append((cod, nombre, s_ant, s_cor))
         elif cod.startswith(("5", "6", "7")):
             gas.append((cod, nombre, s_ant, s_cor))          # gasto/resultado: ya empieza por 5, se deja igual
 
