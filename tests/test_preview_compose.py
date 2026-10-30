@@ -253,7 +253,12 @@ def test_t2_sin_variables_compartidas_de_credenciales(compose):
     assert "for f in pg_password admin_password api_key jwt_secret" in cmd and '[ -s "/run/secrets/$$f" ]' in cmd
     assert "AUDITBRAIN_JWT_SECRET:-" in cmd and "exit 3" in cmd, "rechaza credenciales heredadas antes de sobrescribirlas"
     assert "set -x" not in cmd and "echo $$" not in cmd and 'echo "$$' not in cmd, "el guion no imprime valores"
-    assert env["AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL"] == ADMIN_EMAIL_PREVIEW
+    # El repositorio es público: el correo del admin NO se hardcodea en el Compose. Se configura en
+    # runtime (archivo de identidades del volumen aislado del PR) y, sin configuración válida, el código
+    # usa un fallback genérico NO-PII solo en previews (backend/app/core/preview_seed.py, PR #411).
+    assert "AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL" not in env, (
+        "el correo del admin no debe estar hardcodeado en el Compose (se configura en runtime)"
+    )
     # La única variable obligatoria (:?) que queda es la etiqueta de la imagen.
     sin_comentarios = "\n".join(l for l in COMPOSE.read_text(encoding="utf-8").splitlines() if not l.lstrip().startswith("#"))
     assert set(re.findall(r"\$\{([A-Z_]+):\?", sin_comentarios)) == {"SOURCE_COMMIT"}
@@ -273,14 +278,25 @@ def test_t3_nombres_reales_de_las_variables_del_backend(compose):
         assert f"export {var}=" in cmd
 
 
-def test_t4_el_correo_del_admin_pasa_el_validador_real(compose):
+def test_t4_el_bootstrap_del_admin_ocurre_en_runtime_sin_correo_hardcodeado(compose):
     from backend.app.auth.service import _email_valido
 
-    assert _email_valido(_env(compose["services"]["backend"])["AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL"])
+    # 1) El Compose no define el correo del admin: ni como variable de entorno del backend…
+    assert "AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL" not in _env(compose["services"]["backend"]), (
+        "el correo del admin no debe estar hardcodeado en el Compose; se configura en runtime"
+    )
+    # …ni como VALOR de entorno de ningún servicio (tampoco el genérico de reserva NO-PII). Un comentario
+    #  que explique el fallback sí se admite; lo que no puede existir es un correo usable hardcodeado. El
+    #  `docker compose config` del CI valida lo mismo sobre el Compose ya resuelto (sin comentarios).
+    for nombre, svc in compose["services"].items():
+        assert ADMIN_EMAIL_PREVIEW not in " ".join(_env(svc).values()), (
+            f"{nombre}: ningún correo de admin (tampoco el genérico) debe ir como valor en environment"
+        )
+    # 2) El fallback genérico NO-PII que el código usa en previews (preview_seed, PR #411) es un correo que
+    #    el validador real (EmailStr) acepta, de modo que el admin de reserva SÍ puede crearse en runtime…
+    assert _email_valido(ADMIN_EMAIL_PREVIEW)
+    # …y un dominio de uso especial se sigue rechazando (regresión: con `.invalid` el admin no se crearía).
     assert not _email_valido("admin@preview.invalid"), "regresión: .invalid lo rechaza EmailStr y el admin no se crearía"
-    # No es una identidad de la configuración productiva del repositorio.
-    render = (COMPOSE.parent / "render.yaml").read_text(encoding="utf-8")
-    assert ADMIN_EMAIL_PREVIEW not in render
 
 
 @pytest.mark.skipif(shutil.which("sh") is None, reason="requiere un sh POSIX")

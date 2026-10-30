@@ -97,8 +97,12 @@ jobs:
           # Credenciales de prueba exclusivas por PR: el Compose ya no depende de variables compartidas de Coolify
           if grep -E 'PREVIEW_ADMIN_(EMAIL|PASSWORD)|PREVIEW_API_KEY' /tmp/compose-resuelto.yml; then
             echo "ERROR: el Compose aún referencia variables compartidas de credenciales"; exit 1; fi
-          grep -q 'preview-admin@audit-ia.ec' /tmp/compose-resuelto.yml
-          echo "OK: sin PREVIEW_ADMIN_*/PREVIEW_API_KEY; correo del administrador de prueba fijo"
+          # El repositorio es público: NINGÚN correo de admin se hardcodea en el Compose. Se configura en
+          # runtime (archivo de identidades del volumen aislado del PR) y, sin configuración válida, el
+          # código usa un fallback genérico NO-PII solo en previews (backend/app/core/preview_seed.py).
+          if grep -Eq 'AUDITBRAIN_BOOTSTRAP_ADMIN_EMAIL|preview-admin@audit-ia\.ec' /tmp/compose-resuelto.yml; then
+            echo "ERROR: el Compose hardcodea un correo de admin; debe configurarse en runtime"; exit 1; fi
+          echo "OK: sin PREVIEW_ADMIN_*/PREVIEW_API_KEY ni correo de admin hardcodeado (bootstrap en runtime)"
 
   ghcr-lectura:
     name: lectura real de imágenes privadas en GHCR (controlador)
