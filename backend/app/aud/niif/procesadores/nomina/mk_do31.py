@@ -236,16 +236,26 @@ rs['C26'] = 'personas distintas en el año'
 # provisiones registradas por el cliente (insumo DO-4)
 rs['B29'] = 'PROVISIONES REGISTRADAS POR EL CLIENTE EN EL ROL (insumo para DO-4 Reproceso)'
 rs['B29'].font = BF
-for j, t in enumerate(['Mes', 'Décimo tercero', 'Décimo cuarto', 'Vacaciones',
-                       'Fondos de reserva', 'Aporte adic. 4,41% JP', 'Total']):
+for j, t in enumerate(['Mes', 'Décimo tercero (prov. + mens.)', 'Décimo cuarto (prov. + mens.)',
+                       'Vacaciones', 'Fondos de reserva', 'Aporte adic. 4,41% JP', 'Total']):
     _hdr(rs, f'{GL(2 + j)}30', t)
 _provcol = {'C': 'BL', 'D': 'BM', 'E': 'BN', 'F': 'BO', 'G': 'BK'}
+# Décimo tercero/cuarto = provisión + MENSUALIZADO pagado en el rol (columnas AD «D13 MENS»,
+# AE «D14 MENS SIE»). Decisión del socio (2026-11-01): el décimo del lado del rol debe conciliar
+# con el gasto del mayor (provisión acumulada + lo ya pagado mensualizado). Son conjuntos disjuntos
+# (un empleado-mes o se provisiona o se paga mensualizado), así que la suma no duplica. El DO-4 NO
+# se altera: lee el detalle por trabajador («Insumo DO-3.1»), no esta tabla resumen, y ya concilia
+# el mensualizado por su lado (columna «Pagado mensual en rol»).
+_mens = {'C': 'AD', 'D': 'AE'}
 for m in range(1, 13):
     r = 30 + m
     rs[f'B{r}'] = MESES[m - 1]
     for col, src in _provcol.items():
-        rs[f'{col}{r}'] = (f'=SUMIFS({DR}!${src}$2:${src}${drlast},'
-                           f'{DR}!$B$2:$B${drlast},{m})')
+        f = f'SUMIFS({DR}!${src}$2:${src}${drlast},{DR}!$B$2:$B${drlast},{m})'
+        if col in _mens:
+            mc = _mens[col]
+            f += f'+SUMIFS({DR}!${mc}$2:${mc}${drlast},{DR}!$B$2:$B${drlast},{m})'
+        rs[f'{col}{r}'] = '=' + f
         rs[f'{col}{r}'].number_format = NUM
     rs[f'H{r}'] = f'=SUM(C{r}:G{r})'; rs[f'H{r}'].number_format = NUM
 rs['B43'] = 'Σ'; rs['B43'].font = BF

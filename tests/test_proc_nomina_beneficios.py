@@ -78,3 +78,37 @@ def test_datos_minimos():
     assert m.datos_minimos(base) is True
     assert m.datos_minimos(base[:-1]) is False   # falta el rol
     assert m.datos_minimos([]) is False
+
+
+def test_do31_decimo_suma_mensualizado_a_la_provision():
+    """DO-3.1, tabla «PROVISIONES REGISTRADAS»: el décimo tercero/cuarto SUMA el mensualizado
+    pagado en el rol a la provisión (decisión del socio 2026-11-01), para que concilie con el
+    gasto del mayor (provisión acumulada + lo ya pagado mensualizado; conjuntos disjuntos, sin
+    doble conteo). La fórmula de cada mes debe referenciar la provisión (BL/BM) y el mensualizado
+    (AD «D13 MENS» / AE «D14 MENS SIE»). DO-4 no se altera (lee el detalle por trabajador)."""
+    import io
+    import os
+    import tempfile
+
+    import openpyxl
+
+    EJ = "frontend/public/ejemplos/nomina_beneficios"
+    if not os.path.exists(f"{EJ}/RQ-006_rol_de_pagos_normal_y_pasantes.xlsx"):
+        import pytest
+        pytest.skip("faltan los ejemplos del repo")
+    A = [("RQ-002", "RQ-002_anexo_de_nomina_saldos_por_cuenta.xlsx"),
+         ("RQ-003", "RQ-003_consolidado_iess_por_region.xlsx"),
+         ("RQ-004", "RQ-004_mayor_de_gasto_de_nomina.xlsx"),
+         ("RQ-004", "RQ-004_mayor_de_iess_por_pagar.xlsx"),
+         ("RQ-004", "RQ-004_mayor_de_beneficios_sociales_por_pagar.xlsx"),
+         ("RQ-006", "RQ-006_rol_de_pagos_normal_y_pasantes.xlsx")]
+    arch = [{"requerimiento": r, "ruta": f"{EJ}/{n}", "nombre": n} for r, n in A]
+    d = tempfile.mkdtemp()
+    ced = m.correr_prueba(arch, {"client": "Demo", "year": 2024, "cutoff": "2024-12-31"},
+                          os.path.join(d, "h"), os.path.join(d, "o"))
+    wb = openpyxl.load_workbook(io.BytesIO(ced["DO-3.1_Resumen_Roles_de_Pago.xlsx"]))
+    ws = wb["DO3.1 Resumen Roles"]
+    c31 = str(ws["C31"].value)   # Décimo tercero, Enero (fila 30 + mes 1)
+    d31 = str(ws["D31"].value)   # Décimo cuarto, Enero
+    assert "$BL$" in c31 and "$AD$" in c31, c31   # provisión D13 + mensualizado D13
+    assert "$BM$" in d31 and "$AE$" in d31, d31   # provisión D14 + mensualizado D14
