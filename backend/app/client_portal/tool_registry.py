@@ -183,6 +183,16 @@ TOOLS: dict[str, ToolConfig] = {
         enabled=True,
     ),
 
+    "SOFTWARE_COSTOS": ToolConfig(
+        code="SOFTWARE_COSTOS",
+        label="Software de Costos",
+        description="AuditSmart Costo Global 2026: produccion, inventarios y conciliaciones.",
+        category="SOCIETARIAS",
+        slots={},
+        processor=None,  # Dashboard propio; motor pendiente de integracion.
+        enabled=True,
+    ),
+
     # =========================================================
     # MARKETING
     # =========================================================
