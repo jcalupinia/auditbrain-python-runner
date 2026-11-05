@@ -154,6 +154,7 @@ def importar_modelos() -> None:
     from backend.app.events import models as _events_models  # noqa: F401
     from backend.app.recursos import models as _recursos_models  # noqa: F401
     from backend.app.forge import models as _forge_models  # noqa: F401
+    from backend.app.app_accounts import models as _app_accounts_models  # noqa: F401
 
 
 def init_db() -> None:

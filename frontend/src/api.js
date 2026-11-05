@@ -1134,6 +1134,45 @@ export async function setRecursoActivo(id, activo) {
   );
 }
 
+// ---------------- Cuentas de Aplicaciones AUDIT-IA (tipo dedicado + apps) ----------
+export async function appsCatalog() {
+  return parse(await apiFetch(`${API_BASE}/api/v1/apps/catalog`, { headers: authHeaders() }));
+}
+export async function listAppAccounts() {
+  return parse(await apiFetch(`${API_BASE}/api/v1/apps/accounts`, { headers: authHeaders() }));
+}
+export async function createAppAccount({ email, display_name, client_label, apps }) {
+  return parse(
+    await apiFetch(`${API_BASE}/api/v1/apps/accounts`, {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ email, display_name: display_name || null, client_label: client_label || null, apps: apps || [] }),
+    })
+  );
+}
+export async function updateAppAccount(id, cambios) {
+  return parse(
+    await apiFetch(`${API_BASE}/api/v1/apps/accounts/${id}`, {
+      method: "PATCH",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(cambios),
+    })
+  );
+}
+export async function resetAppAccountPassword(id) {
+  return parse(
+    await apiFetch(`${API_BASE}/api/v1/apps/accounts/${id}/reset-password`, {
+      method: "POST",
+      headers: authHeaders(),
+    })
+  );
+}
+export async function deleteAppAccount(id) {
+  return parse(
+    await apiFetch(`${API_BASE}/api/v1/apps/accounts/${id}`, { method: "DELETE", headers: authHeaders() })
+  );
+}
+
 // ---------- Fase 2 · M1: contexto operativo ----------
 
 export async function getMyContext() {

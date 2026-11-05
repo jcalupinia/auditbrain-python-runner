@@ -22,6 +22,7 @@ from backend.app.aud.niif.ciclo import router as aud_ciclo_router
 from backend.app.tax.planificacion_utilidades import router as tax_pu_router
 from backend.app.chat import router as chat_router
 from backend.app.client_portal import router as client_portal_router
+from backend.app.app_accounts import router as app_accounts_router
 from backend.app.context import router as context_router
 from backend.app.events import router as events_router
 from backend.app.recursos import router as recursos_router
@@ -52,6 +53,7 @@ api_router.include_router(aud_ciclo_router.router)
 api_router.include_router(tax_pu_router.router)
 api_router.include_router(canva.router)
 api_router.include_router(client_portal_router.router)
+api_router.include_router(app_accounts_router.router)
 api_router.include_router(staff_portal_router.router)
 api_router.include_router(staff_portal_router.global_router)
 api_router.include_router(ict_router)

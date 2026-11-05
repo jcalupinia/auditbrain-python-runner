@@ -2415,6 +2415,181 @@ function RecursosCuentas({ isAdmin }) {
   );
 }
 
+/* ---------------- Cuentas de Aplicaciones AUDIT-IA (admin) ---------------- */
+function AppAccounts() {
+  const [apps, setApps] = useState([]);       // catálogo de apps
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(true);
+  const [err, setErr] = useState("");
+  const [q, setQ] = useState("");
+  const [pending, setPending] = useState(() => new Set());
+  const marcar = (k, on) =>
+    setPending((p) => { const n = new Set(p); if (on) n.add(k); else n.delete(k); return n; });
+  // Alta
+  const [nEmail, setNEmail] = useState("");
+  const [nName, setNName] = useState("");
+  const [nClient, setNClient] = useState("");
+  const [nApps, setNApps] = useState(() => new Set());
+  const [creating, setCreating] = useState(false);
+  const [done, setDone] = useState(null); // { email, temp_password }
+
+  const reload = useCallback(async () => {
+    setBusy(true); setErr("");
+    try {
+      const [cat, list] = await Promise.all([api.appsCatalog(), api.listAppAccounts()]);
+      setApps(cat); setRows(list);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+
+  const patch = (id, cambios) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...cambios } : r)));
+
+  async function toggleApp(r, key) {
+    const k = `${r.id}:${key}`; if (pending.has(k)) return;
+    const has = (r.apps || []).includes(key);
+    const apps2 = has ? (r.apps || []).filter((a) => a !== key) : [...(r.apps || []), key];
+    setErr(""); marcar(k, true);
+    try { const res = await api.updateAppAccount(r.id, { apps: apps2 }); patch(r.id, { apps: res.apps }); }
+    catch (e) { setErr(e.message); } finally { marcar(k, false); }
+  }
+  async function toggleActivo(r) {
+    const k = `${r.id}:activo`; if (pending.has(k)) return;
+    const next = !r.is_active;
+    if (!window.confirm(`¿${next ? "Activar" : "Desactivar"} la cuenta ${r.email}?`)) return;
+    setErr(""); marcar(k, true);
+    try { const res = await api.updateAppAccount(r.id, { is_active: next }); patch(r.id, { is_active: res.is_active }); }
+    catch (e) { setErr(e.message); } finally { marcar(k, false); }
+  }
+  async function resetear(r) {
+    const k = `${r.id}:reset`; if (pending.has(k)) return;
+    if (!window.confirm(`¿Resetear la clave de ${r.email}? Se generará una nueva.`)) return;
+    setErr(""); marcar(k, true);
+    try { const res = await api.resetAppAccountPassword(r.id); setDone({ email: r.email, temp_password: res.temp_password }); }
+    catch (e) { setErr(e.message); } finally { marcar(k, false); }
+  }
+  async function borrar(r) {
+    const k = `${r.id}:del`; if (pending.has(k)) return;
+    if (!window.confirm(`¿Eliminar la cuenta ${r.email}? No se puede deshacer.`)) return;
+    setErr(""); marcar(k, true);
+    try { await api.deleteAppAccount(r.id); setRows((rs) => rs.filter((x) => x.id !== r.id)); }
+    catch (e) { setErr(e.message); } finally { marcar(k, false); }
+  }
+  async function crear() {
+    if (creating) return;
+    if (!nEmail.trim() || !nEmail.includes("@")) { setErr("Escribe un correo válido."); return; }
+    setErr(""); setCreating(true);
+    try {
+      const res = await api.createAppAccount({
+        email: nEmail.trim(), display_name: nName.trim(), client_label: nClient.trim(), apps: [...nApps],
+      });
+      setDone({ email: res.account.email, temp_password: res.temp_password });
+      setNEmail(""); setNName(""); setNClient(""); setNApps(new Set());
+      reload();
+    } catch (e) { setErr(e.message); } finally { setCreating(false); }
+  }
+  const toggleNApp = (key) =>
+    setNApps((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+
+  const term = q.trim().toLowerCase();
+  const filtered = term
+    ? rows.filter((r) => `${r.email} ${r.display_name || ""} ${r.client_label || ""}`.toLowerCase().includes(term))
+    : rows;
+  const meta = `${filtered.length}${term ? ` de ${rows.length}` : ""} cuenta(s) · ${apps.length} app(s) en el catálogo`;
+
+  return (
+    <>
+      <ViewHead code="APP" title="Cuentas de Aplicaciones AUDIT-IA"
+        sub="Cuentas de login de las apps (AUDIT SOUND y futuras), independientes del portal de auditoría. Marca a qué app puede entrar cada cuenta." />
+
+      {done && (
+        <div onClick={() => setDone(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--panel, #0a2342)", color: "var(--text, #e8eef6)",
+              border: "1px solid var(--border, #21456e)", borderRadius: 12, padding: 24,
+              width: 440, maxWidth: "92vw", boxShadow: "0 20px 60px rgba(0,0,0,.5)" }}>
+            <h3 style={{ marginTop: 0 }}>✅ Clave de la cuenta</h3>
+            <p className="muted">
+              Cuenta: <b>{done.email}</b>. Entrégala a la persona; deberá cambiarla al entrar.
+            </p>
+            <pre style={{ fontSize: 18, userSelect: "all" }}>{done.temp_password}</pre>
+            <button className="btn" onClick={() => setDone(null)}>Entendido</button>
+          </div>
+        </div>
+      )}
+
+      <Panel title="Crear cuenta de aplicación" max={720}>
+        <div className="row-form" style={{ gap: 8, flexWrap: "wrap" }}>
+          <input placeholder="correo@cliente.com" value={nEmail} onChange={(e) => setNEmail(e.target.value)} />
+          <input placeholder="Nombre (opcional)" value={nName} onChange={(e) => setNName(e.target.value)} />
+          <input placeholder="Cliente/empresa (opcional)" value={nClient} onChange={(e) => setNClient(e.target.value)} />
+        </div>
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "10px 0" }}>
+          {apps.map((a) => (
+            <label key={a.key} style={{ display: "flex", alignItems: "center", gap: 6 }} title={a.description}>
+              <input type="checkbox" checked={nApps.has(a.key)} onChange={() => toggleNApp(a.key)} />
+              <span>{a.label}</span>
+            </label>
+          ))}
+        </div>
+        <button className="btn primary" onClick={crear} disabled={creating}>
+          {creating ? "Creando…" : "Crear cuenta y generar clave"}
+        </button>
+        {err && <div className="err" style={{ marginTop: 8 }}>{err}</div>}
+      </Panel>
+
+      <Panel title="Cuentas" meta={meta}>
+        <div className="row-form" style={{ marginBottom: 12 }}>
+          <input placeholder="Buscar por correo, nombre o cliente…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <button className="btn ghost" onClick={reload} disabled={busy}>{busy ? "Cargando…" : "Actualizar"}</button>
+        </div>
+        {filtered.length > 0 ? (
+          <div style={{ overflowX: "auto" }}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Cuenta</th><th>Cliente</th>
+                  {apps.map((a) => <th key={a.key} style={{ textAlign: "center" }}>{a.label}</th>)}
+                  <th style={{ textAlign: "center" }}>Activa</th><th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r) => (
+                  <tr key={r.id} style={{ opacity: r.is_active ? 1 : 0.55 }}>
+                    <td>
+                      <div><b>{r.email}</b></div>
+                      {r.display_name && <div className="muted">{r.display_name}</div>}
+                    </td>
+                    <td className="muted">{r.client_label || "—"}</td>
+                    {apps.map((a) => (
+                      <td key={a.key} style={{ textAlign: "center" }}>
+                        <input type="checkbox" checked={(r.apps || []).includes(a.key)}
+                          disabled={pending.has(`${r.id}:${a.key}`)} onChange={() => toggleApp(r, a.key)} />
+                      </td>
+                    ))}
+                    <td style={{ textAlign: "center" }}>
+                      <input type="checkbox" checked={r.is_active}
+                        disabled={pending.has(`${r.id}:activo`)} onChange={() => toggleActivo(r)} />
+                    </td>
+                    <td>
+                      <button className="btn sm" onClick={() => resetear(r)} disabled={pending.has(`${r.id}:reset`)}>Reset clave</button>{" "}
+                      <button className="btn sm ghost" onClick={() => borrar(r)} disabled={pending.has(`${r.id}:del`)}>Eliminar</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="muted">{busy ? "Cargando…" : "Aún no hay cuentas de aplicación. Crea la primera arriba."}</div>
+        )}
+        {err && <div className="err" style={{ marginTop: 8 }}>{err}</div>}
+      </Panel>
+    </>
+  );
+}
+
 /* ---------------- Command Center Shell ---------------- */
 export default function App() {
   const [user, setUser] = useState(null);
@@ -2479,6 +2654,7 @@ export default function App() {
     { id: "inscripciones", code: "INS", label: "Inscripciones", staff: true },
     { id: "recursos", code: "REC", label: "Recursos", staff: true },
     { id: "users", code: "USR", label: "Cuentas", admin: true },
+    { id: "app_accounts", code: "APP", label: "Cuentas AUDIT-IA", admin: true },
     { id: "profile", code: "PRF", label: "Mi Perfil", staff: true },
     { id: "security", code: "SEC", label: "Seguridad" },
   ].filter((n) => (!n.admin || isAdmin) && (!n.staff || isStaff));
@@ -2507,6 +2683,7 @@ export default function App() {
     switch (section) {
       case "runner": return isStaff ? <Runner /> : <Dashboard user={user} health={hp} />;
       case "users": return isAdmin ? <Users /> : <Dashboard user={user} health={hp} />;
+      case "app_accounts": return isAdmin ? <AppAccounts /> : <Dashboard user={user} health={hp} />;
       case "workspaces":
         return isStaff
           ? <Workspaces onContextChanged={loadContext} />
