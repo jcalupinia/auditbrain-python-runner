@@ -6,6 +6,8 @@
   `GET /apps/auth/me` (Bearer). El parámetro `app` valida el acceso a esa app concreta.
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -18,10 +20,27 @@ from backend.app.app_accounts.schemas import (
     AppAccountOut,
     AppAccountUpdate,
     AppCatalogItem,
+    AppChangePassword,
     AppLoginResponse,
     AppMeResponse,
     ResetPasswordOut,
 )
+from backend.app.notifications import email as email_svc
+
+log = logging.getLogger(__name__)
+
+
+def _send_access_email(acct: AppAccount, temp: str) -> bool | None:
+    """Envía el acceso (usuario+clave) por correo. True enviado, False falló.
+
+    No propaga excepciones: el alta/reset no debe romperse si el correo falla.
+    """
+    try:
+        res = email_svc.send_app_account_access(to=acct.email, clave=temp)
+        return res is not None
+    except Exception:  # noqa: BLE001
+        log.exception("Fallo enviando el correo de acceso a %s", acct.email)
+        return False
 from backend.app.auth.deps import require_admin
 from backend.app.auth.jwt_tokens import create_access_token, decode_token
 from backend.app.client_portal.rate_limit import check_and_record
@@ -74,7 +93,12 @@ def create_account(
         )
     except service.AppAccountError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
-    return AppAccountCreated(account=_out(db, acct), temp_password=temp)
+    # Solo tiene sentido enviar la clave por correo si el sistema la generó
+    # (password is None); si el admin fijó una, no la reenviamos en claro.
+    email_sent = None
+    if payload.send_email and payload.password is None:
+        email_sent = _send_access_email(acct, temp)
+    return AppAccountCreated(account=_out(db, acct), temp_password=temp, email_sent=email_sent)
 
 
 def _require_account(db: Session, account_id: int) -> AppAccount:
@@ -108,10 +132,13 @@ def update_account(
 def reset_account_password(
     account_id: int,
     admin=Depends(require_admin),
+    send_email: bool = Query(default=True, description="reenviar el acceso por correo al cliente"),
     db: Session = Depends(get_db),
 ):
     acct = _require_account(db, account_id)
-    return ResetPasswordOut(temp_password=service.reset_password(db, acct))
+    temp = service.reset_password(db, acct)
+    email_sent = _send_access_email(acct, temp) if send_email else None
+    return ResetPasswordOut(temp_password=temp, email_sent=email_sent)
 
 
 @router.delete("/accounts/{account_id}", status_code=200)
@@ -176,6 +203,24 @@ def current_app_account(authorization: str | None = Header(default=None),
 
 @router.get("/auth/me", response_model=AppMeResponse)
 def app_me(acct: AppAccount = Depends(current_app_account), db: Session = Depends(get_db)):
+    return AppMeResponse(email=acct.email, display_name=acct.display_name,
+                         apps=service.account_apps(db, acct.id),
+                         password_reset_required=acct.password_reset_required)
+
+
+@router.post("/auth/change-password", response_model=AppMeResponse)
+def app_change_password(
+    payload: AppChangePassword,
+    acct: AppAccount = Depends(current_app_account),
+    db: Session = Depends(get_db),
+):
+    """El cliente cambia su propia clave desde la app (verifica la clave actual)."""
+    if service.authenticate(db, acct.email, payload.current_password) is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="La contraseña actual no es correcta.")
+    try:
+        service.set_password(db, acct, payload.new_password)
+    except service.AppAccountError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     return AppMeResponse(email=acct.email, display_name=acct.display_name,
                          apps=service.account_apps(db, acct.id),
                          password_reset_required=acct.password_reset_required)

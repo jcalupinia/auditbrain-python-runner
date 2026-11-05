@@ -2430,8 +2430,9 @@ function AppAccounts() {
   const [nName, setNName] = useState("");
   const [nClient, setNClient] = useState("");
   const [nApps, setNApps] = useState(() => new Set());
+  const [nSendEmail, setNSendEmail] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [done, setDone] = useState(null); // { email, temp_password }
+  const [done, setDone] = useState(null); // { email, temp_password, email_sent }
 
   const reload = useCallback(async () => {
     setBusy(true); setErr("");
@@ -2464,7 +2465,7 @@ function AppAccounts() {
     const k = `${r.id}:reset`; if (pending.has(k)) return;
     if (!window.confirm(`¿Resetear la clave de ${r.email}? Se generará una nueva.`)) return;
     setErr(""); marcar(k, true);
-    try { const res = await api.resetAppAccountPassword(r.id); setDone({ email: r.email, temp_password: res.temp_password }); }
+    try { const res = await api.resetAppAccountPassword(r.id); setDone({ email: r.email, temp_password: res.temp_password, email_sent: res.email_sent }); }
     catch (e) { setErr(e.message); } finally { marcar(k, false); }
   }
   async function borrar(r) {
@@ -2481,8 +2482,9 @@ function AppAccounts() {
     try {
       const res = await api.createAppAccount({
         email: nEmail.trim(), display_name: nName.trim(), client_label: nClient.trim(), apps: [...nApps],
+        send_email: nSendEmail,
       });
-      setDone({ email: res.account.email, temp_password: res.temp_password });
+      setDone({ email: res.account.email, temp_password: res.temp_password, email_sent: res.email_sent });
       setNEmail(""); setNName(""); setNClient(""); setNApps(new Set());
       reload();
     } catch (e) { setErr(e.message); } finally { setCreating(false); }
@@ -2511,9 +2513,16 @@ function AppAccounts() {
               width: 440, maxWidth: "92vw", boxShadow: "0 20px 60px rgba(0,0,0,.5)" }}>
             <h3 style={{ marginTop: 0 }}>✅ Clave de la cuenta</h3>
             <p className="muted">
-              Cuenta: <b>{done.email}</b>. Entrégala a la persona; deberá cambiarla al entrar.
+              Cuenta: <b>{done.email}</b>. Deberá cambiarla al entrar a AUDIT SOUND.
             </p>
             <pre style={{ fontSize: 18, userSelect: "all" }}>{done.temp_password}</pre>
+            <p className="muted" style={{ fontSize: 13 }}>
+              {done.email_sent === true
+                ? "📧 Enviado por correo a la persona con su usuario y clave."
+                : done.email_sent === false
+                ? "⚠️ No se pudo enviar el correo (revisa RESEND_API_KEY en el backend). Entrega la clave manualmente."
+                : "El correo no se envió (clave fija o envío desactivado). Entrega la clave manualmente."}
+            </p>
             <button className="btn" onClick={() => setDone(null)}>Entendido</button>
           </div>
         </div>
@@ -2533,6 +2542,11 @@ function AppAccounts() {
             </label>
           ))}
         </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, margin: "2px 0 12px" }}
+          title="Envía al cliente, por correo, su usuario y la clave temporal (mismo mecanismo que Recursos).">
+          <input type="checkbox" checked={nSendEmail} onChange={(e) => setNSendEmail(e.target.checked)} />
+          <span>Enviar acceso por correo a la persona</span>
+        </label>
         <button className="btn primary" onClick={crear} disabled={creating}>
           {creating ? "Creando…" : "Crear cuenta y generar clave"}
         </button>
