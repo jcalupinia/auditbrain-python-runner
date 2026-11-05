@@ -13,15 +13,8 @@
     <td align="center" style="padding:24px 12px;">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;">
 
-        <!-- Encabezado AUDIT SOUND -->
-        <tr>
-          <td bgcolor="#071B2F" style="background:#071B2F;padding:28px 32px 22px;" align="center">
-            {{logo_block}}
-            <p style="margin:0;font-size:26px;font-weight:800;letter-spacing:1px;color:#ffffff;">{{audifonos_block}}AUDIT <span style="color:#36E26A;">SOUND</span></p>
-            <p style="margin:8px 0 0;font-size:11px;letter-spacing:2px;color:#9fb6c9;text-transform:uppercase;">DJ inteligente con IA &middot; AUDIT-IA</p>
-          </td>
-        </tr>
-        <tr><td bgcolor="#36E26A" height="6" style="background:#36E26A;height:6px;line-height:6px;font-size:0;">&nbsp;</td></tr>
+        <!-- Encabezado AUDIT SOUND (banner de imagen si está configurado, si no el texto) -->
+        {{header_rows}}
 
         <!-- Cuerpo -->
         <tr>
@@ -70,6 +63,7 @@
         <!-- Pie -->
         <tr>
           <td bgcolor="#071B2F" style="background:#071B2F;padding:22px 32px 26px;">
+            {{footer_logo_block}}
             <p style="margin:0 0 12px;font-size:11px;letter-spacing:1px;color:#ffffff;"><strong>AUDIT-IA</strong> &middot; una plataforma de <strong>AuditConsulting Group</strong></p>
             <p style="margin:0;font-size:10.5px;line-height:1.6;color:#9fb6c9;">AuditConsulting Group trata sus datos (nombre, empresa y correo) para darle acceso a AUDIT SOUND, con base en su consentimiento y conforme a la Ley Orgánica de Protección de Datos Personales del Ecuador. Puede ejercer sus derechos de acceso, rectificación, eliminación y oposición escribiendo a {{contacto}}.</p>
           </td>
