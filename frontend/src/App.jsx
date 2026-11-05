@@ -1667,7 +1667,7 @@ function CognitiveWorkspace({ user, module, ctx, goDocs, goRunner, isAdmin, isSt
       >
         <div className="cw-tabs">
           {pestañasVisibles(module.id, mediaEnabled).map((t) => (
-            <button key={t.id} className={tab === t.id ? "on" : ""} onClick={() => setTab(t.id)}>
+            <button key={t.id} data-tab={t.id} className={tab === t.id ? "on" : ""} onClick={() => setTab(t.id)}>
               {t.label}
             </button>
           ))}
