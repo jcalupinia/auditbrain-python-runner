@@ -218,8 +218,8 @@ def render_app_account_access(
     logo_block = ""
     if logo_url:
         logo_block = (
-            f'<img src="{_html.escape(logo_url, quote=True)}" width="170" '
-            'alt="AUDIT SOUND" style="display:block;margin:0 auto 14px;border:0;max-width:220px;height:auto;">'
+            f'<img src="{_html.escape(logo_url, quote=True)}" width="200" '
+            'alt="AUDIT-IA" style="display:block;margin:0 auto 14px;border:0;max-width:240px;height:auto;">'
         )
     return (
         tpl.replace("{{logo_block}}", logo_block)
@@ -247,7 +247,11 @@ def send_app_account_access(
     contacto = contacto or os.getenv(
         "APP_ACCESS_CONTACT", "info@auditconsulting.ec"
     ).strip()
-    logo_url = (os.getenv("AUDIT_SOUND_EMAIL_LOGO_URL", "").strip() or None)
+    # Logo de AUDIT-IA (el mismo del login del Command Center). Overridable por env.
+    logo_url = (
+        os.getenv("AUDIT_SOUND_EMAIL_LOGO_URL", "").strip()
+        or "https://consola.audit-ia.ec/assets/logo-audit-ia.png"
+    )
     html = render_app_account_access(
         email=to, clave=clave, enlace=enlace, contacto=contacto, logo_url=logo_url
     )
