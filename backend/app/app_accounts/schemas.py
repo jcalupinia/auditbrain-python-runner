@@ -15,6 +15,12 @@ class AppAccountCreate(BaseModel):
     client_label: str | None = None
     apps: list[str] = Field(default_factory=list)
     password: str | None = None  # opcional; si no se da, se genera una temporal
+    send_email: bool = True  # enviar el acceso (usuario+clave) por correo al cliente
+
+
+class AppChangePassword(BaseModel):
+    current_password: str
+    new_password: str
 
 
 class AppAccountUpdate(BaseModel):
@@ -39,10 +45,12 @@ class AppAccountOut(BaseModel):
 class AppAccountCreated(BaseModel):
     account: AppAccountOut
     temp_password: str
+    email_sent: bool | None = None  # True enviado, False falló, None no se intentó
 
 
 class ResetPasswordOut(BaseModel):
     temp_password: str
+    email_sent: bool | None = None
 
 
 class AppLoginResponse(BaseModel):

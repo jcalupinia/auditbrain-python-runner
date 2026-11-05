@@ -209,3 +209,25 @@ def send_recurso_acceso(
     return send_email(
         to=to, subject=f"Su usuario y clave — {titulo}", html=html_body, max_retries=2
     )
+
+
+def send_app_account_access(
+    *, to: str, clave: str, app_label: str = "AUDIT SOUND",
+    enlace: str | None = None, contacto: str | None = None,
+) -> dict | None:
+    """Envía al cliente su usuario (correo) + clave temporal de una app AUDIT-IA.
+
+    Reutiliza EXACTAMENTE la misma plantilla/correo de Recursos
+    (`render_recurso_acceso`: «Su usuario y clave — …»). El enlace y el contacto
+    salen de env vars, con defaults seguros. Si Resend no está configurado
+    (`RESEND_API_KEY` vacío), `send_email` devuelve None sin romper el alta.
+    """
+    enlace = enlace or os.getenv(
+        "AUDIT_SOUND_LOGIN_URL", "https://sound.audit-ia.ec/pro/login.html"
+    ).strip()
+    contacto = contacto or os.getenv(
+        "APP_ACCESS_CONTACT", "info@auditconsulting.ec"
+    ).strip()
+    return send_recurso_acceso(
+        to=to, titulo=app_label, enlace=enlace, clave=clave, contacto=contacto
+    )

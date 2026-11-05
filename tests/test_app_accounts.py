@@ -3,12 +3,24 @@ import uuid
 
 import pytest
 
+import backend.app.app_accounts.router as app_router
 from backend.app.auth.jwt_tokens import create_access_token
 from backend.app.auth.models import Role
 from backend.app.auth.service import create_user, get_user_by_email
 from backend.app.db.session import SessionLocal
 
 PREFIX = "/api/v1"
+
+
+@pytest.fixture(autouse=True)
+def email_spy(monkeypatch):
+    """Evita enviar correos reales en toda la suite y registra las llamadas."""
+    sent = []
+    monkeypatch.setattr(
+        app_router.email_svc, "send_app_account_access",
+        lambda **kw: (sent.append(kw) or {"id": "test"}),
+    )
+    return sent
 
 
 @pytest.fixture()
@@ -107,6 +119,71 @@ def test_gestion_requiere_admin(client):
     # Sin admin no se puede listar ni crear
     assert client.get(f"{PREFIX}/apps/accounts").status_code in (401, 403)
     assert client.post(f"{PREFIX}/apps/accounts", json={"email": "x@y.com"}).status_code in (401, 403)
+
+
+def test_alta_envia_el_acceso_por_correo(client, admin_headers, email_spy):
+    email = f"dj-{uuid.uuid4().hex[:8]}@example.com"
+    r = client.post(f"{PREFIX}/apps/accounts", headers=admin_headers,
+                    json={"email": email, "apps": ["audit_sound"]})  # send_email default True
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["email_sent"] is True
+    assert len(email_spy) == 1
+    assert email_spy[0]["to"] == email and email_spy[0]["clave"] == body["temp_password"]
+
+
+def test_alta_sin_correo_y_clave_fija_no_envian(client, admin_headers, email_spy):
+    # send_email=False -> no se envía, email_sent None
+    e1 = f"dj-{uuid.uuid4().hex[:8]}@example.com"
+    r = client.post(f"{PREFIX}/apps/accounts", headers=admin_headers,
+                    json={"email": e1, "apps": ["audit_sound"], "send_email": False})
+    assert r.json()["email_sent"] is None
+    # clave fija por el admin -> no se reenvía en claro aunque send_email=True
+    e2 = f"dj-{uuid.uuid4().hex[:8]}@example.com"
+    r = client.post(f"{PREFIX}/apps/accounts", headers=admin_headers,
+                    json={"email": e2, "apps": ["audit_sound"], "password": "ClaveFija123", "send_email": True})
+    assert r.json()["email_sent"] is None
+    assert email_spy == []
+
+
+def test_reset_reenvia_el_acceso_por_correo(client, admin_headers, email_spy):
+    email = f"dj-{uuid.uuid4().hex[:8]}@example.com"
+    aid = client.post(f"{PREFIX}/apps/accounts", headers=admin_headers,
+                      json={"email": email, "apps": ["audit_sound"], "send_email": False}).json()["account"]["id"]
+    email_spy.clear()
+    r = client.post(f"{PREFIX}/apps/accounts/{aid}/reset-password", headers=admin_headers)
+    assert r.status_code == 200 and r.json()["email_sent"] is True
+    assert len(email_spy) == 1 and email_spy[0]["to"] == email
+
+
+def test_cliente_cambia_su_propia_clave(client, admin_headers):
+    email = f"dj-{uuid.uuid4().hex[:8]}@example.com"
+    temp = client.post(f"{PREFIX}/apps/accounts", headers=admin_headers,
+                       json={"email": email, "apps": ["audit_sound"], "send_email": False}).json()["temp_password"]
+    token = _login(client, email, temp).json()["access_token"]
+    H = {"Authorization": f"Bearer {token}"}
+
+    # Clave actual incorrecta -> 400
+    assert client.post(f"{PREFIX}/apps/auth/change-password", headers=H,
+                       json={"current_password": "mala", "new_password": "NuevaClave123"}).status_code == 400
+    # Nueva demasiado corta -> 400
+    assert client.post(f"{PREFIX}/apps/auth/change-password", headers=H,
+                       json={"current_password": temp, "new_password": "corta"}).status_code == 400
+    # Correcto -> 200 y ya no exige reset
+    r = client.post(f"{PREFIX}/apps/auth/change-password", headers=H,
+                    json={"current_password": temp, "new_password": "NuevaClave123"})
+    assert r.status_code == 200 and r.json()["password_reset_required"] is False
+    # La vieja ya no entra; la nueva sí
+    assert _login(client, email, temp).status_code == 401
+    assert _login(client, email, "NuevaClave123").status_code == 200
+
+
+def test_change_password_requiere_token_de_cuenta_de_app(client, admin_headers):
+    # Sin token -> 401; con token de operador (no 'app') -> 403
+    assert client.post(f"{PREFIX}/apps/auth/change-password",
+                       json={"current_password": "x", "new_password": "NuevaClave123"}).status_code == 401
+    assert client.post(f"{PREFIX}/apps/auth/change-password", headers=admin_headers,
+                       json={"current_password": "x", "new_password": "NuevaClave123"}).status_code == 403
 
 
 def test_correo_duplicado_y_app_invalida(client, admin_headers):
