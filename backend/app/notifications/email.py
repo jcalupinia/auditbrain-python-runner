@@ -212,7 +212,8 @@ def send_recurso_acceso(
 
 
 def render_app_account_access(
-    *, email: str, clave: str, enlace: str, contacto: str, logo_url: str | None = None
+    *, email: str, clave: str, enlace: str, contacto: str,
+    logo_url: str | None = None, audifonos_url: str | None = None,
 ) -> str:
     tpl = (_TEMPLATES_DIR / "app_account_access.html").read_text(encoding="utf-8")
     logo_block = ""
@@ -221,8 +222,15 @@ def render_app_account_access(
             f'<img src="{_html.escape(logo_url, quote=True)}" width="200" '
             'alt="AUDIT-IA" style="display:block;margin:0 auto 14px;border:0;max-width:240px;height:auto;">'
         )
+    audifonos_block = ""
+    if audifonos_url:
+        audifonos_block = (
+            f'<img src="{_html.escape(audifonos_url, quote=True)}" width="34" height="25" '
+            'alt="" style="vertical-align:middle;margin-right:12px;border:0;">'
+        )
     return (
         tpl.replace("{{logo_block}}", logo_block)
+        .replace("{{audifonos_block}}", audifonos_block)
         .replace("{{email}}", _html.escape(email))
         .replace("{{clave}}", _html.escape(clave))
         .replace("{{enlace}}", _html.escape(enlace, quote=True))
@@ -247,13 +255,18 @@ def send_app_account_access(
     contacto = contacto or os.getenv(
         "APP_ACCESS_CONTACT", "info@auditconsulting.ec"
     ).strip()
-    # Logo de AUDIT-IA (el mismo del login del Command Center). Overridable por env.
+    # Logo de AUDIT-IA y audífonos (assets públicos del Command Center). Overridables por env.
     logo_url = (
         os.getenv("AUDIT_SOUND_EMAIL_LOGO_URL", "").strip()
         or "https://consola.audit-ia.ec/assets/logo-audit-ia.png"
     )
+    audifonos_url = (
+        os.getenv("AUDIT_SOUND_EMAIL_HEADPHONES_URL", "").strip()
+        or "https://consola.audit-ia.ec/assets/audifonos-audit-sound.png"
+    )
     html = render_app_account_access(
-        email=to, clave=clave, enlace=enlace, contacto=contacto, logo_url=logo_url
+        email=to, clave=clave, enlace=enlace, contacto=contacto,
+        logo_url=logo_url, audifonos_url=audifonos_url,
     )
     return send_email(
         to=to, subject=f"Su usuario y clave — {app_label}", html=html, max_retries=2
