@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Su usuario y clave — AUDIT SOUND</title>
+</head>
+<body style="margin:0;padding:0;background:#f6f5f1;">
+<!-- Correo de acceso de AUDIT SOUND (AUDIT-IA). Tablas + estilos en línea para Outlook.
+     Paleta AUDIT SOUND: navy #071B2F, verde #36E26A. -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f6f5f1" style="background:#f6f5f1;">
+  <tr>
+    <td align="center" style="padding:24px 12px;">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;font-family:'Segoe UI',Arial,sans-serif;color:#1a1a1a;">
+
+        <!-- Encabezado AUDIT SOUND (banner de imagen si está configurado, si no el texto) -->
+        {{header_rows}}
+
+        <!-- Cuerpo -->
+        <tr>
+          <td bgcolor="#ffffff" style="background:#ffffff;padding:32px 32px 28px;">
+            <h1 style="margin:0 0 18px;font-size:22px;line-height:1.3;color:#071B2F;">Su usuario y clave</h1>
+            <p style="margin:0 0 12px;font-size:15px;line-height:1.6;">Estimado(a):</p>
+            <p style="margin:0 0 20px;font-size:15px;line-height:1.6;">Estos son sus datos para ingresar a <strong style="color:#071B2F;">AUDIT SOUND</strong>.</p>
+
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 26px;">
+              <tr>
+                <td bgcolor="#eaf7ef" style="background:#eaf7ef;border-left:4px solid #36E26A;padding:14px 18px;font-size:14px;">
+                  <span style="display:block;font-size:10px;letter-spacing:1.5px;color:#5c7a68;text-transform:uppercase;">Su usuario</span>
+                  <strong style="color:#071B2F;font-size:15px;">{{email}}</strong>
+                  <span style="display:block;margin-top:14px;font-size:10px;letter-spacing:1.5px;color:#5c7a68;text-transform:uppercase;">Su clave</span>
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:6px;">
+                    <tr>
+                      <td bgcolor="#071B2F" style="background:#071B2F;border-radius:4px;padding:10px 18px;font-family:Consolas,'Courier New',monospace;font-size:22px;font-weight:bold;letter-spacing:3px;color:#36E26A;">{{clave}}</td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+
+            <!-- Botón (bulletproof) -->
+            <table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 22px;">
+              <tr>
+                <td align="center" bgcolor="#36E26A" style="background:#36E26A;border-radius:4px;">
+                  <a href="{{enlace}}" target="_blank" style="display:inline-block;padding:15px 36px;font-family:'Segoe UI',Arial,sans-serif;font-size:15px;font-weight:bold;letter-spacing:0.5px;color:#071B2F;text-decoration:none;">Ingresar a AUDIT SOUND</a>
+                </td>
+              </tr>
+            </table>
+
+            <p style="margin:0 0 24px;font-size:12.5px;line-height:1.6;color:#6b6b66;text-align:center;">Guarde este correo. En su primer ingreso se le pedirá <strong>definir su propia contraseña</strong>. Si olvida su clave, pida al administrador que la restablezca.</p>
+
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td bgcolor="#eef1f5" style="background:#eef1f5;border-left:4px solid #071B2F;padding:14px 18px;font-size:14px;line-height:1.6;color:#2a3a4a;">
+                  ¿Dudas o soporte? Escríbanos:<br>
+                  <strong style="color:#071B2F;">{{contacto}}</strong>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Pie -->
+        <tr>
+          <td bgcolor="#071B2F" style="background:#071B2F;padding:22px 32px 26px;">
+            {{footer_logo_block}}
+            <p style="margin:0 0 12px;font-size:11px;letter-spacing:1px;color:#ffffff;"><strong>AUDIT-IA</strong> &middot; una plataforma de <strong>AuditConsulting Group</strong></p>
+            <p style="margin:0;font-size:10.5px;line-height:1.6;color:#9fb6c9;">AuditConsulting Group trata sus datos (nombre, empresa y correo) para darle acceso a AUDIT SOUND, con base en su consentimiento y conforme a la Ley Orgánica de Protección de Datos Personales del Ecuador. Puede ejercer sus derechos de acceso, rectificación, eliminación y oposición escribiendo a {{contacto}}.</p>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

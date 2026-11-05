@@ -211,16 +211,73 @@ def send_recurso_acceso(
     )
 
 
+_GREEN_BAR = ('<tr><td bgcolor="#36E26A" height="6" '
+              'style="background:#36E26A;height:6px;line-height:6px;font-size:0;">&nbsp;</td></tr>')
+
+
+def render_app_account_access(
+    *, email: str, clave: str, enlace: str, contacto: str,
+    logo_url: str | None = None, audifonos_url: str | None = None,
+    banner_url: str | None = None, footer_logo_url: str | None = None,
+) -> str:
+    tpl = (_TEMPLATES_DIR / "app_account_access.html").read_text(encoding="utf-8")
+
+    if banner_url:
+        # Encabezado = banner de imagen a todo el ancho (el diseño del dueño).
+        header_rows = (
+            '<tr><td style="padding:0;font-size:0;line-height:0;">'
+            f'<img src="{_html.escape(banner_url, quote=True)}" alt="AUDIT SOUND" width="600" '
+            'style="display:block;width:100%;height:auto;border:0;"></td></tr>' + _GREEN_BAR
+        )
+    else:
+        logo_block = ""
+        if logo_url:
+            logo_block = (
+                f'<img src="{_html.escape(logo_url, quote=True)}" width="200" '
+                'alt="AUDIT-IA" style="display:block;margin:0 auto 14px;border:0;max-width:240px;height:auto;">'
+            )
+        audifonos_block = ""
+        if audifonos_url:
+            audifonos_block = (
+                f'<img src="{_html.escape(audifonos_url, quote=True)}" width="34" height="25" '
+                'alt="" style="vertical-align:middle;margin-right:12px;border:0;">'
+            )
+        header_rows = (
+            '<tr><td bgcolor="#071B2F" style="background:#071B2F;padding:28px 32px 22px;" align="center">'
+            + logo_block
+            + '<p style="margin:0;font-size:26px;font-weight:800;letter-spacing:1px;color:#ffffff;">'
+            + audifonos_block + 'AUDIT <span style="color:#36E26A;">SOUND</span></p>'
+            + '<p style="margin:8px 0 0;font-size:11px;letter-spacing:2px;color:#9fb6c9;text-transform:uppercase;">'
+            + 'DJ inteligente con IA &middot; AUDIT-IA</p></td></tr>' + _GREEN_BAR
+        )
+
+    footer_logo_block = ""
+    if footer_logo_url:
+        footer_logo_block = (
+            f'<img src="{_html.escape(footer_logo_url, quote=True)}" width="150" '
+            'alt="AuditConsulting Group" style="display:block;margin:0 0 14px;border:0;max-width:180px;height:auto;">'
+        )
+
+    return (
+        tpl.replace("{{header_rows}}", header_rows)
+        .replace("{{footer_logo_block}}", footer_logo_block)
+        .replace("{{email}}", _html.escape(email))
+        .replace("{{clave}}", _html.escape(clave))
+        .replace("{{enlace}}", _html.escape(enlace, quote=True))
+        .replace("{{contacto}}", _html.escape(contacto))
+    )
+
+
 def send_app_account_access(
     *, to: str, clave: str, app_label: str = "AUDIT SOUND",
     enlace: str | None = None, contacto: str | None = None,
 ) -> dict | None:
-    """Envía al cliente su usuario (correo) + clave temporal de una app AUDIT-IA.
+    """Envía al cliente su usuario (correo) + clave de una app AUDIT-IA.
 
-    Reutiliza EXACTAMENTE la misma plantilla/correo de Recursos
-    (`render_recurso_acceso`: «Su usuario y clave — …»). El enlace y el contacto
-    salen de env vars, con defaults seguros. Si Resend no está configurado
-    (`RESEND_API_KEY` vacío), `send_email` devuelve None sin romper el alta.
+    Usa la plantilla PROPIA de AUDIT SOUND (`app_account_access.html`: marca
+    AUDIT SOUND, botón «Ingresar a AUDIT SOUND»), no la de Recursos. El enlace, el
+    contacto y el logo salen de env vars con defaults seguros. Si Resend no está
+    configurado (`RESEND_API_KEY` vacío), `send_email` devuelve None sin romper el alta.
     """
     enlace = enlace or os.getenv(
         "AUDIT_SOUND_LOGIN_URL", "https://sound.audit-ia.ec/pro/login.html"
@@ -228,6 +285,31 @@ def send_app_account_access(
     contacto = contacto or os.getenv(
         "APP_ACCESS_CONTACT", "info@auditconsulting.ec"
     ).strip()
-    return send_recurso_acceso(
-        to=to, titulo=app_label, enlace=enlace, clave=clave, contacto=contacto
+    # Logo de AUDIT-IA y audífonos (assets públicos del Command Center). Overridables por env.
+    logo_url = (
+        os.getenv("AUDIT_SOUND_EMAIL_LOGO_URL", "").strip()
+        or "https://consola.audit-ia.ec/assets/logo-audit-ia.png"
+    )
+    audifonos_url = (
+        os.getenv("AUDIT_SOUND_EMAIL_HEADPHONES_URL", "").strip()
+        or "https://consola.audit-ia.ec/assets/audifonos-audit-sound.png"
+    )
+    # Banner del hero (diseño del dueño). Overridable por env; si se pone "", usa el
+    # encabezado de texto en vez del banner.
+    banner_env = os.getenv("AUDIT_SOUND_EMAIL_BANNER_URL")
+    if banner_env is None:
+        banner_url = "https://consola.audit-ia.ec/assets/email-banner-audit-sound.png"
+    else:
+        banner_url = banner_env.strip() or None
+    footer_logo_url = (
+        os.getenv("AUDIT_SOUND_EMAIL_FOOTER_LOGO_URL", "").strip()
+        or "https://consola.audit-ia.ec/assets/logo-auditconsulting-group.png"
+    )
+    html = render_app_account_access(
+        email=to, clave=clave, enlace=enlace, contacto=contacto,
+        logo_url=logo_url, audifonos_url=audifonos_url,
+        banner_url=banner_url, footer_logo_url=footer_logo_url,
+    )
+    return send_email(
+        to=to, subject=f"Su usuario y clave — {app_label}", html=html, max_retries=2
     )
