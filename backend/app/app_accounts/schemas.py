@@ -48,9 +48,17 @@ class AppAccountCreated(BaseModel):
     email_sent: bool | None = None  # True enviado, False falló, None no se intentó
 
 
+class ResetPasswordIn(BaseModel):
+    # Opcional: si el admin escribe una clave, esa será la nueva y NO se forzará el
+    # cambio al entrar (igual que al fijarla en el alta). Vacío/None = se genera una
+    # temporal y se pide cambiarla al primer ingreso.
+    password: str | None = None
+
+
 class ResetPasswordOut(BaseModel):
     temp_password: str
     email_sent: bool | None = None
+    manual: bool = False  # True si la clave la fijó el admin (no se fuerza cambio)
 
 
 class AppLoginResponse(BaseModel):

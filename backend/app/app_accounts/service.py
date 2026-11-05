@@ -118,10 +118,19 @@ def create_account(
     return acct, temp
 
 
-def reset_password(db: Session, account: AppAccount) -> str:
-    temp = generate_temp_password()
+def reset_password(db: Session, account: AppAccount, password: str | None = None) -> str:
+    """Resetea la clave de una cuenta existente.
+
+    - Sin `password`: genera una temporal y exige cambiarla al primer ingreso.
+    - Con `password` (mín. 8): fija esa clave y NO fuerza el cambio (igual que al
+      fijarla en el alta), para que el admin pueda poner la clave que él quiera.
+    Devuelve la clave resultante.
+    """
+    if password is not None and len(password) < 8:
+        raise AppAccountError("la contraseña debe tener al menos 8 caracteres")
+    temp = password or generate_temp_password()
     account.hashed_password = hash_password(temp)
-    account.password_reset_required = True
+    account.password_reset_required = password is None
     db.commit()
     return temp
 

@@ -155,6 +155,46 @@ def test_reset_reenvia_el_acceso_por_correo(client, admin_headers, email_spy):
     assert len(email_spy) == 1 and email_spy[0]["to"] == email
 
 
+def test_reset_con_clave_manual(client, admin_headers, email_spy):
+    # El admin fija una clave elegida al resetear -> esa es la clave, no se fuerza
+    # cambio, se envía por correo y la cuenta entra con ella.
+    email = f"dj-{uuid.uuid4().hex[:8]}@example.com"
+    aid = client.post(f"{PREFIX}/apps/accounts", headers=admin_headers,
+                      json={"email": email, "apps": ["audit_sound"], "send_email": False}).json()["account"]["id"]
+    email_spy.clear()
+    r = client.post(f"{PREFIX}/apps/accounts/{aid}/reset-password", headers=admin_headers,
+                    json={"password": "ClaveElegida123"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["temp_password"] == "ClaveElegida123"
+    assert body["manual"] is True
+    assert body["email_sent"] is True and len(email_spy) == 1 and email_spy[0]["clave"] == "ClaveElegida123"
+    # Entra con la clave fijada y ya no se le exige cambiarla
+    login = _login(client, email, "ClaveElegida123")
+    assert login.status_code == 200 and login.json()["password_reset_required"] is False
+
+
+def test_reset_con_clave_manual_corta_falla(client, admin_headers):
+    email = f"dj-{uuid.uuid4().hex[:8]}@example.com"
+    aid = client.post(f"{PREFIX}/apps/accounts", headers=admin_headers,
+                      json={"email": email, "apps": ["audit_sound"], "send_email": False}).json()["account"]["id"]
+    r = client.post(f"{PREFIX}/apps/accounts/{aid}/reset-password", headers=admin_headers,
+                    json={"password": "corta"})
+    assert r.status_code == 400
+
+
+def test_reset_sin_clave_sigue_generando_y_fuerza_cambio(client, admin_headers, email_spy):
+    email = f"dj-{uuid.uuid4().hex[:8]}@example.com"
+    aid = client.post(f"{PREFIX}/apps/accounts", headers=admin_headers,
+                      json={"email": email, "apps": ["audit_sound"], "send_email": False}).json()["account"]["id"]
+    r = client.post(f"{PREFIX}/apps/accounts/{aid}/reset-password?send_email=false",
+                    headers=admin_headers, json={"password": None})
+    assert r.status_code == 200
+    assert r.json()["manual"] is False
+    temp = r.json()["temp_password"]
+    assert _login(client, email, temp).json()["password_reset_required"] is True
+
+
 def test_alta_con_clave_manual(client, admin_headers, email_spy):
     email = f"dj-{uuid.uuid4().hex[:8]}@example.com"
     # El admin fija la clave -> se usa esa, no se fuerza cambio, y se envía por correo.
