@@ -1141,12 +1141,14 @@ export async function appsCatalog() {
 export async function listAppAccounts() {
   return parse(await apiFetch(`${API_BASE}/api/v1/apps/accounts`, { headers: authHeaders() }));
 }
-export async function createAppAccount({ email, display_name, client_label, apps, send_email = true }) {
+export async function createAppAccount({ email, display_name, client_label, apps, send_email = true, password }) {
+  const body = { email, display_name: display_name || null, client_label: client_label || null, apps: apps || [], send_email: !!send_email };
+  if (password) body.password = password;
   return parse(
     await apiFetch(`${API_BASE}/api/v1/apps/accounts`, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ email, display_name: display_name || null, client_label: client_label || null, apps: apps || [], send_email: !!send_email }),
+      body: JSON.stringify(body),
     })
   );
 }

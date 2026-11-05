@@ -2430,9 +2430,10 @@ function AppAccounts() {
   const [nName, setNName] = useState("");
   const [nClient, setNClient] = useState("");
   const [nApps, setNApps] = useState(() => new Set());
+  const [nPass, setNPass] = useState("");
   const [nSendEmail, setNSendEmail] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [done, setDone] = useState(null); // { email, temp_password, email_sent }
+  const [done, setDone] = useState(null); // { email, temp_password, email_sent, manual }
 
   const reload = useCallback(async () => {
     setBusy(true); setErr("");
@@ -2478,14 +2479,16 @@ function AppAccounts() {
   async function crear() {
     if (creating) return;
     if (!nEmail.trim() || !nEmail.includes("@")) { setErr("Escribe un correo válido."); return; }
+    const manual = nPass.trim();
+    if (manual && manual.length < 8) { setErr("La clave debe tener al menos 8 caracteres (o déjala vacía para generarla)."); return; }
     setErr(""); setCreating(true);
     try {
       const res = await api.createAppAccount({
         email: nEmail.trim(), display_name: nName.trim(), client_label: nClient.trim(), apps: [...nApps],
-        send_email: nSendEmail,
+        send_email: nSendEmail, password: manual || undefined,
       });
-      setDone({ email: res.account.email, temp_password: res.temp_password, email_sent: res.email_sent });
-      setNEmail(""); setNName(""); setNClient(""); setNApps(new Set());
+      setDone({ email: res.account.email, temp_password: res.temp_password, email_sent: res.email_sent, manual: !!manual });
+      setNEmail(""); setNName(""); setNClient(""); setNApps(new Set()); setNPass("");
       reload();
     } catch (e) { setErr(e.message); } finally { setCreating(false); }
   }
@@ -2513,7 +2516,7 @@ function AppAccounts() {
               width: 440, maxWidth: "92vw", boxShadow: "0 20px 60px rgba(0,0,0,.5)" }}>
             <h3 style={{ marginTop: 0 }}>✅ Clave de la cuenta</h3>
             <p className="muted">
-              Cuenta: <b>{done.email}</b>. Deberá cambiarla al entrar a AUDIT SOUND.
+              Cuenta: <b>{done.email}</b>. {done.manual ? "Es la clave que definiste; puede cambiarla luego si quiere." : "Deberá cambiarla al entrar a AUDIT SOUND."}
             </p>
             <pre style={{ fontSize: 18, userSelect: "all" }}>{done.temp_password}</pre>
             <p className="muted" style={{ fontSize: 13 }}>
@@ -2533,6 +2536,9 @@ function AppAccounts() {
           <input placeholder="correo@cliente.com" value={nEmail} onChange={(e) => setNEmail(e.target.value)} />
           <input placeholder="Nombre (opcional)" value={nName} onChange={(e) => setNName(e.target.value)} />
           <input placeholder="Cliente/empresa (opcional)" value={nClient} onChange={(e) => setNClient(e.target.value)} />
+          <input type="text" autoComplete="off" placeholder="Clave (opcional · mín. 8 · vacío = se genera)"
+            value={nPass} onChange={(e) => setNPass(e.target.value)}
+            title="Si la escribes, esa será la clave y no se forzará el cambio al entrar. Si la dejas vacía, el sistema genera una temporal." />
         </div>
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "10px 0" }}>
           {apps.map((a) => (

@@ -97,6 +97,8 @@ def create_account(
         raise AppAccountError("correo inválido")
     if get_by_email(db, email) is not None:
         raise AppAccountError("ya existe una cuenta con ese correo")
+    if password is not None and len(password) < 8:
+        raise AppAccountError("la contraseña debe tener al menos 8 caracteres")
     valid_apps = _valid_apps(apps)
     temp = password or generate_temp_password()
     acct = AppAccount(
