@@ -294,8 +294,13 @@ def send_app_account_access(
         os.getenv("AUDIT_SOUND_EMAIL_HEADPHONES_URL", "").strip()
         or "https://consola.audit-ia.ec/assets/audifonos-audit-sound.png"
     )
-    # Banner del hero (diseño del dueño). Si no se configura, va el encabezado de texto.
-    banner_url = os.getenv("AUDIT_SOUND_EMAIL_BANNER_URL", "").strip() or None
+    # Banner del hero (diseño del dueño). Overridable por env; si se pone "", usa el
+    # encabezado de texto en vez del banner.
+    banner_env = os.getenv("AUDIT_SOUND_EMAIL_BANNER_URL")
+    if banner_env is None:
+        banner_url = "https://consola.audit-ia.ec/assets/email-banner-audit-sound.png"
+    else:
+        banner_url = banner_env.strip() or None
     footer_logo_url = (
         os.getenv("AUDIT_SOUND_EMAIL_FOOTER_LOGO_URL", "").strip()
         or "https://consola.audit-ia.ec/assets/logo-auditconsulting-group.png"
