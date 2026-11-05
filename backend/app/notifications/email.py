@@ -211,16 +211,35 @@ def send_recurso_acceso(
     )
 
 
+def render_app_account_access(
+    *, email: str, clave: str, enlace: str, contacto: str, logo_url: str | None = None
+) -> str:
+    tpl = (_TEMPLATES_DIR / "app_account_access.html").read_text(encoding="utf-8")
+    logo_block = ""
+    if logo_url:
+        logo_block = (
+            f'<img src="{_html.escape(logo_url, quote=True)}" width="170" '
+            'alt="AUDIT SOUND" style="display:block;margin:0 auto 14px;border:0;max-width:220px;height:auto;">'
+        )
+    return (
+        tpl.replace("{{logo_block}}", logo_block)
+        .replace("{{email}}", _html.escape(email))
+        .replace("{{clave}}", _html.escape(clave))
+        .replace("{{enlace}}", _html.escape(enlace, quote=True))
+        .replace("{{contacto}}", _html.escape(contacto))
+    )
+
+
 def send_app_account_access(
     *, to: str, clave: str, app_label: str = "AUDIT SOUND",
     enlace: str | None = None, contacto: str | None = None,
 ) -> dict | None:
-    """Envía al cliente su usuario (correo) + clave temporal de una app AUDIT-IA.
+    """Envía al cliente su usuario (correo) + clave de una app AUDIT-IA.
 
-    Reutiliza EXACTAMENTE la misma plantilla/correo de Recursos
-    (`render_recurso_acceso`: «Su usuario y clave — …»). El enlace y el contacto
-    salen de env vars, con defaults seguros. Si Resend no está configurado
-    (`RESEND_API_KEY` vacío), `send_email` devuelve None sin romper el alta.
+    Usa la plantilla PROPIA de AUDIT SOUND (`app_account_access.html`: marca
+    AUDIT SOUND, botón «Ingresar a AUDIT SOUND»), no la de Recursos. El enlace, el
+    contacto y el logo salen de env vars con defaults seguros. Si Resend no está
+    configurado (`RESEND_API_KEY` vacío), `send_email` devuelve None sin romper el alta.
     """
     enlace = enlace or os.getenv(
         "AUDIT_SOUND_LOGIN_URL", "https://sound.audit-ia.ec/pro/login.html"
@@ -228,6 +247,10 @@ def send_app_account_access(
     contacto = contacto or os.getenv(
         "APP_ACCESS_CONTACT", "info@auditconsulting.ec"
     ).strip()
-    return send_recurso_acceso(
-        to=to, titulo=app_label, enlace=enlace, clave=clave, contacto=contacto
+    logo_url = (os.getenv("AUDIT_SOUND_EMAIL_LOGO_URL", "").strip() or None)
+    html = render_app_account_access(
+        email=to, clave=clave, enlace=enlace, contacto=contacto, logo_url=logo_url
+    )
+    return send_email(
+        to=to, subject=f"Su usuario y clave — {app_label}", html=html, max_retries=2
     )
