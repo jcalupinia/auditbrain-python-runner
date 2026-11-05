@@ -132,16 +132,15 @@ def test_alta_envia_el_acceso_por_correo(client, admin_headers, email_spy):
     assert email_spy[0]["to"] == email and email_spy[0]["clave"] == body["temp_password"]
 
 
-def test_alta_sin_correo_y_clave_fija_no_envian(client, admin_headers, email_spy):
-    # send_email=False -> no se envía, email_sent None
+def test_alta_sin_correo_no_envia(client, admin_headers, email_spy):
+    # send_email=False -> no se envía, email_sent None (clave generada o fija).
     e1 = f"dj-{uuid.uuid4().hex[:8]}@example.com"
     r = client.post(f"{PREFIX}/apps/accounts", headers=admin_headers,
                     json={"email": e1, "apps": ["audit_sound"], "send_email": False})
     assert r.json()["email_sent"] is None
-    # clave fija por el admin -> no se reenvía en claro aunque send_email=True
     e2 = f"dj-{uuid.uuid4().hex[:8]}@example.com"
     r = client.post(f"{PREFIX}/apps/accounts", headers=admin_headers,
-                    json={"email": e2, "apps": ["audit_sound"], "password": "ClaveFija123", "send_email": True})
+                    json={"email": e2, "apps": ["audit_sound"], "password": "ClaveFija123", "send_email": False})
     assert r.json()["email_sent"] is None
     assert email_spy == []
 
@@ -154,6 +153,27 @@ def test_reset_reenvia_el_acceso_por_correo(client, admin_headers, email_spy):
     r = client.post(f"{PREFIX}/apps/accounts/{aid}/reset-password", headers=admin_headers)
     assert r.status_code == 200 and r.json()["email_sent"] is True
     assert len(email_spy) == 1 and email_spy[0]["to"] == email
+
+
+def test_alta_con_clave_manual(client, admin_headers, email_spy):
+    email = f"dj-{uuid.uuid4().hex[:8]}@example.com"
+    # El admin fija la clave -> se usa esa, no se fuerza cambio, y se envía por correo.
+    r = client.post(f"{PREFIX}/apps/accounts", headers=admin_headers,
+                    json={"email": email, "apps": ["audit_sound"], "password": "ClaveManual123", "send_email": True})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["temp_password"] == "ClaveManual123"
+    assert body["account"]["password_reset_required"] is False
+    assert body["email_sent"] is True and len(email_spy) == 1 and email_spy[0]["clave"] == "ClaveManual123"
+    # Entra con la clave fijada
+    assert _login(client, email, "ClaveManual123").status_code == 200
+
+
+def test_alta_con_clave_manual_corta_falla(client, admin_headers):
+    email = f"dj-{uuid.uuid4().hex[:8]}@example.com"
+    r = client.post(f"{PREFIX}/apps/accounts", headers=admin_headers,
+                    json={"email": email, "password": "corta"})
+    assert r.status_code == 400
 
 
 def test_cliente_cambia_su_propia_clave(client, admin_headers):

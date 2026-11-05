@@ -93,10 +93,10 @@ def create_account(
         )
     except service.AppAccountError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
-    # Solo tiene sentido enviar la clave por correo si el sistema la generó
-    # (password is None); si el admin fijó una, no la reenviamos en claro.
+    # Envía el acceso por correo (usuario + clave) si se pidió, ya sea la clave
+    # generada por el sistema o la que fijó el administrador.
     email_sent = None
-    if payload.send_email and payload.password is None:
+    if payload.send_email:
         email_sent = _send_access_email(acct, temp)
     return AppAccountCreated(account=_out(db, acct), temp_password=temp, email_sent=email_sent)
 
