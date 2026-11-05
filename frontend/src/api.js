@@ -1161,11 +1161,15 @@ export async function updateAppAccount(id, cambios) {
     })
   );
 }
-export async function resetAppAccountPassword(id) {
+export async function resetAppAccountPassword(id, password, sendEmail = true) {
+  // password opcional: si se pasa, esa será la nueva clave (no se fuerza cambio).
+  // Vacío/omitido = el backend genera una temporal.
+  const qs = sendEmail ? "" : "?send_email=false";
   return parse(
-    await apiFetch(`${API_BASE}/api/v1/apps/accounts/${id}/reset-password`, {
+    await apiFetch(`${API_BASE}/api/v1/apps/accounts/${id}/reset-password${qs}`, {
       method: "POST",
-      headers: authHeaders(),
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ password: password || null }),
     })
   );
 }

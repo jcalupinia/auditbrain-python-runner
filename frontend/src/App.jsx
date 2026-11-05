@@ -2434,6 +2434,8 @@ function AppAccounts() {
   const [nSendEmail, setNSendEmail] = useState(true);
   const [creating, setCreating] = useState(false);
   const [done, setDone] = useState(null); // { email, temp_password, email_sent, manual }
+  // Modal de reset de clave (cuenta existente): permite fijar una clave elegida
+  const [rst, setRst] = useState(null); // { row, pass, sendEmail, busy }
 
   const reload = useCallback(async () => {
     setBusy(true); setErr("");
@@ -2462,12 +2464,23 @@ function AppAccounts() {
     try { const res = await api.updateAppAccount(r.id, { is_active: next }); patch(r.id, { is_active: res.is_active }); }
     catch (e) { setErr(e.message); } finally { marcar(k, false); }
   }
-  async function resetear(r) {
-    const k = `${r.id}:reset`; if (pending.has(k)) return;
-    if (!window.confirm(`¿Resetear la clave de ${r.email}? Se generará una nueva.`)) return;
-    setErr(""); marcar(k, true);
-    try { const res = await api.resetAppAccountPassword(r.id); setDone({ email: r.email, temp_password: res.temp_password, email_sent: res.email_sent }); }
-    catch (e) { setErr(e.message); } finally { marcar(k, false); }
+  function abrirReset(r) {
+    if (pending.has(`${r.id}:reset`)) return;
+    setErr("");
+    setRst({ row: r, pass: "", sendEmail: true, busy: false });
+  }
+  async function confirmarReset() {
+    if (!rst || rst.busy) return;
+    const manual = rst.pass.trim();
+    if (manual && manual.length < 8) { setErr("La clave debe tener al menos 8 caracteres (o déjala vacía para generar una automática)."); return; }
+    const r = rst.row; const k = `${r.id}:reset`;
+    setErr(""); setRst({ ...rst, busy: true }); marcar(k, true);
+    try {
+      const res = await api.resetAppAccountPassword(r.id, manual || undefined, rst.sendEmail);
+      setRst(null);
+      setDone({ email: r.email, temp_password: res.temp_password, email_sent: res.email_sent, manual: !!res.manual });
+    } catch (e) { setErr(e.message); setRst((s) => (s ? { ...s, busy: false } : s)); }
+    finally { marcar(k, false); }
   }
   async function borrar(r) {
     const k = `${r.id}:del`; if (pending.has(k)) return;
@@ -2527,6 +2540,39 @@ function AppAccounts() {
                 : "El correo no se envió (clave fija o envío desactivado). Entrega la clave manualmente."}
             </p>
             <button className="btn" onClick={() => setDone(null)}>Entendido</button>
+          </div>
+        </div>
+      )}
+
+      {rst && (
+        <div onClick={() => !rst.busy && setRst(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--panel, #0a2342)", color: "var(--text, #e8eef6)",
+              border: "1px solid var(--border, #21456e)", borderRadius: 12, padding: 24,
+              width: 460, maxWidth: "92vw", boxShadow: "0 20px 60px rgba(0,0,0,.5)" }}>
+            <h3 style={{ marginTop: 0 }}>🔑 Resetear / cambiar clave</h3>
+            <p className="muted">
+              Cuenta: <b>{rst.row.email}</b>. Escribe la clave que quieras asignar
+              (mín. 8 caracteres) o déjala vacía para generar una automática.
+            </p>
+            <input type="text" autoComplete="off" placeholder="Nueva clave (vacío = se genera)"
+              value={rst.pass} onChange={(e) => setRst({ ...rst, pass: e.target.value })}
+              onKeyDown={(e) => { if (e.key === "Enter") confirmarReset(); }}
+              style={{ width: "100%", boxSizing: "border-box", marginBottom: 10 }} autoFocus />
+            <label style={{ display: "flex", alignItems: "center", gap: 6, margin: "2px 0 14px" }}>
+              <input type="checkbox" checked={rst.sendEmail}
+                onChange={(e) => setRst({ ...rst, sendEmail: e.target.checked })} />
+              <span>Enviar la clave por correo a la persona</span>
+            </label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn primary" onClick={confirmarReset} disabled={rst.busy}>
+                {rst.busy ? "Guardando…" : (rst.pass.trim() ? "Asignar clave" : "Generar clave")}
+              </button>
+              <button className="btn ghost" onClick={() => setRst(null)} disabled={rst.busy}>Cancelar</button>
+            </div>
+            {err && <div className="err" style={{ marginTop: 8 }}>{err}</div>}
           </div>
         </div>
       )}
@@ -2593,7 +2639,7 @@ function AppAccounts() {
                         disabled={pending.has(`${r.id}:activo`)} onChange={() => toggleActivo(r)} />
                     </td>
                     <td>
-                      <button className="btn sm" onClick={() => resetear(r)} disabled={pending.has(`${r.id}:reset`)}>Reset clave</button>{" "}
+                      <button className="btn sm" onClick={() => abrirReset(r)} disabled={pending.has(`${r.id}:reset`)}>Reset clave</button>{" "}
                       <button className="btn sm ghost" onClick={() => borrar(r)} disabled={pending.has(`${r.id}:del`)}>Eliminar</button>
                     </td>
                   </tr>

@@ -8,7 +8,7 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,7 @@ from backend.app.app_accounts.schemas import (
     AppChangePassword,
     AppLoginResponse,
     AppMeResponse,
+    ResetPasswordIn,
     ResetPasswordOut,
 )
 from backend.app.notifications import email as email_svc
@@ -133,12 +134,17 @@ def reset_account_password(
     account_id: int,
     admin=Depends(require_admin),
     send_email: bool = Query(default=True, description="reenviar el acceso por correo al cliente"),
+    payload: ResetPasswordIn | None = Body(default=None),
     db: Session = Depends(get_db),
 ):
     acct = _require_account(db, account_id)
-    temp = service.reset_password(db, acct)
+    manual = (payload.password.strip() if payload and payload.password else "") or None
+    try:
+        temp = service.reset_password(db, acct, password=manual)
+    except service.AppAccountError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(e))
     email_sent = _send_access_email(acct, temp) if send_email else None
-    return ResetPasswordOut(temp_password=temp, email_sent=email_sent)
+    return ResetPasswordOut(temp_password=temp, email_sent=email_sent, manual=manual is not None)
 
 
 @router.delete("/accounts/{account_id}", status_code=200)
