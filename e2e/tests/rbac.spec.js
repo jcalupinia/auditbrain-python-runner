@@ -7,7 +7,9 @@ test.describe("Gating de roles", () => {
     await login(page);
     const side = page.locator("aside.cc-side");
     await expect(side.getByRole("button", { name: /Motor de Ejecución/i })).toBeVisible();
-    await expect(side.getByRole("button", { name: /Cuentas/ })).toBeVisible();
+    await expect(side.getByRole("button", { name: /USR Cuentas/ })).toBeVisible();
+    // Nodo admin-only nuevo: Cuentas de Aplicaciones AUDIT-IA.
+    await expect(side.getByRole("button", { name: /Cuentas AUDIT-IA/ })).toBeVisible();
     await expect(side.getByRole("button", { name: /Workspaces/i })).toBeVisible();
   });
 
@@ -15,8 +17,9 @@ test.describe("Gating de roles", () => {
     await mockApi(page, { user: BASIC_USER });
     await login(page, BASIC_USER.email);
     const side = page.locator("aside.cc-side");
-    // Única excepción admin-only: Cuentas (crear usuarios de clientes y operadores).
+    // Excepciones admin-only: Cuentas (portal) y Cuentas de Aplicaciones AUDIT-IA.
     await expect(side.getByRole("button", { name: /^Cuentas$/ })).toHaveCount(0);
+    await expect(side.getByRole("button", { name: /Cuentas AUDIT-IA/ })).toHaveCount(0);
     // El operador (rol user) ve todo lo demás, igual que el admin.
     await expect(side.getByRole("button", { name: /Motor de Ejecución/i })).toBeVisible();
     await expect(side.getByRole("button", { name: /Workspaces/i })).toBeVisible();
