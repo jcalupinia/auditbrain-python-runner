@@ -67,6 +67,9 @@ const ENV = {
   // se inyecta el token directamente, así que se usan los toggles de QA.
   CLIENT_PORTAL_DEVICE_CHECK_ENABLED: "false",
   CLIENT_PORTAL_SESSION_CHECK_ENABLED: "false",
+  // La cookie del pase es Secure por defecto; esta verificación habla http.
+  // En producción NO se define esta variable y la cookie viaja solo por HTTPS.
+  NIIF18_PASE_COOKIE_SECURE: "false",
 };
 
 // ---- 1. Semilla -----------------------------------------------------------
@@ -208,6 +211,33 @@ try {
   });
   ok(r1.status() === 200, `la norma enlazada abre (${href.split("/").pop()})`, String(r1.status()));
 
+  // ---- Lo que de verdad hace el usuario: HACER CLIC ----
+  // Una petición con la cabecera Authorization (la de arriba) NO prueba nada de
+  // esto: al hacer clic el navegador NAVEGA, y una navegación no lleva esa
+  // cabecera. Ese fue el bug: todas las normas respondían 401 "Falta token
+  // Bearer" aunque la lista se viera perfecta. Aquí se abre la pestaña de
+  // verdad y se mira el estado de la respuesta.
+  const [pestana] = await Promise.all([
+    page.context().waitForEvent("page"),
+    page.click("[data-norma] a"),
+  ]);
+  const resp = await pestana.waitForLoadState("domcontentloaded").then(
+    () => pestana.evaluate(() => document.title + "|" + document.body.innerText.slice(0, 200))
+  );
+  const rnav = await page.request.get(href); // misma URL, sin cabecera: como la navegación
+  ok(rnav.status() === 200, "una norma abre AL HACER CLIC, sin cabecera Authorization", String(rnav.status()));
+  ok(!/Falta token Bearer/i.test(resp), "la pestaña no muestra «Falta token Bearer»", resp.slice(0, 80));
+  await pestana.close();
+
+  // Las remisiones entre normas (cf.html#..., ../index.html) también resuelven.
+  const indice = await page.getAttribute('a:has-text("índice general")', "href");
+  const rind = await page.request.get(indice);
+  ok(rind.status() === 200, "el índice general de la biblioteca abre al navegar", String(rind.status()));
+  const cuerpo = await rind.text();
+  const cruzada = new URL("normas/" + (cuerpo.match(/href="normas\/([\w.-]+\.html)"/) || [,"cf.html"])[1], indice).href;
+  const rcruz = await page.request.get(cruzada);
+  ok(rcruz.status() === 200, "una remisión del índice a una norma resuelve", String(rcruz.status()));
+
   ok(errores.length === 0, "sin errores de consola (cliente)", errores.slice(0, 2).join(" | "));
   await c1.close();
 
@@ -227,6 +257,10 @@ try {
   });
   ok(r2.status() === 200, "el PDF del modelo se descarga para el operador", String(r2.status()));
   ok((r2.headers()["content-type"] || "").includes("pdf"), "se sirve como PDF");
+
+  // Y también al NAVEGAR (sin cabecera), que es como se abre desde el índice.
+  const r2nav = await p2.request.get(pdf);
+  ok(r2nav.status() === 200, "el modelo abre al hacer clic (pase, sin cabecera)", String(r2nav.status()));
 
   // El mismo PDF, con el token del cliente, debe ser rechazado por el SERVIDOR
   const r3 = await p2.request.get(pdf, {
