@@ -265,4 +265,8 @@ def test_la_ruta_por_defecto_es_la_que_deja_el_dockerfile():
 
     dockerfile = (niif18.RAIZ_PROYECTO / "Dockerfile.render").read_text(encoding="utf-8")
     assert "/app/base-normativa/libro" in dockerfile
+    # La credencial se pasa como secreto de BuildKit; el build arg es solo el
+    # respaldo para constructores que no sepan entregar secretos.
+    assert "--mount=type=secret,id=niif18_token" in dockerfile
+    assert "/run/secrets/niif18_token" in dockerfile
     assert "NIIF18_REPO_TOKEN" in dockerfile

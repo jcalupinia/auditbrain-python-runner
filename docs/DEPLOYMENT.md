@@ -58,14 +58,27 @@ público**. La imagen los trae durante el build desde el repositorio privado
 `jcalupinia/herramienta-niif-18` y quedan dentro de la imagen, que se
 construye y permanece en nuestro servidor.
 
-En Coolify, en la aplicación `auditbrain-backend`, sección **Build** →
-*Build Arguments*:
+La credencial se entrega como **secreto de BuildKit** (`--mount=type=secret`),
+de modo que **no queda en `docker history`**. El servidor usa Docker 29.9.0 con
+el plugin `buildx` instalado, así que BuildKit es el constructor.
 
-| Build arg | Valor | ¿Obligatorio? |
+En Coolify, en la aplicación `auditbrain-backend`, sección **Build**:
+
+| Dónde | Clave | Valor |
 |---|---|---|
-| `NIIF18_REPO_TOKEN` | token de GitHub de **grano fino, solo lectura**, limitado a `herramienta-niif-18` | Sí, para que el módulo NIIF funcione |
-| `NIIF18_REF` | `main` | No (por defecto `main`) |
-| `NIIF18_REPO` | `jcalupinia/herramienta-niif-18` | No (ya es el valor por defecto) |
+| *Build Secrets* (preferido) | `niif18_token` | token de GitHub de **grano fino, solo lectura**, limitado a `herramienta-niif-18` |
+| *Build Arguments* (respaldo) | `NIIF18_REPO_TOKEN` | el mismo token, **solo si** la interfaz no ofrece secretos de build |
+| *Build Arguments* (opcional) | `NIIF18_REF` | `main` (ya es el valor por defecto) |
+
+**Cómo saber cuál vía se usó:** el log del build lo dice siempre, en la línea
+
+```
+NIIF 18: trayendo la Biblioteca Normativa de … · credencial via secreto de BuildKit
+```
+
+o bien `… · credencial via build arg (queda en docker history)`. Si aparece la
+segunda, el token sí quedó en el historial de la imagen: use un token de grano
+fino, de solo lectura y limitado a ese repositorio, y rótelo si se expone.
 
 No hace falta definir `NIIF18_BIBLIOTECA_DIR`: el código usa por defecto
 `/app/base-normativa/libro`, que es donde el Dockerfile deja la biblioteca.

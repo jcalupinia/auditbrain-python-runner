@@ -62,13 +62,20 @@ COPY . .
 # firma. Así el despliegue no necesita ningún paso manual y el material con
 # licencia restringida nunca se publica.
 #
-# El token se pasa como build-arg porque funciona con o sin BuildKit, que es lo
-# que garantiza que el build no se rompa en Coolify. CONTRAPARTIDA CONOCIDA: un
-# build-arg queda registrado en `docker history` de la imagen. Por eso debe
-# usarse un token de GRANO FINO, de SOLO LECTURA y limitado a ese único
-# repositorio: su alcance es exactamente lo que la imagen ya contiene. Si su
-# Docker soporta secretos de BuildKit, puede endurecerse cambiando este bloque
-# por `RUN --mount=type=secret,id=niif18_token`.
+# La credencial se pasa como SECRETO DE BUILDKIT (`--mount=type=secret`), de
+# modo que NO queda en las capas ni en `docker history`. Se comprobó que el
+# servidor usa Docker 29.9.0 con el plugin buildx instalado, así que BuildKit
+# es el constructor.
+#
+#   docker build --secret id=niif18_token,env=NIIF18_REPO_TOKEN ...
+#
+# RESPALDO: si el constructor no entrega el secreto (p. ej. una interfaz que
+# solo sabe pasar build args), se usa el build arg `NIIF18_REPO_TOKEN`. Así la
+# funcionalidad no queda muerta en silencio. El log del build dice SIEMPRE qué
+# vía se usó ("credencial via secreto de BuildKit" o "via build arg"), para que
+# se pueda comprobar sin adivinar. Con el build arg el token sí queda en
+# `docker history`: use entonces un token de grano fino, de solo lectura y
+# limitado a ese único repositorio.
 #
 # Si el token NO se pasa, el build NO falla: la imagen queda sin biblioteca y el
 # módulo NIIF responde 503 con un mensaje claro. El resto de la plataforma
@@ -76,13 +83,21 @@ COPY . .
 # el Motor de Ingesta y el Validador SRI: una pieza opcional no tumba el servicio.
 ARG NIIF18_REPO=jcalupinia/herramienta-niif-18
 ARG NIIF18_REF=main
+# Respaldo: SOLO se usa si el constructor no entrega el secreto. Pasarlo por
+# build arg deja el token en `docker history`; por eso se prefiere el secreto.
 ARG NIIF18_REPO_TOKEN=""
-RUN set -u; \
-    if [ -n "${NIIF18_REPO_TOKEN}" ]; then \
-      echo "NIIF 18: trayendo la Biblioteca Normativa de ${NIIF18_REPO}@${NIIF18_REF}"; \
+RUN --mount=type=secret,id=niif18_token \
+    set -u; \
+    if [ -s /run/secrets/niif18_token ]; then \
+      NIIF_TOKEN="$(cat /run/secrets/niif18_token)"; NIIF_ORIGEN="secreto de BuildKit"; \
+    else \
+      NIIF_TOKEN="${NIIF18_REPO_TOKEN}"; NIIF_ORIGEN="build arg (queda en docker history)"; \
+    fi; \
+    if [ -n "${NIIF_TOKEN}" ]; then \
+      echo "NIIF 18: trayendo la Biblioteca Normativa de ${NIIF18_REPO}@${NIIF18_REF} · credencial via ${NIIF_ORIGEN}"; \
       ( set -e; \
         mkdir -p /tmp/niif18 && cd /tmp/niif18; \
-        curl -fsSL -H "Authorization: Bearer ${NIIF18_REPO_TOKEN}" \
+        curl -fsSL -H "Authorization: Bearer ${NIIF_TOKEN}" \
              -H "Accept: application/vnd.github+json" \
              "https://api.github.com/repos/${NIIF18_REPO}/tarball/${NIIF18_REF}" \
              -o fuente.tar.gz; \
@@ -95,7 +110,7 @@ RUN set -u; \
       echo "ERROR NIIF 18: no se pudo traer la biblioteca. La imagen sigue, pero el modulo respondera 503."; \
       rm -rf /tmp/niif18; \
     else \
-      echo "AVISO NIIF 18: sin token de build; la imagen queda SIN Biblioteca Normativa y el modulo respondera 503."; \
+      echo "AVISO NIIF 18: sin credencial de build (ni secreto niif18_token ni build arg); la imagen queda SIN Biblioteca Normativa y el modulo respondera 503."; \
     fi
 
 # Commit con el que se construyó la imagen (Preview Environments: el backend se
