@@ -285,3 +285,129 @@ def test_el_build_no_lleva_ninguna_credencial():
     )
     # Y la ruta de montaje sigue documentada en el propio Dockerfile.
     assert "/app/base-normativa" in dockerfile
+
+
+# ------------------------------------------------- pase de biblioteca (cookie)
+# El bug: cada norma es un <a href> a /biblioteca/... Al hacer clic el navegador
+# NAVEGA, y una navegación no puede llevar la cabecera Authorization, así que
+# todas las normas respondían 401. El pase es una cookie HttpOnly de vida corta
+# que el navegador sí manda en esa navegación.
+@pytest.fixture()
+def pase_sin_https(monkeypatch):
+    """El TestClient habla http; sin esto la cookie Secure no se enviaría."""
+    monkeypatch.setenv("NIIF18_PASE_COOKIE_SECURE", "false")
+
+
+def _abrir_pase(client, sesion):
+    r = client.post(
+        "/api/v1/client/niif18/pase", headers=sesion["headers"], cookies=sesion["cookies"]
+    )
+    assert r.status_code == 200, r.text
+    return r
+
+
+def test_abrir_una_norma_navegando_sin_pase_da_401(client, db_session, biblioteca):
+    """Regresión del bug: el enlace de una norma no lleva Authorization."""
+    r = client.get("/api/v1/client/niif18/biblioteca/normas/ifrs18.html")
+    assert r.status_code == 401
+    assert "pase" in r.json()["detail"].lower()
+
+
+def test_con_el_pase_la_norma_abre_al_navegar(client, db_session, biblioteca, pase_sin_https):
+    sesion = _login_cliente(client, db_session)
+    _abrir_pase(client, sesion)
+    # Navegación pura: ni cabecera Authorization ni cookies de sesión.
+    r = client.get("/api/v1/client/niif18/biblioteca/normas/ifrs18.html")
+    assert r.status_code == 200, r.text
+    assert "NIIF 18" in r.text
+
+
+def test_la_cookie_del_pase_es_httponly_y_de_ruta_restringida(
+    client, db_session, biblioteca, pase_sin_https
+):
+    sesion = _login_cliente(client, db_session)
+    r = _abrir_pase(client, sesion)
+    cabecera = r.headers["set-cookie"]
+    assert "httponly" in cabecera.lower()
+    assert "path=/api/v1/client/niif18" in cabecera.lower()
+    assert "samesite=lax" in cabecera.lower()
+
+
+def test_el_pase_no_abre_ningun_otro_endpoint_del_portal(
+    client, db_session, biblioteca, pase_sin_https
+):
+    """El pase no lleva rol ni sid: no es un token de sesión."""
+    sesion = _login_cliente(client, db_session)
+    _abrir_pase(client, sesion)
+    pase = client.cookies.get("niif18_pase")
+    assert pase
+    # Ni siquiera presentándolo como Bearer en el catálogo del propio módulo.
+    for ruta in ("/api/v1/client/niif18/normas", "/api/v1/client/niif18/me"):
+        r = client.get(ruta, headers={"Authorization": f"Bearer {pase}"})
+        assert r.status_code in (401, 403), f"{ruta} -> {r.status_code}"
+    client.cookies.clear()
+
+
+def test_el_cliente_con_pase_sigue_sin_alcanzar_los_modelos(
+    client, db_session, biblioteca, pase_sin_https
+):
+    """El pase no relaja el control de rol de los modelos de las firmas."""
+    sesion = _login_cliente(client, db_session)
+    _abrir_pase(client, sesion)
+    r = client.get("/api/v1/client/niif18/modelos/modelos-niif18/EY_GoodGroup.pdf")
+    assert r.status_code == 403
+    client.cookies.clear()
+
+
+def test_el_operador_con_pase_si_descarga_el_modelo(
+    client, db_session, biblioteca, pase_sin_https, admin_headers
+):
+    r = client.post("/api/v1/client/niif18/pase", headers=admin_headers)
+    assert r.status_code == 200, r.text
+    r = client.get("/api/v1/client/niif18/modelos/modelos-niif18/EY_GoodGroup.pdf")
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "application/pdf"
+    client.cookies.clear()
+
+
+def test_el_pase_caducado_lo_dice_claro(client, db_session, biblioteca, pase_sin_https, monkeypatch):
+    import datetime
+
+    import jwt as _jwt
+
+    from backend.app.auth.jwt_tokens import _secret
+    from backend.app.client_portal import niif18 as mod
+
+    ayer = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) - datetime.timedelta(days=1)
+    vencido = _jwt.encode(
+        {"sub": "quien@example.com", "scope": mod.PASE_SCOPE, "iat": ayer, "exp": ayer},
+        _secret(),
+        algorithm="HS256",
+    )
+    client.cookies.set("niif18_pase", vencido, path="/api/v1/client/niif18")
+    r = client.get("/api/v1/client/niif18/biblioteca/normas/ifrs18.html")
+    assert r.status_code == 401
+    assert "expiró" in r.json()["detail"]
+    client.cookies.clear()
+
+
+def test_el_pase_se_cierra(client, db_session, biblioteca, pase_sin_https):
+    sesion = _login_cliente(client, db_session)
+    _abrir_pase(client, sesion)
+    assert client.get("/api/v1/client/niif18/biblioteca/normas/ifrs18.html").status_code == 200
+    r = client.delete("/api/v1/client/niif18/pase")
+    assert r.status_code == 200
+    assert client.get("/api/v1/client/niif18/biblioteca/normas/ifrs18.html").status_code == 401
+    client.cookies.clear()
+
+
+def test_la_cookie_del_pase_es_segura_por_defecto(client, db_session, biblioteca, monkeypatch):
+    """Sin la variable de desarrollo, la cookie NUNCA viaja por http."""
+    monkeypatch.delenv("NIIF18_PASE_COOKIE_SECURE", raising=False)
+    sesion = _login_cliente(client, db_session)
+    r = client.post(
+        "/api/v1/client/niif18/pase", headers=sesion["headers"], cookies=sesion["cookies"]
+    )
+    assert r.status_code == 200
+    assert "secure" in r.headers["set-cookie"].lower()
+    client.cookies.clear()

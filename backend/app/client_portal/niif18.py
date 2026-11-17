@@ -26,13 +26,19 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+import datetime
+
+import jwt
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
+from backend.app.auth import service as auth_service
 from backend.app.auth.deps import require_client_with_device
-from backend.app.auth.models import User
+from backend.app.auth.jwt_tokens import _secret
+from backend.app.auth.models import Role, User
 from backend.app.client_portal.entitlements import can_access_tool, is_operator
+from backend.app.core.config import settings
 from backend.app.db.session import get_db
 
 router = APIRouter(prefix="/client/niif18", tags=["client-niif18"])
@@ -133,6 +139,138 @@ def _resolver_dentro(base: Path, relativo: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Pase de biblioteca (cookie) — por qué existe
+# ---------------------------------------------------------------------------
+# Las normas se abren como páginas: el usuario hace clic en un enlace y el
+# navegador NAVEGA a .../biblioteca/normas/ifrs9.html. Una navegación no puede
+# llevar la cabecera ``Authorization``, así que con Bearer a secas toda norma
+# respondía 401 "Falta token Bearer".
+#
+# Tampoco sirve traer el HTML por fetch y abrirlo como ``blob:``: los archivos
+# de la biblioteca se citan entre ellos (``cf.html#CF2018_2.4``,
+# ``../index.html``) — casi 9.000 referencias — y bajo ``blob:`` no hay
+# directorio contra el que resolverlas. Se perdería la navegación cruzada, que
+# es justamente el valor de la biblioteca.
+#
+# Solución: un PASE propio, de vida corta, en una cookie HttpOnly que el
+# navegador sí manda en una navegación. El pase:
+#   * lo emite ``POST /client/niif18/pase``, que exige Bearer y la herramienta;
+#   * NO es un token de sesión: no lleva ``role`` ni ``sid``, así que no abre
+#     ningún otro endpoint del portal (``require_client_with_device`` lo
+#     rechaza con 403 por falta de rol);
+#   * va restringido por ``Path`` a este router, así que no viaja al resto de
+#     la API;
+#   * solo se acepta en los dos endpoints de CONTENIDO. El catálogo, ``/me`` y
+#     la lista de modelos siguen exigiendo Bearer.
+# El control de rol de los modelos de las firmas NO cambia: se vuelve a
+# comprobar en cada petición, venga por Bearer o por pase.
+
+#: Nombre de la cookie del pase.
+PASE_COOKIE = "niif18_pase"
+
+#: Claim que distingue al pase de un token de sesión del portal.
+PASE_SCOPE = "niif18-biblioteca"
+
+#: Ruta de la cookie: solo este router la recibe.
+PASE_PATH = f"{settings.PLATFORM_API_PREFIX}/client/niif18"
+
+
+def _pase_ttl_min() -> int:
+    """Minutos de vida del pase (``NIIF18_PASE_TTL_MINUTES``, def. 60)."""
+    try:
+        valor = int(os.getenv("NIIF18_PASE_TTL_MINUTES", "60"))
+    except ValueError:
+        return 60
+    return valor if 1 <= valor <= 720 else 60
+
+
+def _cookie_segura() -> bool:
+    """``Secure`` en la cookie. Por defecto SÍ; solo se apaga a propósito.
+
+    ``NIIF18_PASE_COOKIE_SECURE=false`` sirve para desarrollo y pruebas sobre
+    http. En producción no se toca: la cookie viaja solo por HTTPS.
+    """
+    return os.getenv("NIIF18_PASE_COOKIE_SECURE", "true").strip().lower() not in {
+        "false", "0", "no",
+    }
+
+
+def _emitir_pase(user: User) -> str:
+    ahora = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    return jwt.encode(
+        {
+            "sub": user.email,
+            "scope": PASE_SCOPE,
+            "iat": ahora,
+            "exp": ahora + datetime.timedelta(minutes=_pase_ttl_min()),
+        },
+        _secret(),
+        algorithm="HS256",
+    )
+
+
+def _usuario_del_pase(pase: str, db: Session) -> User:
+    try:
+        payload = jwt.decode(pase, _secret(), algorithms=["HS256"])
+    except jwt.PyJWTError:
+        raise HTTPException(
+            status_code=401,
+            detail="El pase de la biblioteca expiró. Vuelva a abrir el NIIF 18 Studio.",
+        )
+    if payload.get("scope") != PASE_SCOPE:
+        raise HTTPException(status_code=403, detail="Este token no abre la biblioteca.")
+    user = auth_service.get_user_by_email(db, payload.get("sub") or "")
+    if not user or not user.is_active or user.role not in (Role.client, Role.admin, Role.user):
+        raise HTTPException(status_code=401, detail="Credenciales inválidas o token expirado.")
+    return user
+
+
+def _acceso_contenido(
+    request: Request,
+    device_id: str | None = Cookie(default=None, alias="device_id"),
+    pase: str | None = Cookie(default=None, alias=PASE_COOKIE),
+    db: Session = Depends(get_db),
+) -> User:
+    """Bearer (fetch del Studio) o pase (navegación a una norma)."""
+    if request.headers.get("Authorization", "").lower().startswith("bearer "):
+        return require_client_with_device(request=request, device_id=device_id, db=db)
+    if not pase:
+        raise HTTPException(
+            status_code=401,
+            detail="Falta token Bearer o pase de biblioteca.",
+        )
+    return _usuario_del_pase(pase, db)
+
+
+@router.post("/pase")
+def abrir_pase(
+    respuesta: Response,
+    user: User = Depends(require_client_with_device),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Deja la cookie del pase para que los enlaces de las normas abran."""
+    _exige_herramienta(db, user)
+    minutos = _pase_ttl_min()
+    respuesta.set_cookie(
+        PASE_COOKIE,
+        _emitir_pase(user),
+        max_age=minutos * 60,
+        httponly=True,
+        secure=_cookie_segura(),
+        samesite="lax",
+        path=PASE_PATH,
+    )
+    return {"vence_en_minutos": minutos}
+
+
+@router.delete("/pase")
+def cerrar_pase(respuesta: Response) -> dict:
+    """Retira la cookie. El portal lo llama al cerrar sesión."""
+    respuesta.delete_cookie(PASE_COOKIE, path=PASE_PATH)
+    return {"cerrado": True}
+
+
+# ---------------------------------------------------------------------------
 # Sesión y catálogo
 # ---------------------------------------------------------------------------
 @router.get("/me")
@@ -207,7 +345,7 @@ def modelos(
 @router.get("/biblioteca/{ruta:path}")
 def biblioteca(
     ruta: str,
-    user: User = Depends(require_client_with_device),
+    user: User = Depends(_acceso_contenido),
     db: Session = Depends(get_db),
 ) -> Response:
     """Índice y normas navegables. Cualquier usuario con la herramienta."""
@@ -224,7 +362,7 @@ def biblioteca(
 def modelo(
     grupo: str,
     archivo: str,
-    user: User = Depends(require_client_with_device),
+    user: User = Depends(_acceso_contenido),
     db: Session = Depends(get_db),
 ) -> Response:
     """Entrega un modelo de estados financieros. SOLO operadores."""

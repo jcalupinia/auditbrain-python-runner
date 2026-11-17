@@ -130,7 +130,7 @@ function agentPanel(){if(!state.agentOpen)return '';const active=PHASES.find(x=>
    (`ab_client_token`, mismo origen). La base de la API llega por `?api=`
    (una URL, no un secreto); si no viene, se usa el mismo origen.
    El rol solo decide QUÉ SE MUESTRA: el bloqueo real es del backend. */
-let SESION=null, MANIFIESTO=null, NORMATIVA_ERROR=null;
+let SESION=null, MANIFIESTO=null, NORMATIVA_ERROR=null, PASE_OK=false;
 const API_BASE=(()=>{
   try{
     const p=new URLSearchParams(location.search).get('api');
@@ -151,9 +151,32 @@ async function apiNiif(ruta){
   if(!r.ok){const e=new Error('HTTP '+r.status);e.status=r.status;throw e}
   return r.json();
 }
+/* PASE DE BIBLIOTECA.
+   Cada norma es un <a href> a /biblioteca/... Al hacer clic el navegador
+   NAVEGA, y una navegación no puede llevar la cabecera Authorization: con
+   Bearer a secas toda norma respondía 401. El servidor deja entonces una
+   cookie HttpOnly de vida corta (el "pase"), que el navegador sí manda en esa
+   navegación y que SOLO abre el contenido de la biblioteca.
+   No se usa blob: los archivos se citan entre ellos (cf.html#..., ../index.html)
+   y bajo blob: esas referencias no tendrían dónde resolverse. */
+async function abrirPase(){
+  const t=portalToken();
+  if(!t){PASE_OK=false;return false}
+  try{
+    const r=await fetch(`${API_BASE}/api/v1/client/niif18/pase`,{
+      method:'POST',credentials:'include',
+      headers:{'Accept':'application/json','Authorization':'Bearer '+t}
+    });
+    PASE_OK=r.ok;
+  }catch(e){PASE_OK=false}
+  return PASE_OK;
+}
+/* Se renueva mientras el Studio siga abierto (el pase dura ~1 h). */
+setInterval(()=>{if(SESION)abrirPase()},20*60*1000);
 async function cargarSesion(){
   try{const d=await apiNiif('/me');SESION=d.usuario||null}
   catch(e){SESION=null}
+  if(SESION)await abrirPase();
 }
 async function cargarManifiesto(){
   try{MANIFIESTO=await apiNiif('/normas');NORMATIVA_ERROR=null;return}
@@ -406,6 +429,7 @@ function normativaBiblioteca(){
     return `<section class="panel"><h2>Biblioteca normativa</h2><p class="muted">Cargando el catálogo de normas…</p></section>`;
   }
   const m=MANIFIESTO,t=m.totales||{};
+  const avisoPase=PASE_OK?'':`<div class="note warn">No se pudo habilitar la apertura de documentos en esta sesión. Los enlaces de las normas responderán «Falta token Bearer». Recargue la página o vuelva a ingresar al portal.</div>`;
   const dest=(m.destacado||[]).map(d=>`<a class="norma-ie" href="${esc(urlNorma(d.href))}" target="_blank" rel="noopener">${esc(d.titulo)}</a>`).join(' · ');
   const secciones=(m.secciones||[]).map(s=>`<div class="norma-sec">${esc(s.titulo)}</div>`+
     s.items.map(it=>`<div class="norma-item" data-norma="${esc((it.etiqueta+' '+it.nombre).toLowerCase())}">
@@ -415,6 +439,7 @@ function normativaBiblioteca(){
     </div>`).join('')).join('');
   return `<section class="panel"><h2>Biblioteca normativa NIIF <span class="tag">${t.normas||0} normas</span></h2>
   <p class="muted">Edición oficial 2025 en español (IFRS Foundation). ${t.ejemplos||0} juegos de Ejemplos Ilustrativos. La biblioteca se publica como carpeta aparte y se sirve con la sesión del portal.</p>
+  ${avisoPase}
   <div class="actions"><a class="btn primary" href="${esc(urlNorma('index.html'))}" target="_blank" rel="noopener">Abrir índice general de la biblioteca</a></div>
   ${dest?`<div class="note"><b>★ NIIF 18 (vigente 1-ene-2027):</b> ${dest}</div>`:''}
   <input class="norma-buscar" id="normaBuscar" type="search" placeholder="🔎 Filtrar por número o nombre (ej. «arrendamientos», «NIIF 9», «deterioro»)…" data-norma-buscar>
