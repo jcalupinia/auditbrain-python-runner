@@ -53,65 +53,27 @@ RUN pip install --upgrade pip setuptools wheel \
 COPY . .
 
 # ==========================================================
-# Biblioteca Normativa NIIF (repositorio PRIVADO)
+# Biblioteca Normativa NIIF — NO se trae en el build
 # ==========================================================
 # Las normas de la IFRS Foundation y los modelos de estados financieros de EY,
 # KPMG, PwC, Deloitte y Grant Thornton NO viven en este repositorio, que es
-# PÚBLICO. Se traen durante el build desde `jcalupinia/herramienta-niif-18` y
-# quedan dentro de la imagen, que se construye y permanece en el servidor de la
-# firma. Así el despliegue no necesita ningún paso manual y el material con
-# licencia restringida nunca se publica.
+# PÚBLICO, y TAMPOCO entran en la imagen: se montan como VOLUMEN PERSISTENTE
+# del servidor.
 #
-# La credencial se pasa como SECRETO DE BUILDKIT (`--mount=type=secret`), de
-# modo que NO queda en las capas ni en `docker history`. Se comprobó que el
-# servidor usa Docker 29.9.0 con el plugin buildx instalado, así que BuildKit
-# es el constructor.
+# Decisión deliberada (ver docs/DEPLOYMENT.md): traerlos durante el build
+# exigía una credencial de GitHub, y en Coolify esa credencial solo puede
+# viajar como build arg, que queda registrado en `docker history`. Con el
+# volumen no hay ninguna credencial en el build: nada que filtrar, nada que
+# rotar y ninguna advertencia del linter de Docker.
 #
-#   docker build --secret id=niif18_token,env=NIIF18_REPO_TOKEN ...
+# El código busca la biblioteca por defecto en /app/base-normativa/libro, así
+# que basta montar el volumen en /app/base-normativa y no hace falta definir
+# ninguna variable. Si se monta en otro sitio, se indica con
+# NIIF18_BIBLIOTECA_DIR.
 #
-# RESPALDO: si el constructor no entrega el secreto (p. ej. una interfaz que
-# solo sabe pasar build args), se usa el build arg `NIIF18_REPO_TOKEN`. Así la
-# funcionalidad no queda muerta en silencio. El log del build dice SIEMPRE qué
-# vía se usó ("credencial via secreto de BuildKit" o "via build arg"), para que
-# se pueda comprobar sin adivinar. Con el build arg el token sí queda en
-# `docker history`: use entonces un token de grano fino, de solo lectura y
-# limitado a ese único repositorio.
-#
-# Si el token NO se pasa, el build NO falla: la imagen queda sin biblioteca y el
-# módulo NIIF responde 503 con un mensaje claro. El resto de la plataforma
-# arranca igual. Es la misma filosofía de aislamiento con la que se montan Forge,
-# el Motor de Ingesta y el Validador SRI: una pieza opcional no tumba el servicio.
-ARG NIIF18_REPO=jcalupinia/herramienta-niif-18
-ARG NIIF18_REF=main
-# Respaldo: SOLO se usa si el constructor no entrega el secreto. Pasarlo por
-# build arg deja el token en `docker history`; por eso se prefiere el secreto.
-ARG NIIF18_REPO_TOKEN=""
-RUN --mount=type=secret,id=niif18_token \
-    set -u; \
-    if [ -s /run/secrets/niif18_token ]; then \
-      NIIF_TOKEN="$(cat /run/secrets/niif18_token)"; NIIF_ORIGEN="secreto de BuildKit"; \
-    else \
-      NIIF_TOKEN="${NIIF18_REPO_TOKEN}"; NIIF_ORIGEN="build arg (queda en docker history)"; \
-    fi; \
-    if [ -n "${NIIF_TOKEN}" ]; then \
-      echo "NIIF 18: trayendo la Biblioteca Normativa de ${NIIF18_REPO}@${NIIF18_REF} · credencial via ${NIIF_ORIGEN}"; \
-      ( set -e; \
-        mkdir -p /tmp/niif18 && cd /tmp/niif18; \
-        curl -fsSL -H "Authorization: Bearer ${NIIF_TOKEN}" \
-             -H "Accept: application/vnd.github+json" \
-             "https://api.github.com/repos/${NIIF18_REPO}/tarball/${NIIF18_REF}" \
-             -o fuente.tar.gz; \
-        tar -xzf fuente.tar.gz; \
-        mkdir -p /app/base-normativa; \
-        cp -r */base-normativa/libro /app/base-normativa/libro; \
-        cp    */base-normativa/manifiesto.json /app/base-normativa/manifiesto.json; \
-      ) && \
-      echo "NIIF 18: biblioteca instalada ($(find /app/base-normativa/libro -type f 2>/dev/null | wc -l) archivos)" || \
-      echo "ERROR NIIF 18: no se pudo traer la biblioteca. La imagen sigue, pero el modulo respondera 503."; \
-      rm -rf /tmp/niif18; \
-    else \
-      echo "AVISO NIIF 18: sin credencial de build (ni secreto niif18_token ni build arg); la imagen queda SIN Biblioteca Normativa y el modulo respondera 503."; \
-    fi
+# Si el volumen no está montado, el módulo NIIF responde 503 con un mensaje
+# claro y el resto de la plataforma arranca igual: una pieza opcional no tumba
+# el servicio, como con Forge, el Motor de Ingesta y el Validador SRI.
 
 # Commit con el que se construyó la imagen (Preview Environments: el backend se
 # niega a arrancar si la etiqueta esperada no coincide con este valor). En Render
