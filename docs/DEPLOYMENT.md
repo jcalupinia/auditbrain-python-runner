@@ -50,6 +50,54 @@ como secretos cuando corresponda):
 
 > El esquema de BD se crea con `create_all` + migraciones aditivas al arrancar.
 
+## NIIF 18 Studio — Biblioteca Normativa (build arg)
+
+Las normas de la IFRS Foundation y los modelos de estados financieros de EY,
+KPMG, PwC, Deloitte y Grant Thornton **no están en este repositorio, que es
+público**. La imagen los trae durante el build desde el repositorio privado
+`jcalupinia/herramienta-niif-18` y quedan dentro de la imagen, que se
+construye y permanece en nuestro servidor.
+
+En Coolify, en la aplicación `auditbrain-backend`, sección **Build** →
+*Build Arguments*:
+
+| Build arg | Valor | ¿Obligatorio? |
+|---|---|---|
+| `NIIF18_REPO_TOKEN` | token de GitHub de **grano fino, solo lectura**, limitado a `herramienta-niif-18` | Sí, para que el módulo NIIF funcione |
+| `NIIF18_REF` | `main` | No (por defecto `main`) |
+| `NIIF18_REPO` | `jcalupinia/herramienta-niif-18` | No (ya es el valor por defecto) |
+
+No hace falta definir `NIIF18_BIBLIOTECA_DIR`: el código usa por defecto
+`/app/base-normativa/libro`, que es donde el Dockerfile deja la biblioteca.
+Esa variable queda solo para entornos donde la biblioteca viva en otro sitio
+(por ejemplo un volumen persistente).
+
+**Si el token falta o falla, el build NO se rompe**: la imagen queda sin
+biblioteca y el módulo NIIF responde 503 con un mensaje claro, igual que Forge
+o el Motor de Ingesta cuando no pueden montarse. El resto de la plataforma
+arranca normalmente. En el log del build se ve `AVISO NIIF 18: …` o
+`ERROR NIIF 18: …`.
+
+> **Contrapartida conocida:** un build arg queda registrado en el
+> `docker history` de la imagen. Por eso el token debe ser de grano fino, de
+> solo lectura y limitado a ese único repositorio: su alcance es exactamente
+> el contenido que la imagen ya lleva dentro. Se eligió build arg —y no un
+> secreto de BuildKit— porque funciona con o sin BuildKit y así el build no
+> depende de esa capacidad de Coolify. Si se confirma que el builder soporta
+> secretos, puede endurecerse cambiando el bloque del `Dockerfile.render` por
+> `RUN --mount=type=secret,id=niif18_token`.
+
+Comprobación tras desplegar (con un usuario **operador**, que no necesita
+entitlement):
+
+```bash
+# Catálogo de normas -> 200
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" \
+  https://api.audit-ia.ec/api/v1/client/niif18/normas
+```
+
+Si responde **503**, la imagen se construyó sin el token.
+
 ## Verificación post-deploy
 
 ```bash

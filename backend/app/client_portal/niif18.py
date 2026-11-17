@@ -60,22 +60,26 @@ _MIMES = {
 }
 
 
+#: Ruta por defecto: la que deja el Dockerfile de producción al traer la
+#: biblioteca desde su repositorio privado durante el build. Así el despliegue
+#: no necesita configurar nada, y `NIIF18_BIBLIOTECA_DIR` queda solo para
+#: entornos donde la biblioteca viva en otro sitio (p. ej. un volumen).
+RAIZ_PROYECTO = Path(__file__).resolve().parents[3]
+BIBLIOTECA_POR_DEFECTO = RAIZ_PROYECTO / "base-normativa" / "libro"
+
+
 def _raiz() -> Path:
-    """Directorio de la biblioteca. 503 si no está configurado."""
+    """Directorio de la biblioteca. 503 si no está disponible."""
     crudo = os.getenv("NIIF18_BIBLIOTECA_DIR", "").strip()
-    if not crudo:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "La Biblioteca Normativa no está configurada en este entorno "
-                "(defina NIIF18_BIBLIOTECA_DIR)."
-            ),
-        )
-    base = Path(crudo).resolve()
+    base = Path(crudo).resolve() if crudo else BIBLIOTECA_POR_DEFECTO
     if not base.is_dir():
         raise HTTPException(
             status_code=503,
-            detail="El directorio de la Biblioteca Normativa no existe en el servidor.",
+            detail=(
+                "La Biblioteca Normativa no está disponible en este entorno. "
+                "La imagen la trae durante el build desde su repositorio privado; "
+                "si falta, revise el secreto de build o defina NIIF18_BIBLIOTECA_DIR."
+            ),
         )
     return base
 

@@ -52,6 +52,52 @@ RUN pip install --upgrade pip setuptools wheel \
 
 COPY . .
 
+# ==========================================================
+# Biblioteca Normativa NIIF (repositorio PRIVADO)
+# ==========================================================
+# Las normas de la IFRS Foundation y los modelos de estados financieros de EY,
+# KPMG, PwC, Deloitte y Grant Thornton NO viven en este repositorio, que es
+# PÚBLICO. Se traen durante el build desde `jcalupinia/herramienta-niif-18` y
+# quedan dentro de la imagen, que se construye y permanece en el servidor de la
+# firma. Así el despliegue no necesita ningún paso manual y el material con
+# licencia restringida nunca se publica.
+#
+# El token se pasa como build-arg porque funciona con o sin BuildKit, que es lo
+# que garantiza que el build no se rompa en Coolify. CONTRAPARTIDA CONOCIDA: un
+# build-arg queda registrado en `docker history` de la imagen. Por eso debe
+# usarse un token de GRANO FINO, de SOLO LECTURA y limitado a ese único
+# repositorio: su alcance es exactamente lo que la imagen ya contiene. Si su
+# Docker soporta secretos de BuildKit, puede endurecerse cambiando este bloque
+# por `RUN --mount=type=secret,id=niif18_token`.
+#
+# Si el token NO se pasa, el build NO falla: la imagen queda sin biblioteca y el
+# módulo NIIF responde 503 con un mensaje claro. El resto de la plataforma
+# arranca igual. Es la misma filosofía de aislamiento con la que se montan Forge,
+# el Motor de Ingesta y el Validador SRI: una pieza opcional no tumba el servicio.
+ARG NIIF18_REPO=jcalupinia/herramienta-niif-18
+ARG NIIF18_REF=main
+ARG NIIF18_REPO_TOKEN=""
+RUN set -u; \
+    if [ -n "${NIIF18_REPO_TOKEN}" ]; then \
+      echo "NIIF 18: trayendo la Biblioteca Normativa de ${NIIF18_REPO}@${NIIF18_REF}"; \
+      ( set -e; \
+        mkdir -p /tmp/niif18 && cd /tmp/niif18; \
+        curl -fsSL -H "Authorization: Bearer ${NIIF18_REPO_TOKEN}" \
+             -H "Accept: application/vnd.github+json" \
+             "https://api.github.com/repos/${NIIF18_REPO}/tarball/${NIIF18_REF}" \
+             -o fuente.tar.gz; \
+        tar -xzf fuente.tar.gz; \
+        mkdir -p /app/base-normativa; \
+        cp -r */base-normativa/libro /app/base-normativa/libro; \
+        cp    */base-normativa/manifiesto.json /app/base-normativa/manifiesto.json; \
+      ) && \
+      echo "NIIF 18: biblioteca instalada ($(find /app/base-normativa/libro -type f 2>/dev/null | wc -l) archivos)" || \
+      echo "ERROR NIIF 18: no se pudo traer la biblioteca. La imagen sigue, pero el modulo respondera 503."; \
+      rm -rf /tmp/niif18; \
+    else \
+      echo "AVISO NIIF 18: sin token de build; la imagen queda SIN Biblioteca Normativa y el modulo respondera 503."; \
+    fi
+
 # Commit con el que se construyó la imagen (Preview Environments: el backend se
 # niega a arrancar si la etiqueta esperada no coincide con este valor). En Render
 # y en builds locales sin --build-arg queda "unknown" y no cambia nada.

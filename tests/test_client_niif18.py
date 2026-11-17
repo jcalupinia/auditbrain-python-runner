@@ -240,8 +240,29 @@ def test_la_herramienta_esta_registrada_en_la_categoria_niif():
     assert any(c["id"] == "NIIF" for c in CATEGORIES)
 
 
-def test_sin_biblioteca_configurada_responde_503(client, db_session, monkeypatch):
-    monkeypatch.delenv("NIIF18_BIBLIOTECA_DIR", raising=False)
+def test_sin_biblioteca_disponible_responde_503(client, db_session, monkeypatch, tmp_path):
+    """Sin biblioteca, el módulo degrada a 503 en vez de romper la plataforma."""
+    monkeypatch.setenv("NIIF18_BIBLIOTECA_DIR", str(tmp_path / "no-existe"))
     auth = _login_cliente(client, db_session)
     r = client.get("/api/v1/client/niif18/normas", **auth)
     assert r.status_code == 503
+
+
+def test_la_ruta_por_defecto_es_la_que_deja_el_dockerfile():
+    """El default del código y la ruta del Dockerfile.render deben coincidir.
+
+    El Dockerfile copia la biblioteca a /app/base-normativa/libro y el módulo
+    vive en /app/backend/app/client_portal/, así que `parents[3]` es /app. Si
+    alguien mueve el módulo de carpeta, este test lo atrapa antes de que el
+    despliegue quede silenciosamente sin normativa.
+    """
+    from backend.app.client_portal import niif18
+
+    assert niif18.BIBLIOTECA_POR_DEFECTO.name == "libro"
+    assert niif18.BIBLIOTECA_POR_DEFECTO.parent.name == "base-normativa"
+    # La raíz calculada es la del proyecto: contiene el paquete `backend`.
+    assert (niif18.RAIZ_PROYECTO / "backend" / "app").is_dir()
+
+    dockerfile = (niif18.RAIZ_PROYECTO / "Dockerfile.render").read_text(encoding="utf-8")
+    assert "/app/base-normativa/libro" in dockerfile
+    assert "NIIF18_REPO_TOKEN" in dockerfile
