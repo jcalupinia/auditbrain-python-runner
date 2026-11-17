@@ -248,13 +248,13 @@ def test_sin_biblioteca_disponible_responde_503(client, db_session, monkeypatch,
     assert r.status_code == 503
 
 
-def test_la_ruta_por_defecto_es_la_que_deja_el_dockerfile():
-    """El default del código y la ruta del Dockerfile.render deben coincidir.
+def test_la_ruta_por_defecto_coincide_con_el_punto_de_montaje():
+    """El default del código es donde se monta el volumen de la biblioteca.
 
-    El Dockerfile copia la biblioteca a /app/base-normativa/libro y el módulo
-    vive en /app/backend/app/client_portal/, así que `parents[3]` es /app. Si
-    alguien mueve el módulo de carpeta, este test lo atrapa antes de que el
-    despliegue quede silenciosamente sin normativa.
+    La biblioteca se monta como volumen persistente en /app/base-normativa, y
+    el módulo vive en /app/backend/app/client_portal/, así que `parents[3]` es
+    /app. Si alguien mueve el módulo de carpeta, este test lo atrapa antes de
+    que el despliegue quede silenciosamente sin normativa.
     """
     from backend.app.client_portal import niif18
 
@@ -263,10 +263,25 @@ def test_la_ruta_por_defecto_es_la_que_deja_el_dockerfile():
     # La raíz calculada es la del proyecto: contiene el paquete `backend`.
     assert (niif18.RAIZ_PROYECTO / "backend" / "app").is_dir()
 
+
+def test_el_build_no_lleva_ninguna_credencial():
+    """Guardián de la decisión: la imagen NO se construye con credenciales.
+
+    La biblioteca llega por volumen, no descargándose en el build. Traerla
+    durante el build exigía un token de GitHub que, en Coolify, solo puede
+    viajar como build arg y queda registrado en `docker history`. Si alguien
+    reintroduce esa descarga, este test lo detiene: no es un detalle de estilo,
+    es la diferencia entre tener o no una credencial filtrable en la imagen.
+    """
+    from backend.app.client_portal import niif18
+
     dockerfile = (niif18.RAIZ_PROYECTO / "Dockerfile.render").read_text(encoding="utf-8")
-    assert "/app/base-normativa/libro" in dockerfile
-    # La credencial se pasa como secreto de BuildKit; el build arg es solo el
-    # respaldo para constructores que no sepan entregar secretos.
-    assert "--mount=type=secret,id=niif18_token" in dockerfile
-    assert "/run/secrets/niif18_token" in dockerfile
-    assert "NIIF18_REPO_TOKEN" in dockerfile
+    prohibido = ("NIIF18_REPO_TOKEN", "--mount=type=secret", "/run/secrets/niif18_token")
+    presentes = [x for x in prohibido if x in dockerfile]
+    assert not presentes, (
+        "El Dockerfile volvió a llevar credenciales de build: "
+        + ", ".join(presentes)
+        + ". La biblioteca debe montarse como volumen (ver docs/DEPLOYMENT.md)."
+    )
+    # Y la ruta de montaje sigue documentada en el propio Dockerfile.
+    assert "/app/base-normativa" in dockerfile

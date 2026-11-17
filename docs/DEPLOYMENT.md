@@ -50,66 +50,85 @@ como secretos cuando corresponda):
 
 > El esquema de BD se crea con `create_all` + migraciones aditivas al arrancar.
 
-## NIIF 18 Studio — Biblioteca Normativa (build arg)
+## NIIF 18 Studio — Biblioteca Normativa (volumen persistente)
 
 Las normas de la IFRS Foundation y los modelos de estados financieros de EY,
 KPMG, PwC, Deloitte y Grant Thornton **no están en este repositorio, que es
-público**. La imagen los trae durante el build desde el repositorio privado
-`jcalupinia/herramienta-niif-18` y quedan dentro de la imagen, que se
-construye y permanece en nuestro servidor.
+público**, y **tampoco van dentro de la imagen**: se montan como **volumen
+persistente** del servidor.
 
-La credencial se entrega como **secreto de BuildKit** (`--mount=type=secret`),
-de modo que **no queda en `docker history`**. El servidor usa Docker 29.9.0 con
-el plugin `buildx` instalado, así que BuildKit es el constructor.
+> **Por qué así.** Traerlos durante el build exigía un token de GitHub, y en
+> Coolify una credencial de build solo puede viajar como *build arg*, que queda
+> registrado en `docker history` de la imagen. Con el volumen **no hay ninguna
+> credencial en el build**: nada que filtrar, nada que rotar y ninguna
+> advertencia del linter de Docker. El contenido con licencia restringida vive
+> solo en el disco del servidor.
 
-En Coolify, en la aplicación `auditbrain-backend`, sección **Build**:
+### 1. Copiar la biblioteca al servidor (una sola vez)
 
-| Dónde | Clave | Valor |
-|---|---|---|
-| *Build Secrets* (preferido) | `niif18_token` | token de GitHub de **grano fino, solo lectura**, limitado a `herramienta-niif-18` |
-| *Build Arguments* (respaldo) | `NIIF18_REPO_TOKEN` | el mismo token, **solo si** la interfaz no ofrece secretos de build |
-| *Build Arguments* (opcional) | `NIIF18_REF` | `main` (ya es el valor por defecto) |
-
-**Cómo saber cuál vía se usó:** el log del build lo dice siempre, en la línea
-
-```
-NIIF 18: trayendo la Biblioteca Normativa de … · credencial via secreto de BuildKit
-```
-
-o bien `… · credencial via build arg (queda en docker history)`. Si aparece la
-segunda, el token sí quedó en el historial de la imagen: use un token de grano
-fino, de solo lectura y limitado a ese repositorio, y rótelo si se expone.
-
-No hace falta definir `NIIF18_BIBLIOTECA_DIR`: el código usa por defecto
-`/app/base-normativa/libro`, que es donde el Dockerfile deja la biblioteca.
-Esa variable queda solo para entornos donde la biblioteca viva en otro sitio
-(por ejemplo un volumen persistente).
-
-**Si el token falta o falla, el build NO se rompe**: la imagen queda sin
-biblioteca y el módulo NIIF responde 503 con un mensaje claro, igual que Forge
-o el Motor de Ingesta cuando no pueden montarse. El resto de la plataforma
-arranca normalmente. En el log del build se ve `AVISO NIIF 18: …` o
-`ERROR NIIF 18: …`.
-
-> **Contrapartida conocida:** un build arg queda registrado en el
-> `docker history` de la imagen. Por eso el token debe ser de grano fino, de
-> solo lectura y limitado a ese único repositorio: su alcance es exactamente
-> el contenido que la imagen ya lleva dentro. Se eligió build arg —y no un
-> secreto de BuildKit— porque funciona con o sin BuildKit y así el build no
-> depende de esa capacidad de Coolify. Si se confirma que el builder soporta
-> secretos, puede endurecerse cambiando el bloque del `Dockerfile.render` por
-> `RUN --mount=type=secret,id=niif18_token`.
-
-Comprobación tras desplegar (con un usuario **operador**, que no necesita
-entitlement):
+Desde su máquina, en el clon del repositorio privado `herramienta-niif-18`:
 
 ```bash
-# Catálogo de normas -> 200
+ssh root@<servidor> 'mkdir -p /datos/niif18'
+```
+
+```bash
+scp -r base-normativa/libro base-normativa/manifiesto.json root@<servidor>:/datos/niif18/
+```
+
+Debe quedar así en el servidor:
+
+```
+/datos/niif18/manifiesto.json
+/datos/niif18/libro/index.html
+/datos/niif18/libro/normas/            (120 archivos)
+/datos/niif18/libro/modelos-niif18/    (EY, KPMG)
+/datos/niif18/libro/modelos-2026/      (Deloitte x2, Grant Thornton, KPMG)
+```
+
+Compruébelo:
+
+```bash
+ssh root@<servidor> 'find /datos/niif18 -type f | wc -l'   # debe dar 129
+```
+
+### 2. Montar el volumen en Coolify
+
+En `auditbrain-backend` → **Persistent Storage** → *Add volume*:
+
+| Campo | Valor |
+|---|---|
+| Source (host) | `/datos/niif18` |
+| Destination (contenedor) | `/app/base-normativa` |
+
+**No hace falta ninguna variable de entorno.** El código busca por defecto
+`/app/base-normativa/libro`, que es justo donde queda el volumen. Solo si lo
+monta en otra ruta hay que definir `NIIF18_BIBLIOTECA_DIR` apuntando a la
+carpeta `libro`.
+
+El volumen **persiste entre redespliegues**: el paso 1 se hace una sola vez.
+
+### 3. Si el volumen no está
+
+El módulo NIIF responde **503** con un mensaje claro y **el resto de la
+plataforma arranca igual**, como Forge o el Motor de Ingesta cuando no pueden
+montarse. Una pieza opcional no tumba el servicio.
+
+### 4. Comprobación tras desplegar
+
+Con un usuario **operador** (no necesita entitlement):
+
+```bash
 curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" \
   https://api.audit-ia.ec/api/v1/client/niif18/normas
 ```
 
-Si responde **503**, la imagen se construyó sin el token.
+**200** = biblioteca montada. **503** = falta el volumen o está mal la ruta.
+
+### 5. Actualizar la biblioteca más adelante
+
+Se repite el paso 1 (el `scp` sobrescribe) y se reinicia la aplicación. No hace
+falta reconstruir la imagen: el contenido no vive en ella.
 
 ## Verificación post-deploy
 
