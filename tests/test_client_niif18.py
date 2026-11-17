@@ -411,3 +411,48 @@ def test_la_cookie_del_pase_es_segura_por_defecto(client, db_session, biblioteca
     assert r.status_code == 200
     assert "secure" in r.headers["set-cookie"].lower()
     client.cookies.clear()
+
+
+def test_el_pase_de_un_operador_no_autentica_endpoints_de_staff(client, db_session, biblioteca):
+    """El pase NO es un token de sesión, ni para un operador.
+
+    Regresión de una escalada real encontrada en revisión: firmado con el
+    secreto común de la plataforma, el pase de un admin abría
+    `GET /api/v1/staff/tools` con 200, porque `auth.deps._user_from_token`
+    comprueba el rol del usuario en la base y no el claim `role` (que el pase
+    no lleva). Se firma con una clave DERIVADA para que no verifique nunca
+    contra el secreto de la plataforma.
+    """
+    from backend.app.auth.service import create_user
+    from backend.app.client_portal import niif18 as mod
+
+    email = f"op-pase-{uuid.uuid4().hex[:8]}@example.com"
+    create_user(db_session, email=email, password="Clave-Muy-Larga-123", role=Role.admin)
+    operador = get_user_by_email(db_session, email)
+    pase = mod._emitir_pase(operador)
+
+    r = client.get("/api/v1/staff/tools", headers={"Authorization": f"Bearer {pase}"})
+    assert r.status_code in (401, 403), (
+        f"el pase abrió un endpoint de staff ({r.status_code})"
+    )
+    # Y tampoco vale como token del portal.
+    r = client.get("/api/v1/client/niif18/normas", headers={"Authorization": f"Bearer {pase}"})
+    assert r.status_code in (401, 403)
+
+
+def test_el_pase_no_sobrevive_al_cierre_de_sesion_del_cliente(
+    client, db_session, biblioteca, pase_sin_https, monkeypatch
+):
+    """Sesión única: al salir del portal, el pase deja de abrir la biblioteca."""
+    monkeypatch.setenv("CLIENT_PORTAL_SESSION_CHECK_ENABLED", "true")
+    sesion = _login_cliente(client, db_session)
+    _abrir_pase(client, sesion)
+    assert client.get("/api/v1/client/niif18/biblioteca/normas/ifrs18.html").status_code == 200
+
+    r = client.post("/api/v1/client/auth/logout", headers=sesion["headers"], cookies=sesion["cookies"])
+    assert r.status_code in (200, 204), r.text
+
+    r = client.get("/api/v1/client/niif18/biblioteca/normas/ifrs18.html")
+    assert r.status_code == 401, f"el pase siguió abriendo tras el logout ({r.status_code})"
+    assert "sesión" in r.json()["detail"].lower()
+    client.cookies.clear()

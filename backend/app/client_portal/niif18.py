@@ -27,6 +27,8 @@ import os
 from pathlib import Path
 
 import datetime
+import hashlib
+import hmac
 
 import jwt
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
@@ -34,7 +36,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from backend.app.auth import service as auth_service
-from backend.app.auth.deps import require_client_with_device
+from backend.app.auth.deps import _session_check_enabled, require_client_with_device
 from backend.app.auth.jwt_tokens import _secret
 from backend.app.auth.models import Role, User
 from backend.app.client_portal.entitlements import can_access_tool, is_operator
@@ -176,12 +178,19 @@ PASE_PATH = f"{settings.PLATFORM_API_PREFIX}/client/niif18"
 
 
 def _pase_ttl_min() -> int:
-    """Minutos de vida del pase (``NIIF18_PASE_TTL_MINUTES``, def. 60)."""
+    """Minutos de vida del pase (``NIIF18_PASE_TTL_MINUTES``, def. 30).
+
+    30 min y no más: el pase no se refresca al leer una norma (no pasa por
+    ``touch_session``), así que es la única ventana en la que puede sobrevivir
+    a la caducidad por inactividad de la sesión del portal. El Studio lo
+    renueva cada 20 min, con margen de sobra mientras su pestaña siga abierta.
+    El logout y el relevo de cuenta lo invalidan al instante por el ``sid``.
+    """
     try:
-        valor = int(os.getenv("NIIF18_PASE_TTL_MINUTES", "60"))
+        valor = int(os.getenv("NIIF18_PASE_TTL_MINUTES", "30"))
     except ValueError:
-        return 60
-    return valor if 1 <= valor <= 720 else 60
+        return 30
+    return valor if 1 <= valor <= 720 else 30
 
 
 def _cookie_segura() -> bool:
@@ -195,23 +204,46 @@ def _cookie_segura() -> bool:
     }
 
 
+def _pase_secret() -> str:
+    """Clave de firma PROPIA del pase, derivada del secreto de la plataforma.
+
+    No se firma con ``_secret()`` a secas. Si se hiciera, el pase sería un JWT
+    válido para ``decode_token`` y, como ``auth.deps._user_from_token`` mira el
+    rol del usuario en la base y NO el claim ``role``, el pase de un OPERADOR
+    autenticaría peticiones a los endpoints de staff del Command Center. Está
+    comprobado: con el pase firmado con el secreto común,
+    ``GET /api/v1/staff/tools`` respondía 200.
+
+    Con una clave derivada el pase NO verifica contra el secreto de la
+    plataforma, así que no sirve como token en ningún otro endpoint, presente o
+    futuro, sin depender de que cada dependencia recuerde revisar un claim.
+    """
+    return hmac.new(
+        _secret().encode("utf-8"), b"niif18-pase-biblioteca-v1", hashlib.sha256
+    ).hexdigest()
+
+
 def _emitir_pase(user: User) -> str:
     ahora = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     return jwt.encode(
         {
             "sub": user.email,
             "scope": PASE_SCOPE,
+            # Sesión del portal vigente al emitirlo: si el cliente cierra
+            # sesión (queda en None) o alguien más toma la cuenta, el pase deja
+            # de valer sin esperar a que expire.
+            "sid": getattr(user, "current_session_id", None),
             "iat": ahora,
             "exp": ahora + datetime.timedelta(minutes=_pase_ttl_min()),
         },
-        _secret(),
+        _pase_secret(),
         algorithm="HS256",
     )
 
 
 def _usuario_del_pase(pase: str, db: Session) -> User:
     try:
-        payload = jwt.decode(pase, _secret(), algorithms=["HS256"])
+        payload = jwt.decode(pase, _pase_secret(), algorithms=["HS256"])
     except jwt.PyJWTError:
         raise HTTPException(
             status_code=401,
@@ -222,6 +254,14 @@ def _usuario_del_pase(pase: str, db: Session) -> User:
     user = auth_service.get_user_by_email(db, payload.get("sub") or "")
     if not user or not user.is_active or user.role not in (Role.client, Role.admin, Role.user):
         raise HTTPException(status_code=401, detail="Credenciales inválidas o token expirado.")
+    # Sesión única del portal: el pase no sobrevive al logout ni a un relevo de
+    # cuenta. Los operadores están exentos, igual que en el resto del portal.
+    if user.role == Role.client and _session_check_enabled():
+        if not payload.get("sid") or payload.get("sid") != user.current_session_id:
+            raise HTTPException(
+                status_code=401,
+                detail="La sesión del portal se cerró. Vuelva a ingresar a AUDIT-IA.",
+            )
     return user
 
 
