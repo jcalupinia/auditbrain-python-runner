@@ -73,7 +73,11 @@ def test_catalog_operator_sees_all_sections(client, db_session):
     )
     assert r.status_code == 200, r.text
     by_cat = _codes_by_cat(r.json())
-    # Ve ICT_2025 y además las secciones vacías siguen presentes (p. ej. NIIF).
+    # Ve ICT_2025 y además las secciones vacías siguen presentes.
     assert "ICT_2025" in by_cat["TRIBUTARIAS"]
-    assert "NIIF" in by_cat  # sección vacía visible para operadores
-    assert by_cat["NIIF"] == []
+    # NIIF ya no está vacía: desde la V4 alberga el NIIF 18 Studio.
+    assert "NIIF_18_STUDIO" in by_cat["NIIF"]
+    # Una sección aún sin herramientas sigue visible para el operador
+    # ("Próximamente"), que es lo que esta prueba protege.
+    assert "LABORALES" in by_cat
+    assert by_cat["LABORALES"] == []

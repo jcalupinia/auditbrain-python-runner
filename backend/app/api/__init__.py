@@ -145,4 +145,36 @@ def _montar_validador_sri(router: APIRouter) -> bool:
 #: ¿Quedó el Validador de coherencia SRI montado?
 validador_sri_montado = _montar_validador_sri(api_router)
 
-__all__ = ["api_router", "forge_montado", "ingesta_montado", "validador_sri_montado"]
+
+def _montar_niif18(router: APIRouter) -> bool:
+    """Monta el NIIF 18 Studio del portal cliente de forma AISLADA.
+
+    Herramienta nueva que sirve la Biblioteca Normativa NIIF y los modelos de
+    estados financieros de las firmas (estos últimos solo a operadores). Igual
+    que Forge, Ingesta y el Validador, se monta con import contenido: si algo
+    revienta, ``/api/v1`` arranca SIN ella (auth, portal, ICT y AUD intactos)
+    en vez de no arrancar.
+    """
+    try:
+        from backend.app.client_portal import niif18 as niif18_module
+
+        router.include_router(niif18_module.router)
+    except Exception:  # noqa: BLE001 - aislar la herramienta es justo el objetivo
+        _log.exception(
+            "NIIF 18 Studio no se pudo montar; /api/v1 arranca SIN él "
+            "(auth, portal, ICT y AUD quedan intactos)."
+        )
+        return False
+    return True
+
+
+#: ¿Quedó el NIIF 18 Studio montado?
+niif18_montado = _montar_niif18(api_router)
+
+__all__ = [
+    "api_router",
+    "forge_montado",
+    "ingesta_montado",
+    "validador_sri_montado",
+    "niif18_montado",
+]

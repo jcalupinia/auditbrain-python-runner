@@ -102,6 +102,24 @@ TOOLS: dict[str, ToolConfig] = {
         enabled=True,
     ),
 
+    # =========================================================
+    # NIIF
+    # =========================================================
+    "NIIF_18_STUDIO": ToolConfig(
+        code="NIIF_18_STUDIO",
+        label="NIIF 18 Studio · transición NIC 1 → NIIF 18",
+        description=(
+            "Expediente interactivo de la implementación de NIIF 18: diagnóstico, "
+            "homologación del plan de cuentas y conversión preliminar con Cuadra "
+            "(estados NIC 1 y NIIF 18 lado a lado, conciliación de MPM, notas, "
+            "consolidación y pista de auditoría), más la Biblioteca Normativa NIIF."
+        ),
+        category="NIIF",
+        slots={},  # vacío — dashboard propio en /tools/NIIF_18_STUDIO vía /client/niif18/*
+        processor=None,  # flujo propio, no pipeline genérico
+        enabled=True,
+    ),
+
     "VALIDADOR_SRI": ToolConfig(
         code="VALIDADOR_SRI",
         label="Validador de coherencia SRI · chequeo previo al ICT",
